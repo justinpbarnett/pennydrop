@@ -14,7 +14,9 @@ WIKIPEDIA = "https://en.wikipedia.org/w/api.php"
 OPENVERSE_PAGES = (1, 2)
 OPENVERSE_PAGE_SIZE = 20
 COMMONS_LIMIT = 50
-COMMONS_THUMB_WIDTH = 2400
+STANDARD_WIDTHS = (20, 40, 60, 120, 250, 330, 500, 960, 1280, 1920, 3840)
+SHARP_WIDTH = 1600
+SHARP_STANDARD_WIDTH = next(width for width in STANDARD_WIDTHS if width >= SHARP_WIDTH)
 PREVIEW_WIDTH = 500
 NOT_A_PHOTO = re.compile(r"drawing|painting|illustration|diagram|\bmap\b|engraving|stamp|poster|logo|icon|sketch|lithograph|plate|cartoon|clipart|\bsvg\b|collage|montage|screenshot|mosaic", re.I)
 PUBLIC_DOMAIN_NAMES = ("cc0", "public domain", "pd")
@@ -81,7 +83,7 @@ async def _openverse(client: httpx.AsyncClient, query: str, attribution_ok: bool
             continue
         tags = " ".join(tag["name"] for tag in item.get("tags") or [])
         candidates.append(Candidate(
-            url=item["url"], width=item.get("width") or 0, height=item.get("height") or 0, title=_plain(item.get("title")) or query,
+            url=sharp_url(item["url"], item.get("width") or 0), width=item.get("width") or 0, height=item.get("height") or 0, title=_plain(item.get("title")) or query,
             creator=_plain(item.get("creator")) or "Unknown", license=name, source=item.get("foreign_landing_url") or item["url"],
             text=f"{item.get('title') or ''} {tags}".lower(), featured=False, public_domain=_is_public_domain(name),
         ))
@@ -97,7 +99,7 @@ def _openverse_license(kind: str, version: str | None) -> str:
 async def _commons(client: httpx.AsyncClient, query: str, attribution_ok: bool) -> list[Candidate]:
     response = await client.get(COMMONS, params={
         "action": "query", "format": "json", "generator": "search", "gsrsearch": f"{query} filetype:bitmap", "gsrnamespace": 6,
-        "gsrlimit": COMMONS_LIMIT, "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": COMMONS_THUMB_WIDTH,
+        "gsrlimit": COMMONS_LIMIT, "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": SHARP_STANDARD_WIDTH,
     })
     response.raise_for_status()
     return _commons_candidates(response.json(), attribution_ok)
@@ -110,7 +112,7 @@ async def _lead_image(client: httpx.AsyncClient, query: str, attribution_ok: boo
     if not names:
         return []
     response = await client.get(COMMONS, params={
-        "action": "query", "format": "json", "titles": f"File:{names[0]}", "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": COMMONS_THUMB_WIDTH,
+        "action": "query", "format": "json", "titles": f"File:{names[0]}", "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": SHARP_STANDARD_WIDTH,
     })
     response.raise_for_status()
     return [replace(candidate, lead=True) for candidate in _commons_candidates(response.json(), attribution_ok)]
@@ -129,9 +131,9 @@ def _commons_candidates(body: dict, attribution_ok: bool) -> list[Candidate]:
         title = _plain(meta.get("ObjectName", {}).get("value")) or re.sub(r"\.\w+$", "", page["title"].removeprefix("File:"))
         categories = _plain(meta.get("Categories", {}).get("value"))
         description = _plain(meta.get("ImageDescription", {}).get("value"))
-        scale = info["thumbwidth"] / info["width"] if info.get("thumbwidth") else 1
+        width = min(info["width"], info.get("thumbwidth") or info["width"])
         candidates.append(Candidate(
-            url=info.get("thumburl") or info["url"], width=round(info["width"] * scale), height=round(info["height"] * scale), title=title,
+            url=sharp_url(info["url"], width), width=width, height=round(info["height"] * width / info["width"]), title=title,
             creator=_plain(meta.get("Artist", {}).get("value")) or "Unknown", license=name, source=info["descriptionurl"],
             text=f"{page['title']} {description} {categories}".lower(), featured=bool(meta.get("Assessments", {}).get("value")),
             public_domain=_is_public_domain(name),
@@ -140,13 +142,20 @@ def _commons_candidates(body: dict, attribution_ok: bool) -> list[Candidate]:
 
 
 THUMB_PATH = re.compile(r"/\d+px-([^/?]+)")
-COMMONS_ORIGINAL = re.compile(r"^(https://upload\.wikimedia\.org/wikipedia/commons)/(\w/\w\w/([^/?]+))(\?.*)?$")
+COMMONS_ORIGINAL = re.compile(r"^https://upload\.wikimedia\.org/wikipedia/commons/(\w/\w\w/([^/?]+))(\?.*)?$")
+COMMONS_THUMBS = "https://thumb.wikimedia.org/wikipedia/commons/thumb"
 
 
 def preview_url(url: str) -> str:
     if original := COMMONS_ORIGINAL.match(url):
-        return f"{original[1]}/thumb/{original[2]}/{PREVIEW_WIDTH}px-{original[3]}"
+        return f"{COMMONS_THUMBS}/{original[1]}/{PREVIEW_WIDTH}px-{original[2]}"
     return THUMB_PATH.sub(rf"/{PREVIEW_WIDTH}px-\1", url)
+
+
+def sharp_url(url: str, width: int) -> str:
+    target = SHARP_STANDARD_WIDTH if width >= SHARP_WIDTH else max((standard for standard in STANDARD_WIDTHS if standard <= width), default=0)
+    original = COMMONS_ORIGINAL.match(url)
+    return f"{COMMONS_THUMBS}/{original[1]}/{target}px-{original[2]}" if original and target else url
 
 
 def looks_like_a_photo(candidate: Candidate) -> bool:

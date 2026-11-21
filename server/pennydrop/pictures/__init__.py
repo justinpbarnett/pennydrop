@@ -14,11 +14,11 @@ import httpx
 from ..gateway import Gateway, GatewayError, Image
 from ..settings import Job
 from .dimensions import ImageShape, image_shape
+from .fetcher import PoliteFetcher
 from .index import JsonIndex
 from .locator import LocatedParts, PartLocator, PartsNotFound
-from .sources import USER_AGENT, Candidate, looks_like_a_photo, preview_url, search_all
+from .sources import SHARP_WIDTH, Candidate, looks_like_a_photo, preview_url, search_all
 
-SHARP_WIDTH = 1600
 MIN_WIDTH = 900
 MAX_BYTES = 14_000_000
 SHORTLIST = 6
@@ -85,19 +85,15 @@ class PictureFinder:
         self._gateway = gateway
         self._on_found = on_found
         self._index = JsonIndex(media_dir / "images.json")
+        self._fetcher = PoliteFetcher()
         self._searches: dict[str, asyncio.Task[Picture]] = {}
         self._misses: set[str] = set()
         self._upgrades: set[asyncio.Future[None]] = set()
         self._without_photo: dict[str | None, set[str]] = {}
         self._deferred: dict[tuple[str | None, str], DeferredPicture] = {}
-        self._held_back: set[tuple[str | None, str]] = set()
-        self._fresh: set[tuple[str | None, str]] = set()
 
     def lacks(self, lesson_id: str | None, name: str) -> bool:
         return name in self._without_photo.get(lesson_id, ()) or ((deferred := self._deferred.get((lesson_id, name))) is not None and deferred.landed() is None)
-
-    def unshown(self, lesson_id: str | None, name: str) -> bool:
-        return name in self._without_photo.get(lesson_id, ()) or (lesson_id, name) in self._held_back
 
     def peek(self, query: str, attribution_ok: bool) -> Picture | None:
         key = _key(query, attribution_ok)
@@ -108,9 +104,7 @@ class PictureFinder:
         return None
 
     def defer(self, lesson_id: str | None, name: str, query: str, attribution_ok: bool) -> None:
-        self._held_back.add((lesson_id, name))
         if (lesson_id, name) not in self._deferred:
-            self._fresh.add((lesson_id, name))
             task = asyncio.ensure_future(self.find(query, attribution_ok, lesson_id))
             task.add_done_callback(lambda done: done.cancelled() or done.exception())
             self._deferred[(lesson_id, name)] = DeferredPicture(task)
@@ -120,9 +114,6 @@ class PictureFinder:
         return deferred is not None and not deferred.task.done()
 
     async def wait_to_land(self, lesson_id: str | None, name: str, seconds: float) -> None:
-        if (lesson_id, name) in self._fresh:
-            self._fresh.discard((lesson_id, name))
-            return
         if self.pending(lesson_id, name):
             with contextlib.suppress(TimeoutError, PictureNotFound, GatewayError, httpx.HTTPError):
                 await asyncio.wait_for(asyncio.shield(self._deferred[(lesson_id, name)].task), seconds)
@@ -183,7 +174,11 @@ class PictureFinder:
             except TimeoutError:
                 self._upgrades.add(upgrade := asyncio.ensure_future(self._upgrade(key, query, lesson_id, top, choice)))
                 upgrade.add_done_callback(self._upgrades.discard)
-        full = await (top_full if best is top else self._download(best.candidate)) or await top_full
+        try:
+            full = await (top_full if best is top else self._download(best.candidate))
+        except httpx.HTTPError:
+            full = None
+        full = full or await top_full
         if full is None:
             raise PictureNotFound(query)
         return self._remember(key, query, lesson_id, full)
@@ -225,22 +220,14 @@ class PictureFinder:
 
     async def _preview(self, candidate: Candidate) -> Downloaded | None:
         try:
-            async with httpx.AsyncClient(headers={"User-Agent": USER_AGENT}, timeout=20, follow_redirects=True) as client:
-                response = await client.get(preview_url(candidate.url))
-                response.raise_for_status()
+            data = await self._fetcher.get(preview_url(candidate.url), 20)
         except httpx.HTTPError:
             return None
-        shape = image_shape(response.content)
-        return Downloaded(response.content, shape, candidate) if shape else None
+        shape = image_shape(data)
+        return Downloaded(data, shape, candidate) if shape else None
 
     async def _download(self, candidate: Candidate) -> Downloaded | None:
-        try:
-            async with httpx.AsyncClient(headers={"User-Agent": USER_AGENT}, timeout=40, follow_redirects=True) as client:
-                response = await client.get(candidate.url)
-                response.raise_for_status()
-        except httpx.HTTPError:
-            return None
-        data = response.content
+        data = await self._fetcher.get(candidate.url, 40)
         shape = image_shape(data)
         if shape is None or len(data) > MAX_BYTES or shape.width < MIN_WIDTH or not MIN_ASPECT <= shape.width / shape.height <= MAX_ASPECT:
             return None

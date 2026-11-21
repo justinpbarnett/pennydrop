@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ...pictures import Picture, PictureNotFound
 from . import locate
-from ._support import DirectiveTools, parse_spec
+from ._support import DirectiveError, DirectiveTools, parse_spec
 
 TARGETS = ("picture",)
 PICTURE_WAIT = 12.0
@@ -17,7 +17,7 @@ GUIDE = "\n".join([
     '`"images": {"on": "owl", "query": "owl"}` finds a real, free to use photo and sets the scene object `owl` for you: its `lab` (picture), `src`, `w`, `h` and `credit`. A list of such objects shows two pictures, for a comparison.',
     "Use it, together with the `locate` directive, whenever the Ask is what something looks like or how it is built: an animal, a vehicle, a machine, a plant, a body part. Never write `src`, `w`, `h`, `credit` or `parts` yourself, and never copy them from the Lab's example.",
     "Use `images` and `locate` once per picture, in Step 1, and make Step 1 `show` it, so the stage is never empty while the narration talks about it. Later Steps reuse the object by its id, such as `owl[beak]`, with no `scene` for it.",
-    'The `query` is the plain, common name of one subject, in the words the person asked with, such as "owl" or "steam train", never with extra words such as parts, labelled, diagram, or a second subject (the photo search for those words starts before you write). Free photos are few, so when none is found the picture and every operation on it are left out of the Step, and the Lesson goes on without it: keep every Step true and clear with its narration alone, and add shapes or a figure from another Lab where something should be seen.',
+    'The `query` is the plain, common name of one subject, in the words the person asked with, such as "owl" or "steam train", never with extra words such as parts, labelled, diagram, or a second subject (the photo search for those words starts before you write). Free photos are few, and when none is found you are told so and must write the Step again: leave out `images`, `locate` and every operation on the picture, and draw the subject with shapes or a figure from another Lab in the `scene` of that Step, so the stage is never empty. Every Step after it that talks about the subject keeps drawing it that way.',
     "Everything else on the object is yours, such as `at` to put two pictures side by side. The picture starts hidden, so the Step's first operation on it is `show`.",
 ])
 
@@ -69,18 +69,10 @@ async def _arrived(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any
 
 async def finish(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
     step = await _arrived(step, tools)
-    lacking = {name for name in _named(step) if tools.images.lacks(tools.lesson_id, name)}
-    if not lacking:
-        return step
-    scene = {name: spec for name, spec in (step.get("scene") or {}).items() if name not in lacking}
-    kept = [operation for operation in step.get("do", []) if not any(target.split("[")[0] in lacking for target in operation.get("on", []))]
-    return {**{key: value for key, value in step.items() if key not in ("scene", "do")}, **({"scene": scene} if scene else {}), **({"do": kept} if kept else {})}
-
-
-def dropped_picture(written: dict[str, Any], tools: DirectiveTools) -> bool:
-    raw = written.get("images")
-    asked = any(isinstance(item, dict) and tools.images.unshown(tools.lesson_id, str(item.get("on"))) for item in (raw if isinstance(raw, list) else [raw]))
-    return asked or any(tools.images.lacks(tools.lesson_id, name) for name in _named(written))
+    drawn = set(step.get("scene") or {}) | set(tools.staged)
+    if lacking := sorted(name for name in _named(step) - drawn if tools.images.lacks(tools.lesson_id, name)):
+        raise DirectiveError(f"no free photo of {', '.join(repr(name) for name in lacking)} could be found, so no picture exists under that id; draw the subject instead: leave out its \"images\" and \"locate\" and every operation on a part such as {lacking[0]}[part], and put its shapes (the shapes Lab, or a figure from another Lab) in this Step's \"scene\" so the stage is never empty while the narration talks about it")
+    return step
 
 
 def _named(step: dict[str, Any]) -> set[str]:

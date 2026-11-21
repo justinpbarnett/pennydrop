@@ -16,7 +16,6 @@ from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
 from .directives import DirectiveError, DirectiveTools, expand_directives
-from .directives.images import dropped_picture
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import mended, mended_by_verdict, mended_cues
@@ -210,17 +209,16 @@ class LessonRun:
         try:
             tools = replace(self._kit.directive_tools, lesson_id=self._record.id, young_child=self._is_kid, staged=self._stage.on_stage(), traced=frozenset(self._stage.traces), pictures=dict(self._stage.specs))
             expanded = mended_cues(await expand_directives(step, tools, self._remembered_values))
-            lost_picture = dropped_picture(step, tools)
             step = expanded
         except DirectiveError as error:
             return Checked([coached(str(error))], None, scene)
         verdict, fine_for_child, keeps_honor_code = await asyncio.gather(
-            self._kit.validator.check(step, scene, self._reading, replay=lost_picture), self._fine_for_child(step), self._keeps_honor_code(step)
+            self._kit.validator.check(step, scene, self._reading), self._fine_for_child(step), self._keeps_honor_code(step)
         )
         for _ in range(MAX_MENDS):
             if (roomier := mended_by_verdict(step, verdict.errors, self._stage)) is None:
                 break
-            retry = await self._kit.validator.check(roomier, scene, self._reading, replay=lost_picture)
+            retry = await self._kit.validator.check(roomier, scene, self._reading)
             if retry.errors == verdict.errors:
                 break
             step, verdict = roomier, retry
