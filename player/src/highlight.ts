@@ -81,6 +81,52 @@ export function fitted(text: string, size: number, width: number): string {
   return text.slice(0, kept) + ELLIPSIS;
 }
 
+export function topLevelItems(text: string): string[] {
+  const items: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]!;
+    if ("[({".includes(char)) depth += 1;
+    else if ("])}".includes(char)) depth -= 1;
+    else if (char === "," && depth === 0) {
+      items.push(text.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  items.push(text.slice(start).trim());
+  return items;
+}
+
+function elideItems(text: string, size: number, width: number): string | null {
+  const open = text.indexOf("[");
+  const close = text.lastIndexOf("]");
+  const bracketed = open >= 0 && close === text.length - 1 && !/^[^\[]*\(/.test(text.slice(0, open));
+  if (!bracketed) return null;
+  const items = topLevelItems(text.slice(open + 1, close));
+  for (let kept = items.length - 1; kept >= 2; kept -= 1) {
+    const head = Math.ceil((kept - 1) / 2);
+    const tail = kept - 1 - head;
+    const candidate = `${text.slice(0, open + 1)}${[...items.slice(0, head), "…", ...items.slice(items.length - Math.max(tail, 1))].join(", ")}]`;
+    if (textWidth(candidate, size, "code") <= width) return candidate;
+  }
+  return null;
+}
+
+export function elideMiddle(text: string, size: number, width: number): string {
+  if (textWidth(text, size, "code") <= width) return text;
+  const byItems = elideItems(text, size, width);
+  if (byItems) return byItems;
+  let keep = text.length - 1;
+  while (keep > 1) {
+    const head = Math.ceil(keep / 2);
+    const candidate = `${text.slice(0, head)}${ELLIPSIS}${text.slice(text.length - (keep - head))}`;
+    if (textWidth(candidate, size, "code") <= width) return candidate;
+    keep -= 1;
+  }
+  return ELLIPSIS;
+}
+
 function fittedSpans(spans: Span[], size: number, width: number): Span[] {
   const text = spans.map((span) => span.text).join("");
   if (textWidth(text, size, "code") <= width) return spans;
@@ -95,7 +141,7 @@ function fittedSpans(spans: Span[], size: number, width: number): Span[] {
   return [...out, { text: ELLIPSIS, role: "muted" }];
 }
 
-export const NUMBER_SCALE = 0.72;
+export const NUMBER_SCALE = 0.86;
 
 export interface ListingLook {
   left: number;

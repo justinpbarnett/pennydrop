@@ -1,4 +1,4 @@
-import { clamp01, type Drawable, fail, type LabDef, type LabOp, lerp, type OpDef, type Paint, type Point, readsWords, type Role, segmentDrawable, type Size, textDrawable } from "../lab";
+import { clamp01, type Drawable, fail, type FontRole, type LabDef, type LabOp, lerp, type OpDef, type Paint, type Point, readsWords, type Rect, type Role, segmentDrawable, type Size, textDrawable } from "../lab";
 import { type Body, bodyAt, endTime, integrate, type Leg, legStart, SIM_STEP, type System, timesBetween, type Trajectory } from "../physics-sim";
 import { textWidth } from "../text-metrics";
 
@@ -210,14 +210,45 @@ interface ArrowStyle {
   lift?: Record<string, Point>;
   shift?: Record<string, Point>;
   edge?: (unit: Point) => number;
+  avoid?: Rect[];
+}
+
+const LABEL_CLEARANCE = 6;
+const LABEL_NUDGE = 4;
+const MAX_LABEL_REACH = 400;
+const MASS_LABEL_SIDE = 22;
+const ARROW_BLOCK = 14;
+
+function textRect(text: string, at: Point, size: number, font: FontRole): Rect {
+  const w = textWidth(text, size, font);
+  return { x: at.x - w / 2, y: at.y - size * 0.6, w, h: size * 1.2 };
+}
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w + LABEL_CLEARANCE && b.x < a.x + a.w + LABEL_CLEARANCE && a.y < b.y + b.h + LABEL_CLEARANCE && b.y < a.y + a.h + LABEL_CLEARANCE;
 }
 
 function arrowFloor(name: string): number {
   return name === "net" ? NET_MIN_PX : ARROW_MIN_PX;
 }
 
+interface PlacedArrow {
+  name: string;
+  unit: Point;
+  shift: Point;
+  offset: number;
+  span: number;
+  start: Point;
+  tip: Point;
+}
+
+function shaftBlocks(from: Point, to: Point): Rect[] {
+  const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / ARROW_BLOCK));
+  return Array.from({ length: steps + 1 }, (_, index) => ({ x: lerp(from.x, to.x, index / steps) - ARROW_BLOCK / 2, y: lerp(from.y, to.y, index / steps) - ARROW_BLOCK / 2, w: ARROW_BLOCK, h: ARROW_BLOCK }));
+}
+
 function arrows(prefix: string, view: { reading: boolean; vectors: string[] }, at: Point, vectors: Record<string, Point | undefined>, symbols: Record<string, string>, style: ArrowStyle): Drawable[] {
-  return view.vectors.flatMap((name): Drawable[] => {
+  const placed = view.vectors.flatMap((name): PlacedArrow[] => {
     const delta = vectors[name];
     const length = delta ? Math.hypot(delta.x, delta.y) : 0;
     if (!delta || length < 6) return [];
@@ -226,13 +257,25 @@ function arrows(prefix: string, view: { reading: boolean; vectors: string[] }, a
     const shift = style.shift?.[name] ?? { x: 0, y: 0 };
     const start = { x: at.x + unit.x * offset + shift.x, y: at.y + unit.y * offset + shift.y };
     const span = Math.max(length, arrowFloor(name));
-    const tip = { x: start.x + unit.x * span, y: start.y + unit.y * span };
+    return [{ name, unit, shift, offset, span, start, tip: { x: start.x + unit.x * span, y: start.y + unit.y * span } }];
+  });
+  const taken: Rect[] = [...(style.avoid ?? []), ...placed.flatMap((arrow) => shaftBlocks(arrow.start, arrow.tip))];
+  return placed.flatMap(({ name, unit, shift, offset, span, start, tip }): Drawable[] => {
     const role = VECTOR_ROLE[name]!;
     const out: Drawable[] = [{ id: `${prefix}vec-${name}`, kind: "arrow", x: start.x, y: start.y, x2: tip.x, y2: tip.y, stroke: role, strokeWidth: name === "net" ? 6 : 3, z: 5 }];
     if (view.reading) {
-      const reach = Math.max(offset + span, style.clear) + 26;
       const lift = style.lift?.[name] ?? { x: 0, y: 0 };
-      out.push(textDrawable(`${prefix}vec-${name}-label`, symbols[name]!, { x: at.x + unit.x * reach + shift.x + lift.x, y: at.y + unit.y * reach + shift.y + lift.y }, { size: LABEL_TEXT, fill: role, z: 7, font: "mark" }));
+      const base = Math.max(offset + span, style.clear) + 26;
+      const side = { x: -unit.y, y: unit.x };
+      const candidate = (along: number, across: number) => ({ x: at.x + unit.x * (base + along) + side.x * across + shift.x + lift.x, y: at.y + unit.y * (base + along) + side.y * across + shift.y + lift.y });
+      const fits = (point: Point) => !taken.some((rect) => overlaps(textRect(symbols[name]!, point, LABEL_TEXT, "mark"), rect));
+      let label = candidate(0, 0);
+      for (let step = 1; !fits(label) && step * LABEL_NUDGE < MAX_LABEL_REACH; step++) {
+        const distance = step * LABEL_NUDGE;
+        label = [candidate(0, distance), candidate(0, -distance), candidate(distance, 0), candidate(-distance / 2, distance), candidate(-distance / 2, -distance)].find(fits) ?? label;
+      }
+      taken.push(textRect(symbols[name]!, label, LABEL_TEXT, "mark"));
+      out.push(textDrawable(`${prefix}vec-${name}-label`, symbols[name]!, label, { size: LABEL_TEXT, fill: role, z: 7, font: "mark" }));
     }
     return out;
   });
@@ -518,11 +561,13 @@ const drop: Kind<DropParams, DropLayout> = {
         }
       }
       out.push(circle(`body-${index}`, at, radii[index]!, role, "ink", 3, 6));
+      const massText = `${fmt(mass, mass < 10 ? 1 : 0)} kg`;
+      const massAt = { x: xs[index]! + MASS_LABEL_SIDE + textWidth(massText, LABEL_TEXT, "read") / 2, y: groundY + 42 };
       out.push(...arrows(`${index}-`, view, at, {
         velocity: { x: 0, y: -body.v[index]! * vscale },
         gravity: { x: 0, y: view.params.gravity * LAUNCH_G_PX },
-      }, { velocity: "v", gravity: "g" }, { clear: radii[index]! + 6 }));
-      if (view.reading) out.push(textDrawable(`mass-${index}`, `${fmt(mass, mass < 10 ? 1 : 0)} kg`, { x: xs[index]!, y: groundY + 42 }, { size: LABEL_TEXT, fill: role, z: 4 }));
+      }, { velocity: "v", gravity: "g" }, { clear: radii[index]! + 6, avoid: view.reading ? [textRect(massText, massAt, LABEL_TEXT, "read")] : [] }));
+      if (view.reading) out.push(textDrawable(`mass-${index}`, massText, massAt, { size: LABEL_TEXT, fill: role, z: 4 }));
     });
     if (view.marks.includes("height")) {
       const x = DROP_W - 60;
@@ -1266,7 +1311,7 @@ export const lab: LabDef<Args, PhysicsState> = {
     example: [
       '{"step":1,"say":"A ball leaves the ground at forty five degrees. Watch where it lands, then see its top.","scene":{"shot":{"lab":"physics","setup":"launch","angle":45,"speed":20}},"do":[{"cue":"Watch","op":"launch","on":["shot"]},{"cue":"top","op":"mark","on":["shot"],"what":"apex"}]}',
       '{"step":2,"say":"Aim lower, at thirty degrees, and it lands nearer. Show the pull of gravity and the velocity.","do":[{"cue":"lower","op":"set","on":["shot"],"angle":30},{"cue":"lands","op":"launch","on":["shot"]},{"cue":"velocity","op":"vectors","on":["shot"],"show":["velocity","gravity"]}]}',
-      '{"step":3,"say":"A pendulum swings twice.","scene":{"bob":{"lab":"physics","setup":"pendulum","length":1,"angle":30}},"do":[{"cue":"swings","op":"swing","on":["bob"],"swings":2}]}',
+      '{"step":3,"say":"Clear the stage for a pendulum, and let it swing twice.","scene":{"bob":{"lab":"physics","setup":"pendulum","length":1,"angle":30}},"do":[{"cue":"Clear","op":"remove","on":["shot"]},{"cue":"swing","op":"swing","on":["bob"],"swings":2}]}',
     ],
   },
 

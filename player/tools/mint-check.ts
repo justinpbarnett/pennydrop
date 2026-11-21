@@ -279,7 +279,7 @@ export async function checkWorkspace(workspace: string, dist: string | undefined
     writeFileSync(examplePath, contract.exampleLesson);
     findings.push(...(await validateLesson(examplePath, mintedDir, "catalog.example")));
   }
-  findings.push(...extentFindings(id, lessonText), ...compositionFindings(parseJsonl("lesson", lessonText), (key) => key === `lab:${id}`), ...readingFindings(lessonText));
+  findings.push(...extentFindings(id, lessonText), ...(await compositionFindings(parseJsonl("lesson", lessonText), (key) => key === `lab:${id}`)), ...readingFindings(lessonText));
   if (findings.length === 0) findings.push(...(await framesFindings(workspace, dist, mintedDir)));
   return findings;
 }
@@ -292,11 +292,11 @@ async function builtinCompositionFindings(): Promise<Finding[]> {
   const lessonFiles = [...new Bun.Glob("*.jsonl").scanSync(LESSONS_ROOT)].sort();
   for (const { key, def } of allDefinitions().filter(({ key }) => key.startsWith("lab:"))) {
     const { example } = def.catalog;
-    if (example.length) findings.push(...compositionFindings(parseJsonl(key, [JSON.stringify({ lesson: { title: "catalog example" } }), ...example].join("\n")), (defKey) => defKey === key, `${key} catalog example, `));
+    if (example.length) findings.push(...(await compositionFindings(parseJsonl(key, [JSON.stringify({ lesson: { title: "catalog example" } }), ...example].join("\n")), (defKey) => defKey === key, `${key} catalog example, `)));
   }
   for (const file of lessonFiles) {
     const lesson = parseJsonl(file, readFileSync(join(LESSONS_ROOT, file), "utf8"));
-    findings.push(...compositionFindings(lesson, (defKey) => defKey.startsWith("lab:"), `${file}, `));
+    findings.push(...(await compositionFindings(lesson, (defKey) => defKey.startsWith("lab:"), `${file}, `)));
   }
   return findings;
 }

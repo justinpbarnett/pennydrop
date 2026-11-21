@@ -82,12 +82,12 @@ interface Segment {
   y2: number;
 }
 
-const MAX_W = 1480;
+const MAX_W = 1200;
 const MAX_H = 780;
-const CREDIT_BAND = 44;
-const CREDIT_SIZES = [20, 18, 16];
-const CREDIT_TOP = 26;
-const CREDIT_PITCH = 22;
+const CREDIT_BAND = 60;
+const CREDIT_SIZES = [34, 32, 30];
+const CREDIT_TOP = 34;
+const CREDIT_PITCH = 38;
 
 const FULL_VIEW: View = { x: 0, y: 0, s: 1 };
 const ZOOM_MARGIN = 0.22;
@@ -106,9 +106,9 @@ const POINTER_GAP = 16;
 const POINTER_MIN = 40;
 const EDGE_MARGIN = 12;
 
-const LABEL_SIZE = 32;
-const LABEL_PAD = 20;
-const LABEL_HEIGHT = 56;
+const LABEL_SIZE = 40;
+const LABEL_PAD = 24;
+const LABEL_HEIGHT = 68;
 const LABEL_LEADER = 56;
 
 const POINTER_REACHES = [POINTER_LENGTH, 80];
@@ -650,7 +650,7 @@ export const lab: LabDef<Record<string, unknown>, PictureState> = {
       '{"step":1,"say":"This is a great grey owl. Look at those big yellow eyes.","scene":{"owl":{"lab":"picture","src":"/media/owl.webp","w":1024,"h":768,"parts":[{"name":"eyes","box":{"x":0.28,"y":0.24,"w":0.5,"h":0.24}},{"name":"beak","box":{"x":0.5,"y":0.4,"w":0.1,"h":0.2}}],"credit":{"title":"Great grey owl close up","creator":"Unknown","license":"CC0","source":"https://www.rawpixel.com/image/6036892"},"reading":false}},"do":[{"cue":"great grey owl","op":"show","on":["owl"]},{"cue":"yellow eyes","op":"point","on":["owl[eyes]"]}]}',
       '{"step":2,"say":"Now let us get close to the beak. It is hooked, so it can tear its food.","do":[{"cue":"get close","op":"zoom","on":["owl[beak]"]},{"cue":"hooked","op":"label","on":["owl[beak]"]}]}',
       '{"step":3,"say":"Now back out to see the whole owl again.","do":[{"cue":"back out","op":"unzoom","on":["owl"]},{"cue":"back out","op":"clear","on":["owl"]}]}',
-      '{"step":4,"say":"Compare the two. Both have a beak, but they are not the same shape.","scene":{"a":{"lab":"picture","src":"/media/owl.webp","w":1024,"h":768,"parts":[{"name":"beak","box":{"x":0.5,"y":0.4,"w":0.1,"h":0.2}}],"credit":{"title":"Owl","creator":"Unknown","license":"CC0","source":"https://example.org/owl"},"at":{"row":["a","b"]}},"b":{"lab":"picture","src":"/media/eagle.webp","w":1024,"h":768,"parts":[{"name":"beak","box":{"x":0.3,"y":0.3,"w":0.2,"h":0.2}}],"credit":{"title":"Eagle","creator":"Unknown","license":"CC0","source":"https://example.org/eagle"}}},"do":[{"cue":"Compare","op":"show","on":["a","b"]},{"cue":"beak","op":"zoom","on":["a[beak]","b[beak]"]}]}',
+      '{"step":4,"say":"Compare the two. Both have a beak, but they are not the same shape.","scene":{"a":{"lab":"picture","src":"/media/owl.webp","w":1024,"h":768,"parts":[{"name":"beak","box":{"x":0.5,"y":0.4,"w":0.1,"h":0.2}}],"credit":{"title":"Owl","creator":"Unknown","license":"CC0","source":"https://example.org/owl"},"at":{"row":["a","b"]}},"b":{"lab":"picture","src":"/media/eagle.webp","w":1024,"h":768,"parts":[{"name":"beak","box":{"x":0.3,"y":0.3,"w":0.2,"h":0.2}}],"credit":{"title":"Eagle","creator":"Unknown","license":"CC0","source":"https://example.org/eagle"}}},"do":[{"cue":"Compare","op":"remove","on":["owl"]},{"cue":"Compare","op":"show","on":["a","b"]},{"cue":"beak","op":"zoom","on":["a[beak]","b[beak]"]}]}',
     ],
   },
 

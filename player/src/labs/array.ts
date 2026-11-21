@@ -39,10 +39,10 @@ const COUNTER_BAND = 58;
 const WINDOW_BAND = 30;
 const WINDOW_RISE = 24;
 const MIN_TOP = 20;
-const INDEX_BOTTOM = 35;
+const INDEX_BOTTOM = 41;
 const BOTTOM_MARGIN = 22;
-const POINTER_TIP = 48;
-const POINTER_LABEL = 51;
+const POINTER_TIP = 54;
+const POINTER_LABEL = 57;
 const POINTER_REACH = 67;
 const POINTER_LEVEL = 80;
 const MAX_ARC = 64;
@@ -380,7 +380,7 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
     const y = cellCenterY(state);
     const { top, cell: cellSize } = metrics(state);
     const cells = state.cells.flatMap((cell, slot) => cellDrawables(state, cell, slot, { x: slotCenterX(state, slot), y }));
-    const indices = state.cells.map((_, slot) => textDrawable(`index-${slot}`, String(slot), { x: slotCenterX(state, slot), y: top + cellSize + 24 }, { size: 22, fill: "muted" }));
+    const indices = state.cells.map((_, slot) => textDrawable(`index-${slot}`, String(slot), { x: slotCenterX(state, slot), y: top + cellSize + 26 }, { size: 26, fill: "muted" }));
     return [...cells, ...indices, ...pointerDrawables(state), ...windowDrawable(state), ...counterDrawables(state, new Map())];
   },
 };

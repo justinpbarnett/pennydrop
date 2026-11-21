@@ -1,13 +1,20 @@
+import { prepareStepAssets } from "../src/assets";
 import type { LessonSource } from "../src/format";
 import type { Drawable } from "../src/lab";
+import { layoutScene } from "../src/layout";
 import { definitionOf, startSceneOf } from "../src/scene";
+import { ARROW_HEAD_ANGLE, arrowHeadLength } from "../src/ink";
 import { textWidth } from "../src/text-metrics";
+import { THEMES } from "../src/theme";
 import { Timeline } from "../src/timeline";
 
 const MAX_GAP_SHARE = 0.15;
 const MAX_MARGIN_RATIO = 2;
 const CLEARANCE = 12;
 const MAX_REPORTED = 3;
+const MIN_SHAFT_HEADS = 1.5;
+const MIN_TEXT_PX = 20;
+const WIDEST_STROKE = Math.max(...Object.values(THEMES).map((theme) => theme.stroke));
 
 export interface Finding {
   stage: string;
@@ -136,8 +143,14 @@ function clearance(text: Box, shape: Drawable): number | null {
       return nearest > r ? nearest - r : 0;
     }
     case "line":
-    case "arrow":
       return segmentToBox({ x: shape.x, y: shape.y }, { x: shape.x2 ?? shape.x, y: shape.y2 ?? shape.y }, text);
+    case "arrow": {
+      const [from, to] = [{ x: shape.x, y: shape.y }, { x: shape.x2 ?? shape.x, y: shape.y2 ?? shape.y }];
+      const head = arrowHeadLength((shape.strokeWidth ?? 0) * WIDEST_STROKE);
+      const angle = Math.atan2(to.y - from.y, to.x - from.x);
+      const wings = [ARROW_HEAD_ANGLE, -ARROW_HEAD_ANGLE].map((offset) => ({ x: to.x - head * Math.cos(angle + offset), y: to.y - head * Math.sin(angle + offset) }));
+      return Math.min(segmentToBox(from, to, text), ...wings.map((wing) => segmentToBox(wing, to, text)));
+    }
     case "path": {
       const points = pointsOf(shape);
       if (shape.closed && corners(text).every((corner) => insidePolygon(corner, points))) return null;
@@ -169,12 +182,16 @@ function limited(lines: string[]): string[] {
   return lines.length <= MAX_REPORTED ? lines : [...lines.slice(0, MAX_REPORTED), `and ${lines.length - MAX_REPORTED} more like it`];
 }
 
-export function compositionFindings(lesson: LessonSource, wants: (defKey: string) => boolean, label = ""): Finding[] {
+export async function compositionFindings(lesson: LessonSource, wants: (defKey: string) => boolean, label = ""): Promise<Finding[]> {
   const timeline = new Timeline(startSceneOf(lesson.lesson));
   const findings: Finding[] = [];
   const add = (step: number, object: string, message: string) => findings.push({ stage: "composition", message: `${label}step ${step}: ${object}: ${message}` });
+  await prepareStepAssets(lesson.lesson);
   for (const step of lesson.steps) {
-    timeline.addStep(step);
+    await prepareStepAssets(step);
+    const span = timeline.addStep(step);
+    if (span.errors?.length) add(step.step, "scene", `the Step did not play, so its Labs were not checked: ${span.errors[0]}`);
+    const placed = layoutScene(timeline.finalScene);
     for (const object of timeline.finalScene.objects.filter((candidate) => wants(candidate.defKey))) {
       const definition = definitionOf(object);
       const size = definition.size(object.state);
@@ -196,6 +213,11 @@ export function compositionFindings(lesson: LessonSource, wants: (defKey: string
           add(step.step, object.id, `unbalanced space on ${axis}: the ${lowName} margin is ${Math.round(low)} px and the ${highName} margin is ${Math.round(high)} px against a size() of ${Math.round(length)} px (one margin may be at most ${MAX_MARGIN_RATIO} times the other); centre the drawing in size() or make size() match the drawing`);
         }
       }
+      for (const arrow of drawables.filter((drawable) => drawable.kind === "arrow")) {
+        const shaft = Math.hypot((arrow.x2 ?? arrow.x) - arrow.x, (arrow.y2 ?? arrow.y) - arrow.y);
+        const head = arrowHeadLength((arrow.strokeWidth ?? 0) * WIDEST_STROKE);
+        if (shaft < MIN_SHAFT_HEADS * head) add(step.step, object.id, `arrow too short: ${arrow.id} has a ${Math.round(shaft)} px shaft but its head is ${Math.round(head)} px long in the widest Theme, so it draws as a bare head or a glitch; make the shaft at least ${Math.round(MIN_SHAFT_HEADS * head)} px, lower its strokeWidth, or draw a line with no head`);
+      }
       const texts = drawables.filter((drawable) => drawable.kind === "text" && /\S/.test(drawable.text ?? ""));
       const crowded: string[] = [];
       for (const [index, text] of texts.entries()) {
@@ -210,6 +232,9 @@ export function compositionFindings(lesson: LessonSource, wants: (defKey: string
           if (gap !== null && gap < CLEARANCE) crowded.push(`label ${describe(text)} is ${Math.round(gap)} px from the edge of ${shape.kind} ${shape.id} that it does not sit inside (need ${CLEARANCE}); move the label or enlarge the shape around it`);
         }
       }
+      const onStage = placed.get(object.id)?.scale ?? 1;
+      const small = timeline.finalScene.reading === false ? [] : drawables.filter((drawable) => (drawable.kind === "text" || drawable.kind === "code") && /\S/.test(drawable.text ?? "") && (drawable.size ?? Infinity) * onStage < MIN_TEXT_PX - 0.5);
+      limited(small.map((text) => `${describe(text)} draws at ${Math.round((text.size ?? 0) * onStage)} px on the 1600x900 stage (minimum ${MIN_TEXT_PX}); raise its size or give the object more room`)).forEach((line) => add(step.step, object.id, `text too small: ${line}`));
       limited(crowded).forEach((line) => add(step.step, object.id, `crowded labels: ${line}`));
     }
   }

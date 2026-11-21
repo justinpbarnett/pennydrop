@@ -1,4 +1,4 @@
-import { CODE_LANGUAGES, codeListing, fitted, languageField, loadHighlighter, NUMBER_SCALE, tokenizeCode } from "../highlight";
+import { CODE_LANGUAGES, codeListing, elideMiddle, topLevelItems, languageField, loadHighlighter, NUMBER_SCALE, tokenizeCode } from "../highlight";
 import { boxDrawable, type BoxLook, type Drawable, fail, type LabDef, type Paint, type Rect, segmentDrawable, type Span, stringArg, stringField, textDrawable, type TextLook } from "../lab";
 import { textWidth } from "../text-metrics";
 
@@ -20,6 +20,7 @@ interface Returned {
 
 interface CodeStepperState {
   height: number;
+  printsOutput: boolean;
   lines: Span[][];
   declared: string[];
   frames: Frame[];
@@ -32,50 +33,55 @@ interface CodeStepperSpec extends Record<string, unknown> {
   source: unknown;
   language?: unknown;
   vars?: unknown;
+  output?: unknown;
 }
 
 const WIDTH = 1480;
 const MAX_HEIGHT = 720;
-const MIN_HEIGHT = 480;
+const MIN_HEIGHT = 540;
 const GAP = 24;
 const SOURCE_WIDTH = 700;
 const RIGHT_X = SOURCE_WIDTH + GAP;
-const TOP_SHARE = 0.58;
-const STACK_WIDTH = 300;
+const STACK_WIDTH = 360;
 const VARIABLES_X = RIGHT_X + STACK_WIDTH + GAP;
+const OUTPUT_LINES = 4;
 const PANEL_PAD = 18;
-const HEADER_HEIGHT = 52;
-const HEADER_SIZE = 20;
-const TITLE_ROOM = 130;
+const HEADER_HEIGHT = 56;
+const TEXT_SIZE = 24;
+const ROW_HEIGHT = 38;
+const OUTPUT_ROW_HEIGHT = 34;
 const SOURCE_PAD = 22;
 const MAX_CODE_SIZE = 28;
-const MIN_CODE_SIZE = 18;
-const LINE_HEIGHT_PER_SIZE = 1.5;
+const MIN_CODE_SIZE = 24;
+const LINE_HEIGHT_PER_SIZE = 1.75;
 const NUMBER_GAP = 18;
-const MAX_VARIABLES = 12;
-const MAX_ROW_HEIGHT = 46;
-const OUTPUT_LINES = 8;
 const BAND_OPACITY = 0.16;
 const GLOBAL_FRAME = "global";
 const UNSET = "–";
 const CARD_GAP = 8;
-const TWO_LINE_HEIGHT = 44;
-const MIN_CARD_TEXT = 14;
-const MAX_CARD_HEIGHT = 64;
-const MIN_CARD_HEIGHT = 34;
-const FOOTER_HEIGHT = 40;
+const CARD_PAD = 10;
+const CARD_LINE = 30;
+const FOOTER_LINE = 30;
+const NAME_SHARE = 0.4;
+const TITLE_SPREAD = 1.2;
+const NOTE_HEIGHT = 34;
+const OUTPUT_CALLS = /\b(print|printf|puts|putchar|fputs|fprintf|cout|println|write)\b/;
 
 type PanelKey = "source" | "stack" | "variables" | "output";
 
-function panelsFor(height: number): Record<PanelKey, Rect> {
-  const top = Math.round(height * TOP_SHARE);
-  const outputY = top + GAP;
+function panelsFor(height: number, withOutput: boolean): Record<PanelKey, Rect> {
+  const outputHeight = HEADER_HEIGHT + OUTPUT_LINES * OUTPUT_ROW_HEIGHT + PANEL_PAD;
+  const top = withOutput ? height - outputHeight - GAP : height;
   return {
     source: { x: 0, y: 0, w: SOURCE_WIDTH, h: height },
     stack: { x: RIGHT_X, y: 0, w: STACK_WIDTH, h: top },
     variables: { x: VARIABLES_X, y: 0, w: WIDTH - VARIABLES_X, h: top },
-    output: { x: RIGHT_X, y: outputY, w: WIDTH - RIGHT_X, h: height - outputY },
+    output: { x: RIGHT_X, y: top + GAP, w: WIDTH - RIGHT_X, h: outputHeight },
   };
+}
+
+function panelsOf(state: CodeStepperState): Record<PanelKey, Rect> {
+  return panelsFor(state.height, state.printsOutput);
 }
 
 function heightFor(lines: Span[][]): number {
@@ -83,6 +89,10 @@ function heightFor(lines: Span[][]): number {
 }
 
 const PANEL_TITLES = { stack: "Call stack", variables: "Variables", output: "Output" } as const;
+
+function variableCapacity(state: CodeStepperState): number {
+  return Math.floor((panelsOf(state).variables.h - HEADER_HEIGHT - 12 - PANEL_PAD) / ROW_HEIGHT);
+}
 
 function valueArg(args: Record<string, unknown>, key: string, opName: string): string {
   const value = args[key];
@@ -99,6 +109,12 @@ function readDeclared(vars: unknown, objectId: string): string[] {
   if (vars === undefined) return [];
   if (!Array.isArray(vars) || vars.some((name) => typeof name !== "string" || name === "")) fail(`${objectId}: "vars" must be a list of variable names such as ["n", "result"]`);
   return vars as string[];
+}
+
+function readOutputFlag(value: unknown, objectId: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") fail(`${objectId}: "output" must be true or false`);
+  return value as boolean;
 }
 
 function newFrame(label: string, declared: string[], args: Record<string, string> = {}): Frame {
@@ -124,9 +140,9 @@ function withTopFrame(state: CodeStepperState, frame: Frame): CodeStepperState {
   return { ...state, frames: [...state.frames.slice(0, -1), frame] };
 }
 
-function writeVariable(frame: Frame, name: string, value: string): Frame {
+function writeVariable(state: CodeStepperState, frame: Frame, name: string, value: string): Frame {
   const exists = frame.variables.some((variable) => variable.name === name);
-  if (!exists && frame.variables.length >= MAX_VARIABLES) fail(`frame ${frame.label} already shows ${MAX_VARIABLES} variables; the table has no room for "${name}"`);
+  if (!exists && frame.variables.length >= variableCapacity(state)) fail(`frame ${frame.label} already shows ${variableCapacity(state)} variables; the table has no room for "${name}"`);
   const variables = exists ? frame.variables.map((variable) => (variable.name === name ? { name, value } : variable)) : [...frame.variables, { name, value }];
   return { ...frame, variables, changed: name };
 }
@@ -137,7 +153,7 @@ function codeMetrics(lines: Span[][], height: number) {
   const gutterPerSize = textWidth(String(lines.length), NUMBER_SCALE, "code");
   const byHeight = innerHeight / lines.length / LINE_HEIGHT_PER_SIZE;
   const byWidth = (SOURCE_WIDTH - SOURCE_PAD * 2 - NUMBER_GAP - 8) / (widest + gutterPerSize);
-  const size = Math.min(MAX_CODE_SIZE, byHeight, Math.max(byWidth, MIN_CODE_SIZE));
+  const size = Math.max(MIN_CODE_SIZE, Math.min(MAX_CODE_SIZE, byHeight, Math.max(byWidth, MIN_CODE_SIZE)));
   const gutter = gutterPerSize * size + NUMBER_GAP;
   return { size, gutter, lineWidth: SOURCE_WIDTH - SOURCE_PAD * 2 - gutter, lineHeight: Math.min(size * LINE_HEIGHT_PER_SIZE, innerHeight / lines.length) };
 }
@@ -150,14 +166,17 @@ function codeText(id: string, text: string, x: number, y: number, size: number, 
   return textDrawable(id, text, { x, y }, { size, font: "code", fill, anchor: "start", z: 2, ...extras });
 }
 
-function panelDrawables(height: number, key: keyof typeof PANEL_TITLES, trailing?: string): Drawable[] {
-  const rect = panelsFor(height)[key];
+function panelDrawables(state: CodeStepperState, key: keyof typeof PANEL_TITLES, trailing?: string): Drawable[] {
+  const rect = panelsOf(state)[key];
   const out: Drawable[] = [
     panelBox(`${key}-panel`, rect, "fill", "rule", 0),
-    textDrawable(`${key}-title`, PANEL_TITLES[key], { x: rect.x + PANEL_PAD, y: rect.y + HEADER_HEIGHT / 2 }, { size: HEADER_SIZE, font: "mark", fill: "muted", anchor: "start", z: 2 }),
+    textDrawable(`${key}-title`, PANEL_TITLES[key], { x: rect.x + PANEL_PAD, y: rect.y + HEADER_HEIGHT / 2 }, { size: TEXT_SIZE, font: "mark", fill: "muted", anchor: "start", z: 2 }),
     { ...segmentDrawable("line", { x: rect.x + PANEL_PAD, y: rect.y + HEADER_HEIGHT }, { x: rect.x + rect.w - PANEL_PAD, y: rect.y + HEADER_HEIGHT }, "rule", 1, 1), id: `${key}-rule` },
   ];
-  if (trailing) out.push(codeText(`${key}-trailing`, trailing, rect.x + rect.w - PANEL_PAD, rect.y + HEADER_HEIGHT / 2, HEADER_SIZE - 2, "muted", { anchor: "end" }));
+  const room = rect.w - PANEL_PAD * 2 - textWidth(PANEL_TITLES[key].toUpperCase(), TEXT_SIZE * TITLE_SPREAD, "mark") - PANEL_PAD;
+  if (trailing && textWidth(trailing, TEXT_SIZE, "code") <= room) {
+    out.push(codeText(`${key}-trailing`, trailing, rect.x + rect.w - PANEL_PAD, rect.y + HEADER_HEIGHT / 2, TEXT_SIZE, "muted", { anchor: "end" }));
+  }
   return out;
 }
 
@@ -167,8 +186,8 @@ function bandDrawable(id: string, panel: Rect, y: number, height: number, opacit
 
 function sourceDrawables(state: CodeStepperState): Drawable[] {
   const { size, lineHeight, gutter, lineWidth } = codeMetrics(state.lines, state.height);
+  const panels = panelsOf(state);
   const lineY = (line: number) => SOURCE_PAD + (line - 0.5) * lineHeight;
-  const panels = panelsFor(state.height);
   const marked = state.currentLine !== null;
   const barY = lineY(state.currentLine ?? 1);
   return [
@@ -179,96 +198,107 @@ function sourceDrawables(state: CodeStepperState): Drawable[] {
   ];
 }
 
-function variableRowGeometry(state: CodeStepperState, frame: Frame) {
-  const rect = panelsFor(state.height).variables;
-  const top = rect.y + HEADER_HEIGHT + 12;
-  const rowHeight = Math.min(MAX_ROW_HEIGHT, (rect.h - HEADER_HEIGHT - 12 - PANEL_PAD) / Math.max(frame.variables.length, 1));
-  const size = Math.min(26, rowHeight * 0.58);
+function variableRowGeometry(state: CodeStepperState) {
+  const rect = panelsOf(state).variables;
   const inner = rect.w - PANEL_PAD * 2;
-  const nameWidth = inner * 0.36;
-  return { top, rowHeight, size, left: rect.x + PANEL_PAD, inner, nameWidth };
+  const nameWidth = inner * NAME_SHARE;
+  return { top: rect.y + HEADER_HEIGHT + 12, left: rect.x + PANEL_PAD, inner, nameWidth };
 }
 
-function variableRowY(state: CodeStepperState, frame: Frame, index: number): number {
-  const { top, rowHeight } = variableRowGeometry(state, frame);
-  return top + (index + 0.5) * rowHeight;
+function variableRowY(state: CodeStepperState, index: number): number {
+  return variableRowGeometry(state).top + (index + 0.5) * ROW_HEIGHT;
 }
 
 function variableDrawables(state: CodeStepperState): Drawable[] {
   const frame = topFrame(state);
-  const { rowHeight, size, left, inner, nameWidth } = variableRowGeometry(state, frame);
-  const variablesPanel = panelsFor(state.height).variables;
-  const out = panelDrawables(state.height, "variables", frame.label === GLOBAL_FRAME ? undefined : fitted(frame.label.replace(/\(.*$/, ""), HEADER_SIZE - 2, variablesPanel.w - PANEL_PAD * 2 - TITLE_ROOM));
-  if (frame.variables.length === 0) out.push(codeText("variables-empty", "nothing yet", left, variableRowY(state, frame, 0), size, "muted"));
+  const { left, inner, nameWidth } = variableRowGeometry(state);
+  const panel = panelsOf(state).variables;
+  const out = panelDrawables(state, "variables", frame.label === GLOBAL_FRAME ? undefined : frame.label.replace(/\(.*$/, ""));
+  if (frame.variables.length === 0) out.push(codeText("variables-empty", "nothing yet", left, variableRowY(state, 0), TEXT_SIZE, "muted"));
   frame.variables.forEach((variable, index) => {
-    const y = variableRowY(state, frame, index);
+    const y = variableRowY(state, index);
     const changed = frame.changed === variable.name;
     const unset = variable.value === null;
-    const valueWidth = inner - nameWidth - 12;
-    if (changed) out.push(bandDrawable(`row-${variable.name}-tint`, variablesPanel, y, rowHeight, BAND_OPACITY));
+    const valueWidth = inner - nameWidth;
+    if (changed) out.push(bandDrawable(`row-${variable.name}-tint`, panel, y, ROW_HEIGHT, BAND_OPACITY));
     out.push(
-      codeText(`row-${variable.name}-name`, fitted(variable.name, size, nameWidth - 12), left, y, size, "ink"),
-      codeText(`row-${variable.name}-value`, unset ? UNSET : fitted(variable.value!, size, valueWidth), left + nameWidth, y, size, unset ? "muted" : changed ? "active" : "ink"),
+      codeText(`row-${variable.name}-name`, elideMiddle(variable.name, TEXT_SIZE, nameWidth - 12), left, y, TEXT_SIZE, "ink"),
+      codeText(`row-${variable.name}-value`, unset ? UNSET : elideMiddle(variable.value!, TEXT_SIZE, valueWidth), left + nameWidth, y, TEXT_SIZE, unset ? "muted" : changed ? "active" : "ink"),
     );
   });
   return out;
 }
 
-function stackGeometry(height: number, frameCount: number) {
-  const rect = panelsFor(height).stack;
-  const top = rect.y + HEADER_HEIGHT + 14;
-  const bottom = rect.y + rect.h - PANEL_PAD - FOOTER_HEIGHT;
-  const room = bottom - top;
-  const capacity = Math.floor((room + CARD_GAP) / (MIN_CARD_HEIGHT + CARD_GAP));
-  const shown = Math.min(frameCount, capacity);
-  const cardHeight = Math.min(MAX_CARD_HEIGHT, (room - CARD_GAP * (shown - 1)) / shown);
-  return { bottom, shown, cardHeight, left: rect.x + PANEL_PAD, width: rect.w - PANEL_PAD * 2 };
-}
-
-function splitLabel(label: string): string[] {
-  const breaks = [...label.matchAll(/, /g)].map((match) => match.index! + 1);
-  if (breaks.length === 0) return [label];
-  const middle = label.length / 2;
-  const at = breaks.reduce((best, index) => (Math.abs(index - middle) < Math.abs(best - middle) ? index : best));
-  return [label.slice(0, at), label.slice(at).trimStart()];
-}
-
-function cardLabel(id: string, label: string, x: number, top: number, height: number, width: number, size: number, fill: Paint): Drawable[] {
-  if (textWidth(label, size, "code") <= width) return [codeText(id, label, x, top + height / 2, size, fill)];
-  const lines = height >= TWO_LINE_HEIGHT ? splitLabel(label) : [label];
-  const lineSize = Math.max(MIN_CARD_TEXT, Math.min(size, ...lines.map((line) => (size * width) / textWidth(line, size, "code"))));
-  const pitch = lineSize * 1.25;
-  return lines.map((line, index) => codeText(`${id}-${index}`, fitted(line, lineSize, width), x, top + height / 2 + (index - (lines.length - 1) / 2) * pitch, lineSize, fill));
+function cardLines(frame: Frame, width: number): string[] {
+  const whole = frame.label;
+  if (textWidth(whole, TEXT_SIZE, "code") <= width) return [whole];
+  const open = whole.indexOf("(");
+  const close = whole.lastIndexOf(")");
+  if (open < 0 || close < open) return [elideMiddle(whole, TEXT_SIZE, width)];
+  const args = topLevelItems(whole.slice(open + 1, close)).filter((arg) => arg.length > 0);
+  const room = width - 24 - textWidth(",", TEXT_SIZE, "code");
+  const pieces = [`${whole.slice(0, open + 1)}`, ...args.map((arg, index) => `${elideMiddle(arg, TEXT_SIZE, room)}${index < args.length - 1 ? "," : ")"}`)];
+  const lines: string[] = [];
+  for (const piece of pieces) {
+    const last = lines[lines.length - 1];
+    const joined = last === undefined ? piece : `${last}${last.endsWith("(") ? "" : " "}${piece}`;
+    if (last !== undefined && textWidth(joined, TEXT_SIZE, "code") <= width) lines[lines.length - 1] = joined;
+    else lines.push(piece);
+  }
+  return lines.map((line, index) => elideMiddle(line, TEXT_SIZE, width - (index > 0 ? 24 : 0)));
 }
 
 function stackDrawables(state: CodeStepperState): Drawable[] {
-  const { bottom, shown, cardHeight, left, width } = stackGeometry(state.height, state.frames.length);
-  const hidden = state.frames.length - shown;
-  const out = panelDrawables(state.height, "stack", hidden > 0 ? `+${hidden} older` : undefined);
-  const size = Math.min(22, cardHeight * 0.45);
-  state.frames.slice(hidden).forEach((frame, offset) => {
-    const isTop = hidden + offset === state.frames.length - 1;
-    const y = bottom - (offset + 1) * cardHeight - offset * CARD_GAP;
-    out.push(
-      panelBox(`frame-${hidden + offset}`, { x: left, y, w: width, h: cardHeight }, isTop ? "fill2" : "none", isTop ? "active" : "rule", 1, { strokeWidth: isTop ? 2 : 1 }),
-      ...cardLabel(`frame-${hidden + offset}-label`, frame.label, left + 14, y, cardHeight, width - 28, size, isTop ? "ink" : "muted"),
-    );
+  const rect = panelsOf(state).stack;
+  const left = rect.x + PANEL_PAD;
+  const width = rect.w - PANEL_PAD * 2;
+  const footer = state.returned ? FOOTER_LINE * 2 + CARD_GAP : 0;
+  const top = rect.y + HEADER_HEIGHT + 14;
+  const bottom = rect.y + rect.h - PANEL_PAD - footer;
+  const cards = state.frames.map((frame) => {
+    const lines = cardLines(frame, width - 28);
+    return { frame, lines, height: lines.length * CARD_LINE + CARD_PAD * 2 };
+  });
+  const fitting = (room: number) => {
+    let used = 0;
+    let count = 0;
+    for (const card of [...cards].reverse()) {
+      const next = used + card.height + (count > 0 ? CARD_GAP : 0);
+      if (next > room) break;
+      used = next;
+      count += 1;
+    }
+    return Math.max(count, 1);
+  };
+  const full = fitting(bottom - top);
+  const shown = full === cards.length ? full : fitting(bottom - top - NOTE_HEIGHT);
+  const hidden = cards.length - shown;
+  const out = panelDrawables(state, "stack");
+  if (hidden > 0) out.push(codeText("stack-older", `+${hidden} older`, left, top + NOTE_HEIGHT / 2 - 4, TEXT_SIZE, "muted"));
+  let y = bottom;
+  cards.slice(hidden).forEach((card, offset) => {
+    const index = hidden + offset;
+    const isTop = index === cards.length - 1;
+    y -= card.height;
+    out.push(panelBox(`frame-${index}`, { x: left, y, w: width, h: card.height }, isTop ? "fill2" : "none", isTop ? "active" : "rule", 1, { strokeWidth: isTop ? 2 : 1 }));
+    card.lines.forEach((line, lineIndex) => out.push(codeText(`frame-${index}-label${lineIndex === 0 ? "" : `-${lineIndex}`}`, line, left + 14 + (lineIndex > 0 ? 24 : 0), y + CARD_PAD + (lineIndex + 0.5) * CARD_LINE, TEXT_SIZE, isTop ? "ink" : "muted")));
+    y -= CARD_GAP;
   });
   if (state.returned) {
-    const rect = panelsFor(state.height).stack;
     const text = `${state.returned.function} returned${state.returned.value === null ? "" : ` ${state.returned.value}`}`;
-    out.push(codeText("returned", fitted(text, 20, width), left, rect.y + rect.h - PANEL_PAD - FOOTER_HEIGHT / 2, 20, "ok"));
+    const lines = textWidth(text, TEXT_SIZE, "code") <= width ? [text] : [`${state.returned.function} returned`, elideMiddle(state.returned.value ?? "", TEXT_SIZE, width)];
+    lines.forEach((line, index) => out.push(codeText(`returned${index === 0 ? "" : `-${index}`}`, elideMiddle(line, TEXT_SIZE, width), left, rect.y + rect.h - PANEL_PAD - footer + CARD_GAP + (index + 0.5) * FOOTER_LINE, TEXT_SIZE, "ok")));
   }
   return out;
 }
 
 function outputDrawables(state: CodeStepperState): Drawable[] {
-  const rect = panelsFor(state.height).output;
-  const rowHeight = (rect.h - HEADER_HEIGHT - 8 - PANEL_PAD) / OUTPUT_LINES;
+  if (!state.printsOutput) return [];
+  const rect = panelsOf(state).output;
   const first = Math.max(0, state.output.length - OUTPUT_LINES);
-  const out = panelDrawables(state.height, "output", first > 0 ? `+${first} earlier` : undefined);
+  const out = panelDrawables(state, "output", first > 0 ? `+${first} earlier` : undefined);
   state.output.slice(first).forEach((text, offset) => {
-    out.push(codeText(`output-${first + offset}`, fitted(text, 20, rect.w - PANEL_PAD * 2), rect.x + PANEL_PAD, rect.y + HEADER_HEIGHT + 8 + (offset + 0.5) * rowHeight, 20, "ink"));
+    out.push(codeText(`output-${first + offset}`, elideMiddle(text, TEXT_SIZE, rect.w - PANEL_PAD * 2), rect.x + PANEL_PAD, rect.y + HEADER_HEIGHT + (offset + 0.5) * OUTPUT_ROW_HEIGHT, TEXT_SIZE, "ink"));
   });
   return out;
 }
@@ -277,8 +307,7 @@ function setPulse(before: CodeStepperState, after: CodeStepperState, progress: n
   const frame = topFrame(after);
   const index = frame.variables.findIndex((variable) => variable.name === frame.changed);
   if (index < 0 || topFrame(before).label !== frame.label) return [];
-  const { rowHeight } = variableRowGeometry(after, frame);
-  return [{ ...bandDrawable("row-pulse", panelsFor(after.height).variables, variableRowY(after, frame, index), rowHeight, 0.5 * Math.sin(Math.PI * progress)), z: 3 }];
+  return [{ ...bandDrawable("row-pulse", panelsOf(after).variables, variableRowY(after, index), ROW_HEIGHT, 0.5 * Math.sin(Math.PI * progress)), z: 3 }];
 }
 
 function lineNumber(state: CodeStepperState, args: Record<string, unknown>): number {
@@ -297,6 +326,7 @@ export const lab: LabDef<CodeStepperSpec, CodeStepperState> = {
     spec: {
       source: "the code, with \\n between lines; line numbers start at 1",
       language: `one of ${CODE_LANGUAGES.join(", ")}, default python`,
+      output: "optional true or false; whether the Output panel is drawn, default true when the source calls print, printf, puts or the like",
       vars: 'optional names every called frame lists from the start, such as ["n","result"]; shown as – until set',
     },
     example: [
@@ -316,7 +346,7 @@ export const lab: LabDef<CodeStepperSpec, CodeStepperState> = {
       apply(state, op) {
         const name = stringArg(op.args, "name", "set");
         if (name === "") fail('op "set" needs "name" as a variable name');
-        return withTopFrame(state, writeVariable(topFrame(state), name, valueArg(op.args, "value", "set")));
+        return withTopFrame(state, writeVariable(state, topFrame(state), name, valueArg(op.args, "value", "set")));
       },
       during: (before, after, _op, progress) => setPulse(before, after, progress),
     },
@@ -327,7 +357,7 @@ export const lab: LabDef<CodeStepperSpec, CodeStepperState> = {
         const name = stringArg(op.args, "name", "call");
         const args = readCallArgs(op.args.args);
         const frame = newFrame(callLabel(name, args), state.declared, args);
-        if (frame.variables.length > MAX_VARIABLES) fail(`op "call" ${name} would list ${frame.variables.length} variables; the table shows at most ${MAX_VARIABLES}`);
+        if (frame.variables.length > variableCapacity(state)) fail(`op "call" ${name} would list ${frame.variables.length} variables; the table shows at most ${variableCapacity(state)}`);
         return { ...state, frames: [...state.frames, frame], returned: null };
       },
     },
@@ -344,6 +374,7 @@ export const lab: LabDef<CodeStepperSpec, CodeStepperState> = {
       doc: '{"text": "6"} appends a line to the output; \\n splits it into several lines',
       seconds: 0.5,
       apply(state, op) {
+        if (!state.printsOutput) fail('op "print" needs the Output panel, but the source never prints; set "output": true in the object spec');
         const text = stringArg(op.args, "text", "print").replace(/\n$/, "");
         return { ...state, output: [...state.output, ...text.split("\n")] };
       },
@@ -360,6 +391,7 @@ export const lab: LabDef<CodeStepperSpec, CodeStepperState> = {
     return {
       lines,
       height: heightFor(lines),
+      printsOutput: readOutputFlag(spec.output, objectId) ?? OUTPUT_CALLS.test(source),
       declared,
       frames: [newFrame(GLOBAL_FRAME, [])],
       currentLine: null,
