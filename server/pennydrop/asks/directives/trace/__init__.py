@@ -35,9 +35,12 @@ class TraceSpec(BaseModel):
 
 async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> dict[str, Any]:
     spec = parse_spec(TraceSpec, raw, "trace")
-    run = await _run(spec, tools.tracer)
     object_id = _traced_object(step, spec)
     target = TARGETS[step["scene"][object_id]["lab"]]
+    library = getattr(target, "LIBRARY", None)
+    if library and spec.code not in library:
+        raise DirectiveError(f"trace directive: this Lab plays only a library algorithm, so write `code` as one of {', '.join(library)} with its input, not your own code")
+    run = await _run(spec, tools.tracer)
     played = len(step.get("do", []))
     expanded = target.apply(step, object_id, run)
     limit_operations("trace", expanded.get("do", [])[played:])

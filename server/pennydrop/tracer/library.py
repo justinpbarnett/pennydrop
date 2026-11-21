@@ -178,6 +178,40 @@ def explore(graph, node, order):
 def visit(node):
     return node
 ''', 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}: every node maps to the list of its neighbors'),
+    Algorithm("dijkstra", "dijkstra", '''
+def dijkstra(graph, start):
+    best = {start: 0}
+    settled = set()
+    heap = [(0, start)]
+    push(start, 0)
+    while heap:
+        heap.sort()
+        distance, node = heap.pop(0)
+        if node in settled:
+            continue
+        settled.add(node)
+        pop(node)
+        for neighbor, weight in graph[node]:
+            candidate = distance + weight
+            if neighbor not in best or candidate < best[neighbor]:
+                best[neighbor] = candidate
+                heap.append((candidate, neighbor))
+                relax(node, neighbor, candidate)
+                push(neighbor, candidate)
+    return best
+
+
+def push(node, key):
+    return node
+
+
+def pop(node):
+    return node
+
+
+def relax(source, target, distance):
+    return distance
+''', 'an object like {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}: every node maps to its [neighbor, weight] pairs, listed from both ends of an undirected edge'),
     Algorithm("tree_preorder", "preorder", '''
 def preorder(tree, root):
     order = []
