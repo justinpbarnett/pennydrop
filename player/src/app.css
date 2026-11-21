@@ -46,7 +46,7 @@ body { background: var(--ground); color: var(--ink); font-family: var(--font-rea
 .challenge-prompt { margin: 0; font: var(--weight-mark) 22px/1.35 var(--font-mark); letter-spacing: 0.01em; }
 .challenge-body { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .challenge-hint { margin: 0; color: var(--muted); font-size: 14px; flex-basis: 100%; }
-.challenge-feedback { margin: 0; font-size: 16px; }
+.challenge-feedback { margin: 0; font: 600 18px var(--font-read); }
 .challenge-feedback:empty { display: none; }
 .challenge-card input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 .challenge-card input::-webkit-outer-spin-button, .challenge-card input::-webkit-inner-spin-button { appearance: none; margin: 0; }
@@ -59,11 +59,15 @@ body { background: var(--ground); color: var(--ink); font-family: var(--font-rea
 button.primary, button.choice { font: 15px var(--font-read); border-radius: min(var(--corner), 14px); height: 44px; padding: 0 18px; cursor: pointer; border: 1px solid var(--rule); color: var(--ink); background: var(--fill2); }
 button.primary { background: var(--accent); color: var(--ground); border-color: var(--accent); font-weight: 700; }
 button.choice:hover:not(:disabled) { border-color: var(--accent); }
+.challenge-card button.choice { font-size: 18px; }
+.challenge-card button.choice:is(.picked, .answer) { opacity: 1; border-width: 2px; }
+.challenge-card button.choice.answer { border-color: var(--done); color: var(--done); }
+.challenge-card button.choice.picked:not(.answer) { border-color: var(--fault); color: var(--fault); }
 button:disabled { opacity: 0.45; cursor: default; }
 button:focus-visible, select:focus-visible, input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .transport { padding: 12px 0 16px; display: grid; gap: 10px; }
-.caption { margin: 0; min-height: 3.2em; font: 500 20px/1.55 var(--font-read); color: var(--muted); }
+.caption { margin: 0; min-height: calc(3 * 1.55em); font: 500 20px/1.55 var(--font-read); color: var(--muted); }
 .caption .spoken { color: var(--ink); }
 .caption .now { color: var(--ink); background: linear-gradient(to top, var(--mark) 0 45%, transparent 45%); }
 .controls { display: flex; align-items: center; gap: 16px; }

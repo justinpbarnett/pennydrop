@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -64,7 +65,8 @@ class LessonLibrary:
 
     async def document(self, lesson_id: str) -> LessonDocument:
         raw = self.raw(lesson_id)
-        return LessonDocument(lesson_id, raw.header, [await self._with_voice(step) for step in raw.steps], raw.done, raw.error)
+        steps = await asyncio.gather(*(self._with_voice(step) for step in raw.steps))
+        return LessonDocument(lesson_id, raw.header, list(steps), raw.done, raw.error)
 
     def events(self, lesson_id: str) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         raw = self.raw(lesson_id)
@@ -72,8 +74,13 @@ class LessonLibrary:
 
     async def _replay(self, lesson_id: str, raw: RawLesson) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         yield "lesson", {"id": lesson_id, "lesson": raw.header}
-        for step in raw.steps:
-            yield "step", await self._with_voice(step)
+        voicing = [asyncio.ensure_future(self._with_voice(step)) for step in raw.steps]
+        try:
+            for step in voicing:
+                yield "step", await step
+        finally:
+            for step in voicing:
+                step.cancel()
         record = self._store.lesson(lesson_id)
         if raw.error:
             yield "error", {"message": raw.error}

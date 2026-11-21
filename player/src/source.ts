@@ -79,22 +79,14 @@ async function loadStatic(id: string, sink: LessonSink): Promise<void> {
   sink.done();
 }
 
-export async function loadLesson(id: string, sink: LessonSink, live: boolean, signal?: AbortSignal): Promise<void> {
+export async function loadLesson(id: string, sink: LessonSink, signal?: AbortSignal): Promise<void> {
   let count = 0;
-  const counting: LessonSink = { ...sink, step: (step) => { count += 1; sink.step(step); } };
-  try {
-    if (live) {
-      await streamLesson(id, counting, () => count, signal);
-      return;
-    }
-    const document = (await getJson(`/api/lessons/${id}`)) as Raw;
-    sink.header(headerOf(document));
-    (document.steps as Step[]).forEach((step) => sink.step(step));
-    sink.done();
-  } catch (apiFailure) {
-    if (count > 0) throw apiFailure;
-    await loadStatic(id, sink);
-  }
+  let failure = null as string | null;
+  await streamLesson(id, { ...sink, step: (step) => { count += 1; sink.step(step); }, error: (message) => { failure = message; } }, () => count, signal);
+  if (failure === null) return;
+  if (count > 0) return sink.error(failure);
+  const streamFailure = failure;
+  await loadStatic(id, sink).catch(() => sink.error(streamFailure));
 }
 
 export interface ProfileSummary {

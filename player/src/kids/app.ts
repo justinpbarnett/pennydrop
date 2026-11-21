@@ -121,7 +121,7 @@ export class KidsApp {
       step: (step) => current.addStep(step),
       done: () => current.finishLesson(),
       error: () => this.fail("oops"),
-    }, true, this.loading.signal).catch(() => this.fail("oops"));
+    }, this.loading.signal).catch(() => this.fail("oops"));
   }
 
   private async ask(input: { text?: string; audio?: Blob }): Promise<void> {

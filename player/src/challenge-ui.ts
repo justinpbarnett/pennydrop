@@ -29,7 +29,13 @@ function buildNumber(_challenge: ChallengeOf<"number">, { body, settle }: Contro
 }
 
 function buildChoice(challenge: ChallengeOf<"choice">, { body, settle }: Controls): void {
-  body.append(...challenge.choices.map((choice) => h("button", { class: "choice", onclick: () => settle(choice) }, choice)));
+  const buttons = challenge.choices.map((choice) => h("button", { class: "choice" }, choice));
+  buttons.forEach((button, index) => button.addEventListener("click", () => {
+    button.classList.add("picked");
+    buttons[challenge.choices.indexOf(challenge.answer)]?.classList.add("answer");
+    settle(challenge.choices[index]!);
+  }));
+  body.append(...buttons);
 }
 
 function buildClick(_challenge: ChallengeOf<"click">, { body, settle }: Controls): (part: string) => void {

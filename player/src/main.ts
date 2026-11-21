@@ -38,6 +38,7 @@ let playback = new Playback();
 let lessonId = "";
 let profileId: number | null = null;
 let loading = new AbortController();
+let writing = false;
 let themeId: ThemeId = rememberedTheme();
 let challengeView: ChallengeView | null = null;
 let shownChallenge = -1;
@@ -116,8 +117,8 @@ function renderOverlay(): void {
 }
 
 function renderStatus(): void {
-  const writing = playback.state === "buffering" ? "Writing the next Step..." : "";
-  const message = playback.error ?? writing;
+  const waiting = playback.state !== "buffering" ? "" : writing ? "Writing the next Step..." : "Loading the next Step...";
+  const message = playback.error ?? waiting;
   status.hidden = !message;
   status.textContent = message;
   status.classList.toggle("error", Boolean(playback.error));
@@ -141,11 +142,12 @@ function render(): void {
   playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
 }
 
-async function open(id: string, live = query.has("live"), autoplay = false): Promise<void> {
+async function open(id: string, beingWritten = false): Promise<void> {
   playback.pause();
   loading.abort();
   loading = new AbortController();
   lessonId = id;
+  writing = beingWritten;
   playback = new Playback();
   tickCount = -1;
   captionStep = -1;
@@ -153,13 +155,13 @@ async function open(id: string, live = query.has("live"), autoplay = false): Pro
   playback.subscribe(render);
   applyTheme(themeId);
   const current = playback;
-  if (autoplay) current.play();
+  if (beingWritten) current.play();
   await loadLesson(id, {
     header: (header) => { current.setHeader(header); document.title = `${header.title} - Pennydrop`; titlePickerOption(id, header.title); },
     step: (step) => current.addStep(step),
     done: () => current.finishLesson(),
     error: (message) => current.fail(message),
-  }, live, loading.signal).catch((failure: Error) => current.fail(failure.message));
+  }, loading.signal).catch((failure: Error) => current.fail(failure.message));
   history.replaceState(null, "", `?${new URLSearchParams({ ...Object.fromEntries(query), lesson: id })}`);
   render();
 }
@@ -190,7 +192,7 @@ async function ask(input: { text?: string; audio?: Blob }): Promise<void> {
     const reply = await postAsk({ ...input, profileId, from });
     askBar.say(`You asked: ${reply.transcript}`, "heard");
     addPickerOption(reply.lesson_id, reply.transcript);
-    void open(reply.lesson_id, true, true);
+    void open(reply.lesson_id, true);
   } catch (failure) {
     askBar.say((failure as Error).message, "error");
   } finally {
