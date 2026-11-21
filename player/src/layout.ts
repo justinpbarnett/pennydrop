@@ -214,31 +214,33 @@ function placeClusters(clusters: Cluster[]): Map<string, Rect> {
     origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: bottomEdge });
     bottomEdge -= FLOW_GAP / 2;
   }
-  let leftEdge = MARGIN;
-  for (const cluster of inRegion("left")) {
-    origins.set(cluster, { x: leftEdge, y: (STAGE.h - cluster.h) / 2 });
-    leftEdge += cluster.w + FLOW_GAP;
-  }
-  let rightEdge = STAGE.w - MARGIN;
-  for (const cluster of inRegion("right")) {
-    rightEdge -= cluster.w;
-    origins.set(cluster, { x: rightEdge, y: (STAGE.h - cluster.h) / 2 });
-    rightEdge -= FLOW_GAP;
-  }
   for (const cluster of inRegion("center")) origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: (STAGE.h - cluster.h) / 2 });
 
   const flow = inRegion("flow");
+  const lefts = inRegion("left");
+  const rights = inRegion("right");
+  const flowWidth = flow.length > 0 ? Math.max(...flow.map((cluster) => cluster.w)) : 0;
+  const rowParts = [...lefts.map((cluster) => cluster.w), ...(flow.length > 0 ? [flowWidth] : []), ...rights.map((cluster) => cluster.w)];
+  const rowWidth = rowParts.reduce((sum, width) => sum + width, 0) + FLOW_GAP * (rowParts.length - 1);
+  let x = (STAGE.w - rowWidth) / 2;
+  for (const cluster of lefts) {
+    origins.set(cluster, { x, y: (STAGE.h - cluster.h) / 2 });
+    x += cluster.w + FLOW_GAP;
+  }
   if (flow.length > 0) {
     const stackHeight = flow.reduce((sum, cluster) => sum + cluster.h, 0) + FLOW_GAP * (flow.length - 1);
     const areaTop = inRegion("top").length ? topEdge : MARGIN;
     const areaBottom = inRegion("bottom").length ? bottomEdge : STAGE.h - MARGIN;
-    const areaLeft = inRegion("left").length ? leftEdge : 0;
-    const areaRight = inRegion("right").length ? rightEdge : STAGE.w;
     let y = areaTop + (areaBottom - areaTop - stackHeight) / 2;
     for (const cluster of flow) {
-      origins.set(cluster, { x: areaLeft + (areaRight - areaLeft - cluster.w) / 2, y });
+      origins.set(cluster, { x: x + (flowWidth - cluster.w) / 2, y });
       y += cluster.h + FLOW_GAP;
     }
+    x += flowWidth + FLOW_GAP;
+  }
+  for (const cluster of rights) {
+    origins.set(cluster, { x, y: (STAGE.h - cluster.h) / 2 });
+    x += cluster.w + FLOW_GAP;
   }
 
   const rects = new Map<string, Rect>();
