@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .asks import AskRequest, FromStep
 from .intake import IntakeError
+from .mint import minted_labs_router
+from .mint.paths import MintPaths
 from .services import Services
 from .tts import MEDIA_PREFIX, TtsError
 
@@ -54,6 +56,7 @@ def create_app(services: Services) -> FastAPI:
         await services.transcriber.close()
 
     app = FastAPI(title="Pennydrop", lifespan=lifespan)
+    app.include_router(minted_labs_router(MintPaths.of(services.settings)))
 
     @app.exception_handler(LookupError)
     async def not_found(_: Request, error: LookupError):

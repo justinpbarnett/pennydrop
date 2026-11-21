@@ -132,6 +132,18 @@ SCHEMA = [
     alter table model_calls add column lesson_id text;
     create index model_calls_lesson on model_calls (lesson_id);
     """,
+    """
+    alter table lab_requests add column minted_lab_id text;
+    alter table minted_labs add column brief text not null default '';
+    alter table minted_labs add column request_id integer references lab_requests(id);
+    alter table minted_labs add column rounds integer not null default 0;
+    alter table minted_labs add column seconds real not null default 0;
+    alter table minted_labs add column input_tokens integer not null default 0;
+    alter table minted_labs add column cached_tokens integer not null default 0;
+    alter table minted_labs add column output_tokens integer not null default 0;
+    alter table minted_labs add column cost_usd real not null default 0;
+    alter table minted_labs add column round_log text not null default '[]';
+    """,
 ]
 
 
@@ -199,6 +211,39 @@ class CallStats:
     cost_usd: float
     error: str | None = None
     lesson_id: str | None = None
+
+
+class MintStatus(StrEnum):
+    MINTING = "minting"
+    ACCEPTED = "accepted"
+    FAILED = "failed"
+    PROMOTED = "promoted"
+
+
+@dataclass(frozen=True)
+class LabRequest:
+    id: int
+    ask: str
+    lab_hint: str | None
+    status: str
+    minted_lab_id: str | None
+    created_at: str
+
+
+@dataclass(frozen=True)
+class MintRecord:
+    lab_id: str
+    brief: str
+    status: MintStatus
+    path: str
+    request_id: int | None = None
+    rounds: int = 0
+    seconds: float = 0.0
+    input_tokens: int = 0
+    cached_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    round_log: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _now() -> datetime:
@@ -324,6 +369,52 @@ class Store:
             arguments.append(profile_id)
         return [_review_from(row) for row in self._connection.execute(query + " order by due", arguments)]
 
+    def file_lab_request(self, ask: str, lab_hint: str | None = None) -> LabRequest:
+        cursor = self._connection.execute("insert into lab_requests (ask, lab_hint, created_at) values (?, ?, ?)", (ask, lab_hint, _iso(_now())))
+        return self.lab_request(cursor.lastrowid)
+
+    def lab_request(self, request_id: int) -> LabRequest:
+        row = self._connection.execute("select * from lab_requests where id = ?", (request_id,)).fetchone()
+        if row is None:
+            raise LookupError(f"no Lab request with id {request_id}; `pd mint requests` lists them")
+        return _lab_request_from(row)
+
+    def lab_requests(self, status: str | None = None) -> list[LabRequest]:
+        query, arguments = ("select * from lab_requests order by id", ()) if status is None else ("select * from lab_requests where status = ? order by id", (status,))
+        return [_lab_request_from(row) for row in self._connection.execute(query, arguments)]
+
+    def resolve_lab_request(self, request_id: int, lab_id: str) -> None:
+        self._connection.execute("update lab_requests set status = 'minted', minted_lab_id = ? where id = ?", (lab_id, request_id))
+
+    def save_mint(self, mint: MintRecord) -> None:
+        self._connection.execute(
+            """
+            insert into minted_labs (lab_id, path, status, created_at, brief, request_id, rounds, seconds, input_tokens, cached_tokens, output_tokens, cost_usd, round_log)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(lab_id) do update set path = excluded.path, status = excluded.status, brief = excluded.brief,
+                request_id = excluded.request_id, rounds = excluded.rounds, seconds = excluded.seconds,
+                input_tokens = excluded.input_tokens, cached_tokens = excluded.cached_tokens, output_tokens = excluded.output_tokens,
+                cost_usd = excluded.cost_usd, round_log = excluded.round_log
+            """,
+            (
+                mint.lab_id, mint.path, mint.status.value, _iso(_now()), mint.brief, mint.request_id, mint.rounds, mint.seconds,
+                mint.input_tokens, mint.cached_tokens, mint.output_tokens, mint.cost_usd, json.dumps(mint.round_log),
+            ),
+        )
+
+    def mint(self, lab_id: str) -> MintRecord:
+        row = self._connection.execute("select * from minted_labs where lab_id = ?", (lab_id,)).fetchone()
+        if row is None:
+            raise LookupError(f"no mint for Lab '{lab_id}'; `pd mint list` shows what exists")
+        return _mint_from(row)
+
+    def mints(self) -> list[MintRecord]:
+        return [_mint_from(row) for row in self._connection.execute("select * from minted_labs order by id")]
+
+    def delete_lesson(self, lesson_id: str) -> None:
+        self._connection.execute("delete from steps where lesson_id = ?", (lesson_id,))
+        self._connection.execute("delete from lessons where id = ?", (lesson_id,))
+
     def log_model_call(self, call: CallStats) -> None:
         self._connection.execute(
             """
@@ -346,6 +437,17 @@ def _lesson_from(row: sqlite3.Row) -> LessonRecord:
         row["id"], row["ask"], row["title"], json.loads(row["labs"]), LessonSource(row["source"]), row["status"],
         row["first_step_seconds"], row["done_seconds"], row["cost_usd"], row["tier"], json.loads(row["header"]),
         row["transcription_seconds"], json.loads(row["timings"]), row["error"], json.loads(row["repairs"]),
+    )
+
+
+def _lab_request_from(row: sqlite3.Row) -> LabRequest:
+    return LabRequest(row["id"], row["ask"], row["lab_hint"], row["status"], row["minted_lab_id"], row["created_at"])
+
+
+def _mint_from(row: sqlite3.Row) -> MintRecord:
+    return MintRecord(
+        row["lab_id"], row["brief"], MintStatus(row["status"]), row["path"], row["request_id"], row["rounds"], row["seconds"],
+        row["input_tokens"], row["cached_tokens"], row["output_tokens"], row["cost_usd"], json.loads(row["round_log"]),
     )
 
 

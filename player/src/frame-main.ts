@@ -1,5 +1,6 @@
 import "./frame.css";
 import { loadFonts } from "./boot";
+import { loadMintedLabs } from "./minted";
 import { type LessonSource, parseJsonl } from "./format";
 import { Playback } from "./playback";
 import { StageRenderer } from "./render";
@@ -39,7 +40,7 @@ function adopt(next: Playback): void {
 }
 
 window.pennydrop = {
-  ready: loadFonts().then(draw),
+  ready: Promise.all([loadFonts(), loadMintedLabs()]).then(draw),
   load(source) {
     adopt(new Playback());
     playback.loadSource(typeof source === "string" ? parseJsonl("frame", source) : { id: "frame", done: true, ...source });

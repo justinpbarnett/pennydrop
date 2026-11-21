@@ -19,7 +19,7 @@ function option(name: string): string | undefined {
 }
 
 function usage(message: string): never {
-  console.error(`${message}\nusage: bun player/tools/frames.ts --lesson <id|file> [--theme pattern | --themes pattern,film] [--times 1,2.5,8] [--out dir] [--check]`);
+  console.error(`${message}\nusage: bun player/tools/frames.ts --lesson <id|file> [--theme pattern | --themes pattern,film] [--times 1,2.5,8] [--out dir] [--check] [--dist built-player-dir] [--minted built-minted-labs-dir]`);
   process.exit(2);
 }
 
@@ -74,13 +74,19 @@ async function builtPlayer(): Promise<string> {
   return target;
 }
 
-function serveDist(dist: string) {
+function serveDist(dist: string, mintedDir: string | undefined) {
   return Bun.serve({
     port: 0,
     fetch(request) {
       const path = new URL(request.url).pathname;
-      const file = join(dist, path === "/" ? "index.html" : path);
-      if (!file.startsWith(dist) || !existsSync(file)) return new Response("not found", { status: 404 });
+      if (mintedDir && path === "/api/minted-labs") {
+        const ids = readdirSync(mintedDir).filter((file) => file.endsWith(".js")).map((file) => file.replace(/\.js$/, ""));
+        return Response.json(ids.map((id) => ({ id, url: `/api/minted-labs/${id}.js` })));
+      }
+      const [root, relativePath] = mintedDir && path.startsWith("/api/minted-labs/") ? [mintedDir, path.slice("/api/minted-labs".length)]
+        : [dist, path === "/" ? "index.html" : path];
+      const file = join(root, relativePath);
+      if (!file.startsWith(root) || !existsSync(file)) return new Response("not found", { status: 404 });
       return new Response(Bun.file(file), { headers: { "content-type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream" } });
     },
   });
@@ -93,7 +99,9 @@ const lessonName = lessonPath.split("/").pop()!.replace(/\.jsonl$/, "");
 const themes = themesFromArgs();
 const outDir = resolve(option("out") ?? join(PLAYER_ROOT, ".frames"));
 mkdirSync(outDir, { recursive: true });
-const server = serveDist(await builtPlayer());
+const prebuiltDist = option("dist") ? resolve(option("dist")!) : undefined;
+const mintedDir = option("minted") ? resolve(option("minted")!) : undefined;
+const server = serveDist(prebuiltDist ?? (await builtPlayer()), mintedDir);
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
 page.on("pageerror", (error) => console.error(`page error: ${error.message}`));
