@@ -3,6 +3,7 @@ import { prepareStepAssets } from "./assets";
 import { type Frame, renderFrame } from "./frame";
 import { THEMES, type Theme, type ThemeId } from "./theme";
 import { Timeline } from "./timeline";
+import { startSceneOf } from "./scene";
 
 export type PlaybackState = "idle" | "playing" | "paused" | "challenge" | "buffering" | "ended";
 
@@ -58,7 +59,7 @@ export class Playback {
     this.arrive(async () => {
       await prepareStepAssets(header.start_scene);
       this.header = header;
-      this.timeline = new Timeline(header.start_scene);
+      this.timeline = new Timeline(startSceneOf(header));
     });
   }
 

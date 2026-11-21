@@ -1,7 +1,6 @@
 import { loadHighlighter } from "./highlight";
-import { loadTypesetter } from "./typeset";
 
-const KINDS = { code: new Set(["code", "primitive:code"]), math: new Set(["math", "primitive:math"]) };
+const KINDS = { code: new Set(["code", "primitive:code"]) };
 
 function uses(value: unknown, names: Set<string>): boolean {
   if (typeof value !== "object" || value === null) return false;
@@ -12,8 +11,7 @@ function uses(value: unknown, names: Set<string>): boolean {
 }
 
 export const usesCode = (value: unknown) => uses(value, KINDS.code);
-export const usesMath = (value: unknown) => uses(value, KINDS.math);
 
 export async function prepareStepAssets(value: unknown): Promise<void> {
-  await Promise.all([usesCode(value) ? loadHighlighter() : null, usesMath(value) ? loadTypesetter() : null]);
+  if (usesCode(value)) await loadHighlighter();
 }

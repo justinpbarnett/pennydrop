@@ -7,7 +7,7 @@ type Arrangement = "frame" | "squares";
 
 interface Base {
   objectId: string;
-  numerals: boolean;
+  reading: boolean;
 }
 
 interface OpDef<S> {
@@ -19,7 +19,7 @@ interface OpDef<S> {
 
 interface Figure<S extends Base> {
   spec: Record<string, string>;
-  init(spec: SpecFields, objectId: string, numerals: boolean): S;
+  init(spec: SpecFields, objectId: string, reading: boolean): S;
   ops: Record<string, OpDef<S>>;
   size(state: S): Size;
   draw(state: S): Drawable[];
@@ -172,11 +172,11 @@ function drawBlocks(state: BlocksState, shown: number): Drawable[] {
     out.push(box(`b${index}`, slot.x, slot.y, BLOCK * scale, BLOCK * scale, {
       fill: isLit ? "accent" : "fill2", stroke: isLit || scale > 1 ? "accent" : "edge", strokeWidth: 2, radius: 0.28, z: 2, part: `${state.objectId}[${index}]`,
     }));
-    if (isLit && state.numerals) out.push(text(`n${index}`, slot.x, slot.y, String(index + 1), 30, "ground", { z: 3 }));
+    if (isLit && state.reading) out.push(text(`n${index}`, slot.x, slot.y, String(index + 1), 30, "ground", { z: 3 }));
   });
   for (const outline of layout.outlines) out.push(box(outline.id, outline.x, outline.y, outline.w, outline.h, { fill: "none", stroke: outline.role, strokeWidth: 3, radius: 0.5, z: 1 }));
-  if (state.numerals && lit > 0) out.push(text("total", layout.size.w / 2, 54, String(lit), 76, "ink", { z: 3 }));
-  if (state.numerals && state.groupSize !== null) out.push(text("caption", layout.size.w / 2, layout.size.h - 40, groupCaption(state), 40, "ink"));
+  if (state.reading && lit > 0) out.push(text("total", layout.size.w / 2, 54, String(lit), 76, "ink", { z: 3 }));
+  if (state.reading && state.groupSize !== null) out.push(text("caption", layout.size.w / 2, layout.size.h - 40, groupCaption(state), 40, "ink"));
   return out;
 }
 
@@ -185,10 +185,10 @@ const blocks: Figure<BlocksState> = {
     count: "how many blocks, 1 to 100",
     columns: "optional blocks per row, 1 to 20, default 10 or fewer",
   },
-  init(spec, objectId, numerals) {
+  init(spec, objectId, reading) {
     const count = wholeField(spec, "count", 0, 1, 100, objectId);
     const columns = wholeField(spec, "columns", Math.min(count, 10), 1, 20, objectId);
-    return { figure: "blocks", objectId, numerals, count, columns, counted: 0, groupSize: null };
+    return { figure: "blocks", objectId, reading, count, columns, counted: 0, groupSize: null };
   },
   ops: {
     count: {
@@ -258,7 +258,7 @@ function hopDrawables(state: LineState, index: number, reveal: number): Drawable
   const hop = state.hops[index]!;
   const mid = lineX(state, (hop.from + hop.to) / 2);
   const out: Drawable[] = [{ id: `hop-${index}`, kind: "path", x: 0, y: 0, points: hopPoints(state, hop), fill: "none", stroke: "accent", strokeWidth: 3.5, z: 2, draw: clamp01(reveal) }];
-  if (state.numerals) out.push(text(`hop-${index}-label`, mid, LINE_Y - TOKEN_LIFT - hopHeight(state, hop) - 28, `${hop.step > 0 ? "+" : "-"}${Math.abs(hop.step)}`, 30, "ink", { opacity: clamp01((reveal - 0.6) * 2.5), z: 3 }));
+  if (state.reading) out.push(text(`hop-${index}-label`, mid, LINE_Y - TOKEN_LIFT - hopHeight(state, hop) - 28, `${hop.step > 0 ? "+" : "-"}${Math.abs(hop.step)}`, 30, "ink", { opacity: clamp01((reveal - 0.6) * 2.5), z: 3 }));
   return out;
 }
 
@@ -272,11 +272,11 @@ const line: Figure<LineState> = {
     to: "right end number, a whole number up to 40 above from, default 10",
     start: "where the hopper stands, default from",
   },
-  init(spec, objectId, numerals) {
+  init(spec, objectId, reading) {
     const from = wholeField(spec, "from", 0, -1000, 1000, objectId);
     const to = wholeField(spec, "to", from + 10, from + 1, from + 40, objectId);
     const token = wholeField(spec, "start", from, from, to, objectId);
-    return { figure: "line", objectId, numerals, from, to, token, hops: [] };
+    return { figure: "line", objectId, reading, from, to, token, hops: [] };
   },
   ops: {
     hop: {
@@ -315,7 +315,7 @@ const line: Figure<LineState> = {
       const x = lineX(state, value);
       out.push({ id: `tick-${value}`, kind: "line", x, y: LINE_Y - 10, x2: x, y2: LINE_Y + 10, stroke: "ink", strokeWidth: 2, z: 1 });
       const labelled = (value - state.from) % labelEvery === 0 || value === state.to;
-      if (state.numerals && labelled) out.push(text(`num-${value}`, x, LINE_Y + 46, String(value), value === state.token ? 42 : 30, value === state.token ? "ink" : "muted"));
+      if (state.reading && labelled) out.push(text(`num-${value}`, x, LINE_Y + 46, String(value), value === state.token ? 42 : 30, value === state.token ? "ink" : "muted"));
     }
     state.hops.forEach((_, index) => out.push(...hopDrawables(state, index, 1)));
     out.push(tokenDrawable({ x: lineX(state, state.token), y: LINE_Y - TOKEN_LIFT }));
@@ -342,7 +342,7 @@ function drawFraction(state: FractionState, shown: number): Drawable[] {
   const out: Drawable[] = range(state.parts).map((index) => box(`part-${index}`, BAR_PAD + partWidth * (index + 0.5), BAR_Y, partWidth, BAR_HEIGHT, {
     fill: index < lit ? "accent" : "fill2", stroke: "ink", strokeWidth: 2.5, z: 1,
   }));
-  if (state.numerals) {
+  if (state.reading) {
     out.push(
       text("numerator", center, BAR_Y + BAR_HEIGHT / 2 + 66, String(lit), 64),
       { id: "vinculum", kind: "line", x: center - 50, y: BAR_Y + BAR_HEIGHT / 2 + 102, x2: center + 50, y2: BAR_Y + BAR_HEIGHT / 2 + 102, stroke: "ink", strokeWidth: 4 },
@@ -357,9 +357,9 @@ const fraction: Figure<FractionState> = {
     parts: "how many equal parts the bar is cut into, 1 to 12, default 4",
     shaded: "parts already shaded, default 0",
   },
-  init(spec, objectId, numerals) {
+  init(spec, objectId, reading) {
     const parts = wholeField(spec, "parts", 4, 1, 12, objectId);
-    return { figure: "fraction", objectId, numerals, parts, shaded: wholeField(spec, "shaded", 0, 0, parts, objectId) };
+    return { figure: "fraction", objectId, reading, parts, shaded: wholeField(spec, "shaded", 0, 0, parts, objectId) };
   },
   ops: {
     shade: {
@@ -401,7 +401,7 @@ function drawArea(state: AreaState, shown: number): Drawable[] {
     { fill: index < lit ? "accent" : "fill", stroke: index < lit ? "ground" : "edge", strokeWidth: 1.4, opacity: index < lit ? 0.7 : 1, z: 1 },
   ));
   out.push(box("body", AREA_LEFT + width / 2, AREA_TOP + height / 2, width, height, { fill: "none", stroke: "ink", strokeWidth: 3, z: 2 }));
-  if (state.numerals) {
+  if (state.reading) {
     out.push(
       text("columns", AREA_LEFT + width / 2, AREA_TOP - 32, String(state.columns), 38, "muted"),
       text("rows", AREA_LEFT - 36, AREA_TOP + height / 2, String(state.rows), 38, "muted"),
@@ -416,9 +416,9 @@ const area: Figure<AreaState> = {
     columns: "unit squares across, 1 to 20",
     rows: "unit squares down, 1 to 20; equal to columns makes a square",
   },
-  init(spec, objectId, numerals) {
+  init(spec, objectId, reading) {
     const columns = wholeField(spec, "columns", 0, 1, 20, objectId);
-    return { figure: "area", objectId, numerals, columns, rows: wholeField(spec, "rows", columns, 1, 20, objectId), filled: 0 };
+    return { figure: "area", objectId, reading, columns, rows: wholeField(spec, "rows", columns, 1, 20, objectId), filled: 0 };
   },
   ops: {
     fill: {
@@ -463,14 +463,14 @@ function drawAngle(state: AngleState, degrees: number): Drawable[] {
     { id: "arc", kind: "path", x: 0, y: 0, points: sweep, fill: "none", stroke: "accent", strokeWidth: 4, z: 3 },
     { id: "right-mark", kind: "path", x: 0, y: 0, points: [vertex.x + RIGHT_MARK, vertex.y, vertex.x + RIGHT_MARK, vertex.y - RIGHT_MARK, vertex.x, vertex.y - RIGHT_MARK], fill: "none", stroke: "ink", strokeWidth: 3, opacity: Math.abs(degrees - 90) < 0.5 ? 1 : 0, z: 3 },
   ];
-  if (state.numerals) out.push(text("degrees", vertex.x, vertex.y + 54, `${Math.round(degrees)}°`, 52));
+  if (state.reading) out.push(text("degrees", vertex.x, vertex.y + 54, `${Math.round(degrees)}°`, 52));
   return out;
 }
 
 const angle: Figure<AngleState> = {
   spec: { degrees: "size of the angle, 1 to 180, default 90; 90 gets a square corner mark" },
-  init(spec, objectId, numerals) {
-    return { figure: "angle", objectId, numerals, degrees: wholeField(spec, "degrees", 90, 1, 180, objectId) };
+  init(spec, objectId, reading) {
+    return { figure: "angle", objectId, reading, degrees: wholeField(spec, "degrees", 90, 1, 180, objectId) };
   },
   ops: {
     open: {
@@ -599,7 +599,7 @@ function drawSquare(state: TriangleState, frames: Record<Side, SquareFrame>, sid
       }));
     });
   }
-  const count = state.numerals && growth >= 1 ? squareCount(state, side, view) : null;
+  const count = state.reading && growth >= 1 ? squareCount(state, side, view) : null;
   if (count !== null) {
     const center = along(frame.origin, [[frame.across, (length * u) / 2], [frame.outward, (length * u) / 2]]);
     const size = Math.min(72, Math.max(28, u * 1.1));
@@ -661,7 +661,7 @@ function triangleDrawables(state: TriangleState, view: TriangleView): Drawable[]
     const frame = frames[side];
     out.push({ id: `${side}-edge`, kind: "line", x: frame.start.x, y: frame.start.y, x2: frame.end.x, y2: frame.end.y, stroke: SIDE_ROLE[side], strokeWidth: 7, z: 5, part: `${state.objectId}[${side}]` });
     out.push(...drawSquare(state, frames, side, view));
-    if (state.numerals) {
+    if (state.reading) {
       const tag = sideTagSize(state, side);
       const reach = view.growth[side] * sideLength(state, side) * state.unit;
       const halfAlong = (Math.abs(frame.outward.x) * tag.w + Math.abs(frame.outward.y) * tag.h) / 2;
@@ -702,7 +702,7 @@ function requireCells(state: TriangleState, side: Side, op: LabOp): void {
   if (sideLength(state, side) > MAX_FILLED_SIDE) fail(`op "${op.name}" on ${state.objectId}: side ${side} is ${fmt(sideLength(state, side))} long; unit squares stay countable up to ${MAX_FILLED_SIDE}, so use a smaller triangle`);
 }
 
-function readTriangle(spec: SpecFields, objectId: string, numerals: boolean): TriangleState {
+function readTriangle(spec: SpecFields, objectId: string, reading: boolean): TriangleState {
   const given = { a: positiveField(spec, "a", objectId), b: positiveField(spec, "b", objectId), c: positiveField(spec, "c", objectId) };
   const known = SIDES.filter((side) => given[side] !== undefined);
   if (known.length < 2) fail(`${objectId}: a right triangle needs two of its sides: the legs "a" and "b", or one leg and the hypotenuse "c"; got ${known.length === 0 ? "none" : `only "${known[0]}"`}`);
@@ -723,7 +723,7 @@ function readTriangle(spec: SpecFields, objectId: string, numerals: boolean): Tr
   }
   const lengths = { a: a!, b: b!, c: c! };
   return {
-    figure: "triangle", objectId, numerals, lengths, unit: triangleUnit(lengths.a, lengths.b),
+    figure: "triangle", objectId, reading, lengths, unit: triangleUnit(lengths.a, lengths.b),
     built: { a: false, b: false, c: false }, filled: { a: 0, b: 0, c: 0 }, combined: false,
   };
 }
@@ -734,7 +734,7 @@ const triangle: Figure<TriangleState> = {
     b: "leg up the left side, a positive number",
     c: "hypotenuse, a positive number; computed when a and b are given, and checked against them if given too",
   },
-  init: (spec, objectId, numerals) => readTriangle(spec, objectId, numerals),
+  init: (spec, objectId, reading) => readTriangle(spec, objectId, reading),
   ops: {
     square: {
       doc: '{"side": "a"|"b"|"c"} (a list builds several, or on: ["tri[a]"]) grows a square outward from that side; its area is the side length squared',
@@ -824,7 +824,7 @@ function poses(state: RearrangeState, arrangement: Arrangement): Pose[] {
 }
 
 const proofUnit = (state: RearrangeState) => PROOF_SIDE / (state.a + state.b);
-const proofTop = (state: RearrangeState) => (state.numerals ? PROOF_LABEL_BAND : 0);
+const proofTop = (state: RearrangeState) => (state.reading ? PROOF_LABEL_BAND : 0);
 const proofPoint = (state: RearrangeState, at: Point): Point => ({ x: at.x * proofUnit(state), y: proofTop(state) + at.y * proofUnit(state) });
 
 function pieceDrawables(state: RearrangeState, index: number, corner: Point, direction: Point): Drawable[] {
@@ -857,7 +857,7 @@ function holeDrawables(state: RearrangeState, opacity: Record<"a" | "b" | "c", n
     squareHole("a", 0),
     squareHole("b", a),
   ];
-  if (state.numerals) {
+  if (state.reading) {
     const spots: [string, number, Point, number][] = [
       ["c", a * a + b * b, { x: s / 2, y: s / 2 }, Math.hypot(a, b)],
       ["a", a * a, { x: a / 2, y: a / 2 }, a],
@@ -881,7 +881,7 @@ function drawProof(state: RearrangeState, placed: Pose[], opacity: Record<"a" | 
     ...placed.flatMap((pose, index) => pieceDrawables(state, index, pose.corner, pose.direction)),
     ...holeDrawables(state, opacity),
   ];
-  if (state.numerals) {
+  if (state.reading) {
     out.push(
       text("edge-a", (a * u) / 2, top - 36, fmt(a), 36, SIDE_ROLE.a),
       text("edge-b", (a + b / 2) * u, top - 36, fmt(b), 36, SIDE_ROLE.b),
@@ -899,13 +899,13 @@ const rearrange: Figure<RearrangeState> = {
     b: "the other leg, a positive number; four copies of the triangle sit inside a square of side a + b",
     arrangement: '"frame" (default): the four triangles circle a tilted square of side c; "squares": they leave a square of side a and a square of side b',
   },
-  init(spec, objectId, numerals) {
+  init(spec, objectId, reading) {
     const a = positiveField(spec, "a", objectId);
     const b = positiveField(spec, "b", objectId);
     if (a === undefined || b === undefined) fail(`${objectId}: figure "rearrange" needs both legs "a" and "b" as positive numbers`);
     const arrangement = spec.arrangement ?? "frame";
     if (arrangement !== "frame" && arrangement !== "squares") fail(`${objectId}: "arrangement" must be "frame" or "squares", got ${JSON.stringify(arrangement)}`);
-    return { figure: "rearrange", objectId, numerals, a, b, arrangement };
+    return { figure: "rearrange", objectId, reading, a, b, arrangement };
   },
   ops: {
     arrange: {
@@ -937,7 +937,7 @@ const rearrange: Figure<RearrangeState> = {
       },
     },
   },
-  size: (state) => ({ w: PROOF_SIDE, h: proofTop(state) + PROOF_SIDE + (state.numerals ? PROOF_SUM_BAND : 0) }),
+  size: (state) => ({ w: PROOF_SIDE, h: proofTop(state) + PROOF_SIDE + (state.reading ? PROOF_SUM_BAND : 0) }),
   draw: (state) => drawProof(state, poses(state, state.arrangement), holeOpacity(state.arrangement)),
 };
 
@@ -978,10 +978,9 @@ export const lab: LabDef<SpecFields, ShapesState> = {
   id: "shapes",
   title: "Numbers and shapes",
   catalog: {
-    summary: "Counting, number lines, fractions, area and right triangles, from a first count to Pythagoras. One object is one figure, chosen by \"figure\"; every number (counts, areas, side lengths) is computed here. Set \"numerals\": false for a small child: every figure then reads from pictures alone.",
+    summary: "Counting, number lines, fractions, area and right triangles, from a first count to Pythagoras. One object is one figure, chosen by \"figure\"; every number (counts, areas, side lengths) is computed here. In a Lesson with reading false, for a small child, every figure reads from pictures alone.",
     spec: {
       figure: `one of ${FIGURE_NAMES.join(", ")}`,
-      numerals: "optional, default true; false draws pictures and groups with no text at all",
       ...Object.fromEntries(Object.entries(FIGURES).map(([name, figure]) => [`figure "${name}"`, Object.entries(figure.spec).map(([field, doc]) => `${field}: ${doc}`).join("; ")])),
     },
     ops: opDocs(),
@@ -994,12 +993,10 @@ export const lab: LabDef<SpecFields, ShapesState> = {
     const name = spec.figure;
     if (typeof name !== "string" || !(name in FIGURES)) fail(`${objectId}: "figure" must be one of ${FIGURE_NAMES.join(", ")}, got ${JSON.stringify(name)}`);
     const figure = FIGURES[name as ShapesState["figure"]];
-    const known = [...Object.keys(figure.spec), "numerals"];
+    const known = [...Object.keys(figure.spec), "reading"];
     const unknown = Object.keys(spec).filter((key) => key !== "lab" && key !== "figure" && !known.includes(key));
-    if (unknown.length > 0) fail(`${objectId}: figure "${name}" has no field ${unknown.map((key) => `"${key}"`).join(", ")}; its fields are ${known.join(", ")}`);
-    const numerals = spec.numerals ?? true;
-    if (typeof numerals !== "boolean") fail(`${objectId}: "numerals" must be true or false`);
-    return figure.init(spec, objectId, numerals);
+    if (unknown.length > 0) fail(`${objectId}: figure "${name}" has no field ${unknown.map((key) => `"${key}"`).join(", ")}; its fields are ${Object.keys(figure.spec).join(", ")}`);
+    return figure.init(spec, objectId, spec.reading !== false);
   },
 
   apply: (state, op) => ({ ...opOf(state, op.name).run(state, op) }),

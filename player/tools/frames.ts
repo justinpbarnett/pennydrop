@@ -1,11 +1,12 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import { isThemeId, THEME_IDS, type ThemeId } from "../src/theme";
 import { LESSONS_ROOT } from "./load";
 
 const PLAYER_ROOT = resolve(import.meta.dir, "..");
-const DIST = join(PLAYER_ROOT, "dist");
+const DEFAULT_DIST = join(PLAYER_ROOT, "dist");
 const WIDTH = 1600;
 const HEIGHT = 900;
 const DEFAULT_FRAME_COUNT = 8;
@@ -28,18 +29,18 @@ function themesFromArgs(): ThemeId[] {
   return names as ThemeId[];
 }
 
-async function build(): Promise<void> {
-  const vite = Bun.spawn([join(PLAYER_ROOT, "node_modules/.bin/vite"), "build", "--logLevel", "error"], { cwd: PLAYER_ROOT, stdout: "inherit", stderr: "inherit" });
+async function build(outDir: string): Promise<void> {
+  const vite = Bun.spawn([join(PLAYER_ROOT, "node_modules/.bin/vite"), "build", "--logLevel", "error", "--outDir", outDir, "--emptyOutDir"], { cwd: PLAYER_ROOT, stdout: "inherit", stderr: "inherit" });
   if ((await vite.exited) !== 0) usage("vite build failed");
 }
 
-function serveDist() {
+function serveDist(dist: string) {
   return Bun.serve({
     port: 0,
     fetch(request) {
       const path = new URL(request.url).pathname;
-      const file = join(DIST, path === "/" ? "index.html" : path);
-      if (!file.startsWith(DIST) || !existsSync(file)) return new Response("not found", { status: 404 });
+      const file = join(dist, path === "/" ? "index.html" : path);
+      if (!file.startsWith(dist) || !existsSync(file)) return new Response("not found", { status: 404 });
       return new Response(Bun.file(file), { headers: { "content-type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream" } });
     },
   });
@@ -52,9 +53,10 @@ const lessonName = lessonPath.split("/").pop()!.replace(/\.jsonl$/, "");
 const themes = themesFromArgs();
 const outDir = resolve(option("out") ?? join(PLAYER_ROOT, ".frames"));
 mkdirSync(outDir, { recursive: true });
-if (!process.argv.includes("--no-build")) await build();
+const ownDist = process.argv.includes("--no-build") ? null : mkdtempSync(join(tmpdir(), "pennydrop-frames-"));
+if (ownDist) await build(ownDist);
 
-const server = serveDist();
+const server = serveDist(ownDist ?? DEFAULT_DIST);
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
 page.on("pageerror", (error) => console.error(`page error: ${error.message}`));
@@ -96,4 +98,5 @@ for (const theme of themes) {
 }
 await browser.close();
 server.stop();
+if (ownDist) rmSync(ownDist, { recursive: true, force: true });
 process.exit(differing ? 1 : 0);

@@ -52,6 +52,7 @@ export interface Frame {
 }
 
 const PATH_KINDS: DrawableKind[] = ["line", "arrow", "path"];
+const WORD_KINDS: DrawableKind[] = ["text", "code", "math"];
 const ENTER_RISE = 18;
 
 const easings = new Map<string, (progress: number) => number>();
@@ -181,8 +182,8 @@ function blend(before: Painted, after: Painted, progress: number): Painted[] {
   if (contentKey(before) === contentKey(after)) return [mixed];
   const clamped = Math.min(1, Math.max(0, progress));
   return [
-    { ...before, id: `${before.id}~out`, opacity: before.opacity * (1 - clamped) },
-    { ...mixed, opacity: after.opacity * clamped },
+    { ...mixed, kind: before.kind, text: before.text, spans: before.spans, latex: before.latex, href: before.href, id: `${before.id}~out`, opacity: before.opacity * Math.max(0, 1 - clamped * 2) },
+    { ...mixed, opacity: after.opacity * Math.max(0, clamped * 2 - 1) },
   ];
 }
 
@@ -264,6 +265,7 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme): Fra
     cy: lerp(before.camera.cy, after.camera.cy, progress),
     zoom: lerp(before.camera.zoom, after.camera.zoom, progress),
   };
-  const ordered = [...items.values()].map((item, order) => ({ item, order })).sort((a, b) => a.item.z - b.item.z || a.order - b.order);
+  const painted = timeline.startScene.reading === false ? [...items.values()].filter((item) => !WORD_KINDS.includes(item.kind)) : [...items.values()];
+  const ordered = painted.map((item, order) => ({ item, order })).sort((a, b) => a.item.z - b.item.z || a.order - b.order);
   return { items: ordered.map((entry) => entry.item), camera: camera ?? HOME_CAMERA, time };
 }

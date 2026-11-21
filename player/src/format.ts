@@ -47,6 +47,7 @@ export interface LessonHeader {
   title: string;
   goal?: string;
   labs?: string[];
+  reading?: boolean;
   start_scene?: SceneState;
 }
 

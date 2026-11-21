@@ -1,5 +1,5 @@
 import { definitionByKey, definitionKeyForSpec } from "./registry";
-import type { ObjectSpec, Relation } from "./format";
+import type { LessonHeader, ObjectSpec, Relation } from "./format";
 import { type AnyLabDef, fail, type Role } from "./lab";
 
 export interface SceneObject {
@@ -14,6 +14,7 @@ export interface SceneObject {
 export interface SceneState {
   objects: readonly SceneObject[];
   focus: string | null;
+  reading?: boolean;
 }
 
 export const EMPTY_SCENE: SceneState = { objects: [], focus: null };
@@ -22,10 +23,20 @@ export function definitionOf(object: SceneObject): AnyLabDef {
   return definitionByKey(object.defKey);
 }
 
-export function createObject(id: string, spec: ObjectSpec): SceneObject {
+export function startSceneOf(header: LessonHeader): SceneState {
+  return { ...(header.start_scene ?? EMPTY_SCENE), reading: header.reading !== false };
+}
+
+const WORD_PRIMITIVES = ["primitive:text", "primitive:code", "primitive:math"];
+
+export function createObject(id: string, spec: ObjectSpec, scene: SceneState): SceneObject {
   const defKey = definitionKeyForSpec(id, spec);
+  const reading = scene.reading !== false;
+  if (!reading && WORD_PRIMITIVES.includes(defKey)) {
+    fail(`${id}: this Lesson has "reading": false, for a child who cannot read, so it cannot use kind "${defKey.replace("primitive:", "")}" objects; show the idea with a shape, a picture or a Lab figure instead`);
+  }
   const { at, ...fields } = spec;
-  const state = definitionByKey(defKey).init(fields, id);
+  const state = definitionByKey(defKey).init({ ...fields, reading }, id);
   return at === undefined ? { id, defKey, state } : { id, defKey, state, at };
 }
 
@@ -51,13 +62,13 @@ export function upsertObject(scene: SceneState, object: SceneObject): SceneState
 export function removeObject(scene: SceneState, id: string): SceneState {
   requireObject(scene, id);
   const focus = scene.focus === id ? null : scene.focus;
-  return { objects: scene.objects.filter((entry) => entry.id !== id), focus };
+  return { ...scene, objects: scene.objects.filter((entry) => entry.id !== id), focus };
 }
 
 export function applySceneSpecs(scene: SceneState, specs: Record<string, ObjectSpec | null>): SceneState {
   let next = scene;
   for (const [id, spec] of Object.entries(specs)) {
-    next = spec === null ? removeObject(next, id) : upsertObject(next, createObject(id, spec));
+    next = spec === null ? removeObject(next, id) : upsertObject(next, createObject(id, spec, next));
   }
   return next;
 }

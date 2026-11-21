@@ -4,7 +4,7 @@ import type { Step } from "../src/format";
 import { renderFrame } from "../src/frame";
 import { loadHighlighter } from "../src/highlight";
 import { LabError } from "../src/lab";
-import { EMPTY_SCENE, type SceneState } from "../src/scene";
+import { EMPTY_SCENE, type SceneState, startSceneOf } from "../src/scene";
 import { THEMES } from "../src/theme";
 import { Timeline } from "../src/timeline";
 import { readLessonFile, registerAllLabs } from "./load";
@@ -13,6 +13,7 @@ interface Request {
   id?: string;
   scene?: SceneState | null;
   step?: Step;
+  reading?: boolean;
 }
 
 interface StepResult {
@@ -42,7 +43,7 @@ function isScene(value: unknown): value is SceneState {
 
 async function validateFile(path: string): Promise<boolean> {
   const lesson = await readLessonFile(path);
-  const timeline = new Timeline(lesson.lesson.start_scene);
+  const timeline = new Timeline(startSceneOf(lesson.lesson));
   let allOk = true;
   for (const step of lesson.steps) {
     const result = await checkStep(timeline, step);
@@ -57,7 +58,7 @@ async function answer(request: Request): Promise<object> {
   const start = request.scene ?? EMPTY_SCENE;
   if (!step) return { id, ok: false, errors: ['request needs a "step"; send {"id": "...", "scene": <SceneState or null>, "step": {...}}'], scene: start };
   if (!isScene(start)) return { id, step: step.step, ok: false, errors: ['"scene" must be null or a SceneState with "objects" and "focus", as an earlier reply returned it'], scene: null };
-  const timeline = new Timeline(start);
+  const timeline = new Timeline(request.reading === undefined ? start : { ...start, reading: request.reading });
   const result = await checkStep(timeline, step);
   return { id, ...result, scene: result.ok ? timeline.finalScene : start };
 }

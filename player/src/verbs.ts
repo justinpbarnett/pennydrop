@@ -96,7 +96,7 @@ const VERBS: Record<string, Verb> = {
     duration: 0.8,
     run(scene, op) {
       const [id] = requireIds(op, 1);
-      const object = createObject(id!, specArg(op, "spec"));
+      const object = createObject(id!, specArg(op, "spec"), scene);
       return { scene: upsertObject(scene, object), touches: [sceneTouch(id!, null, object)] };
     },
   },
@@ -134,7 +134,7 @@ const VERBS: Record<string, Verb> = {
     run(scene, op) {
       const [id] = requireIds(op, 1);
       const before = requireObject(scene, id!);
-      const after = createObject(id!, { at: before.at, ...specArg(op, "into") });
+      const after = createObject(id!, { at: before.at, ...specArg(op, "into") }, scene);
       return { scene: upsertObject(scene, after), touches: [sceneTouch(id!, before, after)] };
     },
   },
@@ -194,7 +194,7 @@ const VERBS: Record<string, Verb> = {
       requireObject(scene, to!);
       const id = typeof op.args.id === "string" ? op.args.id : `${from}-${to}`;
       const spec: ObjectSpec = { kind: "edge", from, to, directed: true, ...(op.args.label ? { label: op.args.label } : {}) };
-      const object = createObject(id, spec);
+      const object = createObject(id, spec, scene);
       return { scene: upsertObject(scene, object), touches: [sceneTouch(id, null, object)] };
     },
   },
@@ -211,7 +211,7 @@ const VERBS: Record<string, Verb> = {
       const touches: Touch[] = [sceneTouch(id!, original, null)];
       partIds.forEach((partId, index) => {
         const spec: ObjectSpec = index === 0 ? { ...parts[partId]!, at: { row: partIds } } : parts[partId]!;
-        const object = createObject(partId, spec);
+        const object = createObject(partId, spec, scene);
         if (findObject(next, partId)) fail(`op "split" part "${partId}" already exists`);
         next = upsertObject(next, object);
         touches.push(sceneTouch(partId, null, object));

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { Connect, Plugin } from "vite";
 import { defineConfig } from "vite";
 
-const LESSONS_DIR = resolve(__dirname, "../lessons");
+const LESSONS_DIR = resolve(import.meta.dirname, "../lessons");
 const SERVER = "http://127.0.0.1:8740";
 
 function lessonTitle(id: string): string {
@@ -39,6 +39,6 @@ export default defineConfig({
   preview: { port: 4173, proxy: { "/api": SERVER, "/media": SERVER } },
   build: {
     chunkSizeWarningLimit: 2500,
-    rollupOptions: { input: { index: resolve(__dirname, "index.html"), frame: resolve(__dirname, "frame.html") } },
+    rollupOptions: { input: { index: resolve(import.meta.dirname, "index.html"), frame: resolve(import.meta.dirname, "frame.html") } },
   },
 });

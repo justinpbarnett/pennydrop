@@ -89,24 +89,13 @@ A follow up Lesson (`from` set) has `lesson.start_scene`, the validator's Scene 
 Each Step the player receives is the Step JSON plus `voice: {url, duration, words: [{word, start, end}]}`.
 Without `voice` the player estimates timings from the words of `say`.
 
-### Lab module
+### Reading
 
-```ts
-export const lab: LabDef<Spec, State> = {
-  id, title,
-  catalog: { summary, spec, ops: { name: "args and meaning" }, example: [/* Step lines */] },
-  init(spec, objectId): State,
-  apply(state, op): State,
-  size(state): { w, h },
-  draw(state, ctx): Drawable[],
-  duration?(op, state): number,
-  during?(before, after, op, progress, ctx): Drawable[],
-}
-```
-
-`init` and `apply` throw a `LabError` with a message the writer can act on.
-`duration` gets the state before the op, so a long run can take longer.
-Roles `series1` to `series6` give each item in a set its own color in every Theme.
+The Lesson header has `reading` (boolean, default true).
+The server sets it to false for a kid Profile, and the writer never sets it.
+The player's Scene builder passes it to every Lab as the spec field `reading` when it calls `init`, so a Lab with `spec.reading === false` sizes and draws with no words, numbers or units.
+The validator rejects `text`, `code` and `math` objects in such a Lesson, and the frame painter drops any text, code or math drawable as the last guarantee.
+The validator's stdin request takes `reading` as well, so the server can check a kid Lesson one Step at a time.
 
 ## Work board
 
@@ -116,12 +105,17 @@ Roles `series1` to `series6` give each item in a set its own color in every Them
 | Server core: config, gateway, JEV, store, TTS seam with Kokoro, intake, tracer, API, CLI | Sonnet agent | done, `ec669f0` |
 | Player fixes: stateless validator per contract, `start_scene`, real font metrics, even code panel padding, caption aligned to stage, Challenge card, lazy KaTeX and Shiki, drop the `plot` alias | player core agent | done, `d1eaaea` |
 | Player polish: caption highlighter, lining clock numerals, no literal em dash in font metrics, console 404; then the Ask UI with mic, streaming Steps and follow-ups | player core agent | running |
-| M2 Ask pipeline (server): catalog, JEV classify, streamed writer, directives, validator with redo, TTS per Step, live events, timing and cost, `pd ask`, `pd bench` | Sonnet agent | running |
+| M2 Ask pipeline (server): catalog, JEV classify, streamed writer, directives, validator with redo, TTS per Step, live events, timing and cost, `pd ask`, `pd bench` | Sonnet agent | first round done, `5dc8129`; running: latency, directives package, bench to the bar, kid content check |
 | `address` Lab and `lessons/page-table-walk.jsonl` | Sonnet agent | done, `8e51db5` |
-| `shapes` Lab and `lessons/pythagoras.jsonl` | Sonnet agent | running |
-| M3 player Labs `code`, `graph`, `scheduler`, `threads`, each with scratch Lessons; their server expansion (trace to code and graph, `simulate` for scheduler and threads) follows once M2 lands | four Sonnet agents | `code` done `14c8338`, `scheduler` done; `graph` and `threads` running |
-| ElevenLabs adapter: works on the free plan (eleven_v3, 4 s for one line, word timings). Fix: `duration` must come from the audio (3.20 s) not the last word end (2.88 s), and a `pcm` output must be written as a real wav | server agent after M2 | open |
-| Next: M1 close (serve, tailnet, Chrome check, push), M4 kids mode | build session | waiting |
+| `shapes` Lab, layout centering and `lessons/pythagoras.jsonl` | Sonnet agent | done, `8fcb470` |
+| Math size from the real typesetter, text change transition, flaky `--check`, the `reading` header contract | shapes agent | done; next: scene replacement fades out then in, true ink margins, race free `--no-build` |
+| M3 player Labs `code`, `graph`, `scheduler`, `threads`, each with scratch Lessons; their server expansion (trace to code and graph, `simulate` for scheduler and threads) follows once the directives package lands | four Sonnet agents | done: `code` `14c8338`, `scheduler` `a93f995`, `threads` `4cc3bcf`, `graph` `fe03ae5` |
+| ElevenLabs adapter: works on the free plan (eleven_v3, 4 s for one line, word timings). Fix: `duration` must come from the audio (3.20 s) not the last word end (2.88 s), and a `pcm` output must be written as a real wav | M2 agent | running |
+| M4 `physics` Lab: fixed step integrator, launch, drop, ramp, pendulum, orbit, vectors | Sonnet agent | running |
+| M4 `picture` Lab: show, point, zoom, label on CC0 images, image crop and decode wait | Sonnet agent | running |
+| M5 Mint: codex through the gateway, checks and visual judge, minted Labs at runtime, Lab requests, the nine Labs | Sonnet agent | running |
+| M6 Film format, renderer, sound kit, mix to -14 LUFS, `pd film render` and `pd film check`, a 60 s sample | Sonnet agent | running |
+| Next: M1 close (serve, tailnet, Chrome check, push), M3 generated Lessons, M4 kids PWA and lesson log, M5 Course and review queue, M6 pilots and voice A/B | build session | waiting |
 
 ### Server facts for later work
 

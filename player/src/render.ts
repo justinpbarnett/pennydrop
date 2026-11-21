@@ -216,9 +216,10 @@ export class StageRenderer {
         const holder = element.firstElementChild as HTMLElement;
         if (live.signature !== item.latex) {
           live.signature = item.latex ?? "";
-          holder.innerHTML = typeset(item.latex ?? "");
+          holder.innerHTML = typeset(item.latex ?? "").svg;
         }
-        holder.style.fontSize = `${item.size}px`;
+        const svgElement = holder.firstElementChild;
+        if (svgElement) setAttributes(svgElement as SVGElement, { width: w, height: h });
         holder.style.color = paintCss(item.fill);
         break;
       }
