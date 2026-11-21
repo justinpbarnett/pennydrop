@@ -34,6 +34,8 @@ export interface Drawable {
   spans?: Span[];
   latex?: string;
   href?: string;
+  crop?: Rect;
+  clip?: Rect;
   size?: number;
   font?: FontRole;
   anchor?: "start" | "middle" | "end";

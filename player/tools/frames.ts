@@ -5,13 +5,14 @@ import { isThemeId, THEME_IDS, type ThemeId } from "../src/theme";
 import { LESSONS_ROOT } from "./load";
 
 const PLAYER_ROOT = resolve(import.meta.dir, "..");
+const MEDIA_ROOT = resolve(PLAYER_ROOT, "../data/media");
 const BUILD_CACHE = join(PLAYER_ROOT, "node_modules/.cache/pennydrop-frames");
 const BUILD_INPUTS = ["src", "public", "vite.config.ts", "package.json", "pnpm-lock.yaml", "tsconfig.json"];
 const STALE_BUILD_MS = 60 * 60 * 1000;
 const WIDTH = 1600;
 const HEIGHT = 900;
 const DEFAULT_FRAME_COUNT = 8;
-const CONTENT_TYPES: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".svg": "image/svg+xml" };
+const CONTENT_TYPES: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -84,6 +85,7 @@ function serveDist(dist: string, mintedDir: string | undefined) {
         return Response.json(ids.map((id) => ({ id, url: `/api/minted-labs/${id}.js` })));
       }
       const [root, relativePath] = mintedDir && path.startsWith("/api/minted-labs/") ? [mintedDir, path.slice("/api/minted-labs".length)]
+        : path.startsWith("/media/") ? [MEDIA_ROOT, path.slice("/media".length)]
         : [dist, path === "/" ? "index.html" : path];
       const file = join(root, relativePath);
       if (!file.startsWith(root) || !existsSync(file)) return new Response("not found", { status: 404 });
@@ -126,6 +128,7 @@ if (times.some(Number.isNaN)) usage("--times must be comma separated seconds");
 async function shoot(theme: ThemeId, time: number): Promise<Buffer> {
   await page.evaluate(([id, at]) => { window.pennydrop.setTheme(id as ThemeId); window.pennydrop.seek(at as number); }, [theme, time]);
   await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(() => window.pennydrop.imagesReady());
   return page.screenshot();
 }
 

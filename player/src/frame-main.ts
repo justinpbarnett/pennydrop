@@ -15,6 +15,7 @@ interface PennydropFrameApi {
   setTheme(id: ThemeId): void;
   duration(): number;
   stepErrors(): string[];
+  imagesReady(): Promise<void>;
   ready: Promise<void>;
 }
 
@@ -60,6 +61,7 @@ window.pennydrop = {
   },
   duration: () => playback.timeline.duration,
   stepErrors: () => playback.timeline.steps.flatMap((span) => span.errors.map((message) => (message.startsWith(`step ${span.step.step}`) ? message : `step ${span.step.step}: ${message}`))),
+  imagesReady: () => renderer.imagesReady(),
 };
 
 playback.subscribe(draw);

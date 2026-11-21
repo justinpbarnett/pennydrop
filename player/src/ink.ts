@@ -59,7 +59,11 @@ function extentOf(drawable: Drawable, theme: Theme): Extent | null {
   const ys = points.filter((_, index) => index % 2 === 1);
   const stroked = drawable.stroke !== undefined && drawable.stroke !== "none";
   const half = stroked ? strokeWidth / 2 : 0;
-  return [Math.min(...xs) - half, Math.min(...ys) - half, Math.max(...xs) + half, Math.max(...ys) + half];
+  const extent: Extent = [Math.min(...xs) - half, Math.min(...ys) - half, Math.max(...xs) + half, Math.max(...ys) + half];
+  const { clip } = drawable;
+  if (!clip) return extent;
+  const inside: Extent = [Math.max(extent[0], clip.x), Math.max(extent[1], clip.y), Math.min(extent[2], clip.x + clip.w), Math.min(extent[3], clip.y + clip.h)];
+  return inside[0] < inside[2] && inside[1] < inside[3] ? inside : null;
 }
 
 export function reachOf(drawables: Drawable[], size: Size, theme: Theme): Reach {

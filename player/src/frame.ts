@@ -1,7 +1,7 @@
 import { gsap } from "gsap";
 import { definitionOf, type SceneState } from "./scene";
 import { type Camera, buildStage, HOME_CAMERA, type PlacedObject, placeDrawables, type Stage } from "./stage";
-import type { Drawable, DrawableKind, Paint } from "./lab";
+import type { Drawable, DrawableKind, Paint, Rect } from "./lab";
 import { lerp } from "./lab";
 import { parseHex, type Rgba, type Theme } from "./theme";
 import type { Timeline } from "./timeline";
@@ -29,6 +29,8 @@ export interface Painted {
   spans?: PaintedSpan[];
   latex?: string;
   href?: string;
+  crop?: Rect;
+  clip?: Rect;
   size: number;
   fontFamily: string;
   fontWeight: number;
@@ -90,6 +92,8 @@ function paintDrawable(drawable: Drawable, theme: Theme): Painted {
     spans: drawable.spans?.map((span) => ({ text: span.text, color: parseHex(theme.colors[span.role]) })),
     latex: drawable.latex,
     href: drawable.href,
+    crop: drawable.crop,
+    clip: drawable.clip,
     size: drawable.size ?? 28,
     fontFamily: font.family,
     fontWeight: font.weight,
@@ -156,6 +160,11 @@ function mixPoints(before: number[] | undefined, after: number[] | undefined, pr
   return from.map((value, index) => lerp(value, to[index]!, progress));
 }
 
+function mixCrop(before: Rect | undefined, after: Rect | undefined, progress: number): Rect | undefined {
+  if (!before || !after) return after ?? before;
+  return { x: lerp(before.x, after.x, progress), y: lerp(before.y, after.y, progress), w: lerp(before.w, after.w, progress), h: lerp(before.h, after.h, progress) };
+}
+
 function contentKey(item: Painted): string {
   return `${item.kind}|${item.text ?? ""}|${item.latex ?? ""}|${item.href ?? ""}|${item.spans?.map((span) => span.text).join("") ?? ""}`;
 }
@@ -180,6 +189,8 @@ function blend(before: Painted, after: Painted, progress: number): Painted[] {
     z: lerp(before.z, after.z, progress),
     rotation: lerp(before.rotation, after.rotation, progress),
     draw: mixOptional(before.draw, after.draw, progress),
+    crop: mixCrop(before.crop, after.crop, progress),
+    clip: mixCrop(before.clip, after.clip, progress),
   };
   if (contentKey(before) === contentKey(after)) return [mixed];
   const clamped = Math.min(1, Math.max(0, progress));

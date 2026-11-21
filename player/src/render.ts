@@ -35,24 +35,47 @@ function polyline(points: number[], closed: boolean): string {
   return `M${pairs.join(" L")}${closed ? " Z" : ""}`;
 }
 
+const decodings = new Map<string, Promise<void>>();
+const decoded = new Set<string>();
+
+function decodeImage(href: string): Promise<void> {
+  let decoding = decodings.get(href);
+  if (!decoding) {
+    const image = new Image();
+    image.src = href;
+    decoding = image.decode().then(
+      () => { decoded.add(href); },
+      () => { throw new Error(`image ${href} did not load or decode`); },
+    );
+    decodings.set(href, decoding);
+  }
+  return decoding;
+}
+
+const nextPaint = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
 interface Live {
   element: SVGElement;
   kind: string;
   signature: string;
+  clip: SVGClipPathElement | null;
 }
 
 export class StageRenderer {
   private readonly camera = svg("g");
   private readonly backdrop = svg("g");
   private readonly defs = svg("defs");
+  private readonly clips = svg("defs");
   private readonly live = new Map<string, Live>();
+  private readonly imagesInFrame = new Set<string>();
+  private clipCount = 0;
   private grainSeed: SVGElement | null = null;
   private backdropTheme: ThemeId | null = null;
 
-  constructor(root: SVGSVGElement) {
+  constructor(private readonly root: SVGSVGElement) {
     root.setAttribute("viewBox", `0 0 ${STAGE.w} ${STAGE.h}`);
     root.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    root.replaceChildren(this.defs, this.backdrop, this.camera);
+    root.replaceChildren(this.defs, this.clips, this.backdrop, this.camera);
   }
 
   draw(frame: Frame, theme: Theme): void {
@@ -62,6 +85,7 @@ export class StageRenderer {
     this.camera.setAttribute("transform", `translate(${STAGE.w / 2} ${STAGE.h / 2}) scale(${zoom}) translate(${-cx} ${-cy})`);
 
     const wanted = new Set<string>();
+    this.imagesInFrame.clear();
     frame.items.forEach((item, index) => {
       wanted.add(item.id);
       const live = this.elementFor(item);
@@ -70,7 +94,7 @@ export class StageRenderer {
     });
     for (const [id, live] of this.live) {
       if (!wanted.has(id)) {
-        live.element.remove();
+        this.discard(live);
         this.live.delete(id);
       }
     }
@@ -134,11 +158,34 @@ export class StageRenderer {
   private elementFor(item: Painted): Live {
     const existing = this.live.get(item.id);
     if (existing && existing.kind === item.kind) return existing;
-    existing?.element.remove();
+    if (existing) this.discard(existing);
     const element = this.create(item);
-    const live = { element, kind: item.kind, signature: "" };
+    const live = { element, kind: item.kind, signature: "", clip: null };
     this.live.set(item.id, live);
     return live;
+  }
+
+  private discard(live: Live): void {
+    live.element.remove();
+    live.clip?.remove();
+  }
+
+  private clipTo(live: Live, clip: Painted["clip"]): void {
+    if (!clip) {
+      if (live.clip) {
+        live.clip.remove();
+        live.clip = null;
+        live.element.removeAttribute("clip-path");
+      }
+      return;
+    }
+    if (!live.clip) {
+      live.clip = svg("clipPath", { id: `clip-${this.clipCount++}` });
+      live.clip.append(svg("rect"));
+      this.clips.append(live.clip);
+      live.element.setAttribute("clip-path", `url(#${live.clip.id})`);
+    }
+    setAttributes(live.clip.firstElementChild!, { x: clip.x, y: clip.y, width: clip.w, height: clip.h });
   }
 
   private create(item: Painted): SVGElement {
@@ -156,7 +203,11 @@ export class StageRenderer {
         object.append(holder);
         return object;
       }
-      case "image": return svg("image");
+      case "image": {
+        const holder = svg("svg", { overflow: "hidden" });
+        holder.append(svg("image"));
+        return holder;
+      }
     }
   }
 
@@ -168,6 +219,7 @@ export class StageRenderer {
       "data-part": item.part ?? null,
     };
     setAttributes(element, common);
+    this.clipTo(live, item.clip);
     const stroke = { fill: paintCss(item.fill), stroke: paintCss(item.stroke), "stroke-width": item.strokeWidth };
     const dash = item.draw !== undefined && item.draw < 1
       ? { pathLength: 1, "stroke-dasharray": 1, "stroke-dashoffset": 1 - Math.max(0, item.draw) }
@@ -224,9 +276,48 @@ export class StageRenderer {
         break;
       }
       case "image":
-        setAttributes(element, { x: item.x - (item.w ?? 0) / 2, y: item.y - (item.h ?? 0) / 2, width: item.w ?? 0, height: item.h ?? 0, href: item.href ?? "", preserveAspectRatio: "xMidYMid meet" });
+        this.updateImage(element, item);
         break;
     }
+  }
+
+  private updateImage(holder: SVGElement, item: Painted): void {
+    const [w, h] = [item.w ?? 0, item.h ?? 0];
+    const href = item.href ?? "";
+    const { crop } = item;
+    setAttributes(holder, {
+      x: item.x - w / 2,
+      y: item.y - h / 2,
+      width: w,
+      height: h,
+      viewBox: crop ? `${crop.x} ${crop.y} ${crop.w} ${crop.h}` : `0 0 ${w} ${h}`,
+      preserveAspectRatio: "none",
+    });
+    const picture = holder.firstElementChild!;
+    setAttributes(picture, crop
+      ? { x: 0, y: 0, width: 1, height: 1, href, preserveAspectRatio: "none" }
+      : { x: 0, y: 0, width: w, height: h, href, preserveAspectRatio: "xMidYMid meet" });
+    this.imagesInFrame.add(href);
+    if (decoded.has(href)) {
+      holder.removeAttribute("visibility");
+      return;
+    }
+    holder.setAttribute("visibility", "hidden");
+    decodeImage(href).then(() => {
+      if (picture.getAttribute("href") === href) holder.removeAttribute("visibility");
+    }, () => undefined);
+  }
+
+  private invalidateEverything(): void {
+    this.root.style.visibility = "hidden";
+    this.root.getBoundingClientRect();
+    this.root.style.visibility = "";
+  }
+
+  async imagesReady(): Promise<void> {
+    await Promise.all([...this.imagesInFrame].map(decodeImage));
+    this.invalidateEverything();
+    await nextPaint();
   }
 
   partAt(target: EventTarget | null): string | null {
