@@ -33,27 +33,44 @@ interface ArraySpec {
   window?: [number, number];
 }
 
-const BAND_ABOVE = 104;
-const BAND_BELOW = 150;
-const WINDOW_Y = 84;
-const COUNTER_Y = 24;
 const MIN_WIDTH = 480;
+const COUNTER_Y = 22;
+const COUNTER_BAND = 58;
+const WINDOW_BAND = 30;
+const WINDOW_RISE = 24;
+const MIN_TOP = 20;
+const INDEX_BOTTOM = 35;
+const BOTTOM_MARGIN = 22;
+const POINTER_TIP = 48;
+const POINTER_LABEL = 51;
+const POINTER_REACH = 67;
+const POINTER_LEVEL = 80;
+const MAX_ARC = 64;
 
-function metrics(count: number) {
+function metrics(state: ArrayState) {
+  const count = state.cells.length;
   const cell = count <= 6 ? 140 : count <= 8 ? 110 : Math.max(44, Math.floor(1000 / count) - 10);
   const gap = Math.round(cell * 0.13);
   const rowWidth = count * (cell + gap) - gap;
   const width = Math.max(rowWidth, MIN_WIDTH);
-  return { cell, gap, width, offset: (width - rowWidth) / 2, height: BAND_ABOVE + cell + BAND_BELOW };
+  const top = Math.max(MIN_TOP, (state.counters.length > 0 ? COUNTER_BAND : 0) + (state.window ? WINDOW_BAND : 0));
+  const levels = state.pointers.length === 0 ? 0 : Math.max(...state.pointers.map((pointer) => pointerLevel(state, pointer)));
+  const below = (state.pointers.length === 0 ? INDEX_BOTTOM : POINTER_TIP + POINTER_REACH + levels * POINTER_LEVEL) + BOTTOM_MARGIN;
+  return { cell, gap, width, offset: (width - rowWidth) / 2, top, height: top + cell + below };
+}
+
+function pointerLevel(state: ArrayState, pointer: Pointer): number {
+  return state.pointers.filter((other) => other.slot === pointer.slot).indexOf(pointer);
 }
 
 function slotCenterX(state: ArrayState, slot: number): number {
-  const { cell, gap, offset } = metrics(state.cells.length);
+  const { cell, gap, offset } = metrics(state);
   return offset + slot * (cell + gap) + cell / 2;
 }
 
 function cellCenterY(state: ArrayState): number {
-  return BAND_ABOVE + metrics(state.cells.length).cell / 2;
+  const { top, cell } = metrics(state);
+  return top + cell / 2;
 }
 
 function readValues(values: unknown, objectId: string): Cell[] {
@@ -126,7 +143,7 @@ const SLOT_STYLE: Record<string, { stroke: Role; fill: Role }> = {
 };
 
 function cellDrawables(state: ArrayState, cell: Cell, slot: number, at: { x: number; y: number; scale?: number }): Drawable[] {
-  const { cell: size } = metrics(state.cells.length);
+  const { cell: size } = metrics(state);
   const role = state.slotRoles[slot] ?? "none";
   const style = SLOT_STYLE[role]!;
   const scale = at.scale ?? 1;
@@ -160,27 +177,25 @@ function counterDrawables(state: ArrayState, values: Map<string, string>): Drawa
 }
 
 function pointerDrawables(state: ArrayState): Drawable[] {
-  const { cell } = metrics(state.cells.length);
-  const bottom = BAND_ABOVE + cell;
-  const stackIndex = new Map<number, number>();
+  const { top, cell } = metrics(state);
+  const bottom = top + cell;
   return state.pointers.flatMap((pointer) => {
-    const level = stackIndex.get(pointer.slot) ?? 0;
-    stackIndex.set(pointer.slot, level + 1);
     const x = slotCenterX(state, pointer.slot);
-    const tip = bottom + 44 + level * 52;
+    const tip = bottom + POINTER_TIP + pointerLevel(state, pointer) * POINTER_LEVEL;
     return [
       { id: `pointer-${pointer.name}`, kind: "path" as const, x, y: tip, points: [x, tip, x - 13, tip + 22, x + 13, tip + 22], closed: true, fill: "active" as const, stroke: "none" as const, z: 3 },
-      { id: `pointer-${pointer.name}-label`, kind: "text" as const, x, y: tip + 46, text: pointer.name, size: 32, font: "read" as const, fill: "active" as const, z: 3 },
+      { id: `pointer-${pointer.name}-label`, kind: "text" as const, x, y: tip + POINTER_LABEL, text: pointer.name, size: 32, font: "read" as const, fill: "active" as const, z: 3 },
     ];
   });
 }
 
 function windowDrawable(state: ArrayState): Drawable[] {
   if (!state.window) return [];
-  const { cell } = metrics(state.cells.length);
+  const { top, cell } = metrics(state);
   const left = slotCenterX(state, state.window[0]) - cell / 2;
   const right = slotCenterX(state, state.window[1]) + cell / 2;
-  return [{ id: "window", kind: "path", x: left, y: WINDOW_Y, points: [left, WINDOW_Y + 14, left, WINDOW_Y, right, WINDOW_Y, right, WINDOW_Y + 14], fill: "none", stroke: "accent", strokeWidth: 2.4, z: 3 }];
+  const y = top - WINDOW_RISE;
+  return [{ id: "window", kind: "path", x: left, y, points: [left, y + 14, left, y, right, y, right, y + 14], fill: "none", stroke: "accent", strokeWidth: 2.4, z: 3 }];
 }
 
 function swappedSlots(before: ArrayState, after: ArrayState): { cell: Cell; from: number; to: number }[] {
@@ -204,7 +219,7 @@ function swapArcs(before: ArrayState, after: ArrayState, progress: number): Draw
   const lift = Math.sin(Math.PI * progress);
   return swappedSlots(before, after).flatMap(({ cell, from, to }) => {
     const distance = Math.abs(slotCenterX(after, to) - slotCenterX(after, from));
-    const arc = Math.min(90, distance * 0.42) * lift * (to > from ? -1 : 1);
+    const arc = Math.min(MAX_ARC, distance * 0.42) * lift * (to > from ? -1 : 1);
     return cellDrawables(after, cell, to, { x: lerp(slotCenterX(after, from), slotCenterX(after, to), progress), y: y + arc, scale: 1 + 0.08 * lift }).map((drawable) => ({ ...drawable, z: (drawable.z ?? 0) + (to > from ? 10 : 0) }));
   });
 }
@@ -343,15 +358,16 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
   },
 
   size(state) {
-    const { width, height } = metrics(state.cells.length);
+    const { width, height } = metrics(state);
     return { w: width, h: height };
   },
 
   draw(state) {
     const y = cellCenterY(state);
+    const { top, cell: cellSize } = metrics(state);
     const cells = state.cells.flatMap((cell, slot) => cellDrawables(state, cell, slot, { x: slotCenterX(state, slot), y }));
     const indices = state.cells.map((_, slot): Drawable => ({
-      id: `index-${slot}`, kind: "text", x: slotCenterX(state, slot), y: BAND_ABOVE + metrics(state.cells.length).cell + 24,
+      id: `index-${slot}`, kind: "text", x: slotCenterX(state, slot), y: top + cellSize + 24,
       text: String(slot), size: 22, font: "read", fill: "muted",
     }));
     return [...cells, ...indices, ...pointerDrawables(state), ...windowDrawable(state), ...counterDrawables(state, new Map())];

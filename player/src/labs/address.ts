@@ -1,4 +1,5 @@
 import { type Drawable, fail, type LabDef, type LabOp, type Role } from "../lab";
+import { textWidth } from "../text-metrics";
 
 interface Field {
   name: string;
@@ -82,14 +83,15 @@ interface Connector {
 const BASE_WIDTH = 1480;
 const COLUMN_WIDTH = 290;
 const COLUMN_GAP = 84;
-const SIDE_MARGIN = 60;
+const LANE_GAP = 24;
 const DIGIT_PITCH = 52;
 const GROUP_GAP = 44;
-const BAND_LABEL_ROOM = 340;
+const LABEL_GAP = 44;
+const PANEL_BOTTOM_MARGIN = 13;
 const VIRTUAL_Y = 60;
 const FIELD_ARROW_Y = 182;
 const PANEL_TOP = 232;
-const HEADER_HEIGHT = 76;
+const HEADER_HEIGHT = 84;
 const MAX_ENTRIES_PER_TABLE = 6;
 const MAX_TLB_SLOTS = 8;
 const MAX_BITS = 48;
@@ -191,9 +193,33 @@ function readTlb(tlb: unknown, pageLimit: number, objectId: string): { slots: nu
   return { slots, entries };
 }
 
-function bandWidth(state: AddressState): number {
+function labelRoom(state: AddressState): number {
+  return Math.ceil(textWidth(hex(2 ** state.bits - 1, hexWidth(state.bits)), 40, "read")) + LABEL_GAP;
+}
+
+function digitPitch(state: AddressState): number {
+  const groups = state.fields.length + 1;
+  const bits = state.fields.reduce((sum, field) => sum + field.bits, state.offsetBits);
+  return Math.max(20, Math.min(DIGIT_PITCH, Math.floor((BASE_WIDTH - labelRoom(state) - (groups - 1) * GROUP_GAP) / bits)));
+}
+
+function digitsRight(state: AddressState): number {
+  const groups = state.fields.length + 1;
+  const bits = state.fields.reduce((sum, field) => sum + field.bits, state.offsetBits);
+  return labelRoom(state) + bits * digitPitch(state) + (groups - 1) * GROUP_GAP;
+}
+
+function columnsWidth(state: AddressState): number {
   const columns = state.fields.length + (state.slots === null ? 0 : 1);
-  return Math.max(BASE_WIDTH, columns * COLUMN_WIDTH + (columns - 1) * COLUMN_GAP + 2 * SIDE_MARGIN);
+  return columns * COLUMN_WIDTH + (columns - 1) * COLUMN_GAP;
+}
+
+function columnsCenter(state: AddressState): number {
+  return Math.max((labelRoom(state) + digitsRight(state)) / 2, columnsWidth(state) / 2);
+}
+
+function canvasWidth(state: AddressState): number {
+  return Math.max(digitsRight(state), columnsCenter(state) + columnsWidth(state) / 2 + LANE_GAP);
 }
 
 function rowHeight(state: AddressState): number {
@@ -216,15 +242,18 @@ function physicalY(state: AddressState): number {
   return laneY(state) + 92;
 }
 
+function captionShown(state: AddressState): boolean {
+  const access = state.access;
+  return access !== null && (access.lookup !== "none" || access.hops.length > 0);
+}
+
 function totalHeight(state: AddressState): number {
-  if (state.access?.physical == null) return captionY(state) + 66;
+  if (state.access?.physical == null) return captionShown(state) ? captionY(state) + 72 : PANEL_TOP + panelHeight(state) + PANEL_BOTTOM_MARGIN;
   return physicalY(state) + 130;
 }
 
 function columnX(state: AddressState, column: number): number {
-  const columns = state.fields.length + (state.slots === null ? 0 : 1);
-  const total = columns * COLUMN_WIDTH + (columns - 1) * COLUMN_GAP;
-  return (bandWidth(state) - total) / 2 + column * (COLUMN_WIDTH + COLUMN_GAP);
+  return columnsCenter(state) - columnsWidth(state) / 2 + column * (COLUMN_WIDTH + COLUMN_GAP);
 }
 
 function levelColumn(state: AddressState, level: number): number {
@@ -238,8 +267,8 @@ function rowY(state: AddressState, row: number): number {
 function band(state: AddressState, widths: number[], split: boolean, alignedTo: Band | null = null): Band {
   const bits = widths.reduce((sum, width) => sum + width, 0);
   const gaps = split ? widths.length - 1 : 0;
-  const pitch = alignedTo?.pitch ?? Math.max(20, Math.min(DIGIT_PITCH, Math.floor((bandWidth(state) - BAND_LABEL_ROOM - gaps * GROUP_GAP) / bits)));
-  const left = alignedTo ? alignedTo.groups.at(-1)!.right - (bits * pitch + gaps * GROUP_GAP) : (bandWidth(state) - (bits * pitch + gaps * GROUP_GAP)) / 2;
+  const pitch = alignedTo?.pitch ?? digitPitch(state);
+  const left = alignedTo ? alignedTo.groups.at(-1)!.right - (bits * pitch + gaps * GROUP_GAP) : labelRoom(state);
   const bitX: number[] = [];
   const groups: Band["groups"] = [];
   let bit = 0;
@@ -278,7 +307,7 @@ interface GroupLabel {
 
 function bandDrawables(state: AddressState, prefix: string, label: string, value: number, valueRole: Role, y: number, layout: Band, labels: GroupLabel[] | null, digitRole: (group: number) => Role): Drawable[] {
   const out: Drawable[] = [
-    { id: `${prefix}-label`, kind: "text", x: 0, y: y - 30, text: label, size: 24, font: "read", anchor: "start", fill: "muted" },
+    { id: `${prefix}-label`, kind: "text", x: 0, y: y - 35, text: label, size: 24, font: "read", anchor: "start", fill: "muted" },
     { id: `${prefix}-hex`, kind: "text", x: 0, y: y + 10, text: hex(value, hexWidth(state.bits)), size: 40, font: "read", anchor: "start", fill: valueRole },
   ];
   const text = binary(value, state.bits);
@@ -292,7 +321,7 @@ function bandDrawables(state: AddressState, prefix: string, label: string, value
     const right = group.right - 4;
     out.push(
       { id: `${prefix}-bracket-${index}`, kind: "path", x: left, y: y + 50, points: [left, y + 50, left, y + 62, right, y + 62, right, y + 50], fill: "none", stroke: entry.bracketRole, strokeWidth: 2, z: 1 },
-      { id: `${prefix}-name-${index}`, kind: "text", x: group.center, y: y + 98, text: entry.text, size: 32, font: "read", fill: entry.textRole, z: 1 },
+      { id: `${prefix}-name-${index}`, kind: "text", x: group.center, y: y + 92, text: entry.text, size: 32, font: "read", fill: entry.textRole, z: 1 },
     );
   });
   return out;
@@ -335,10 +364,10 @@ function panelRect(state: AddressState, id: string, column: number, fill: "fill"
 function header(state: AddressState, id: string, column: number, title: string, sub: string, badge: { text: string; role: Role } | null, titleRole: Role): Drawable[] {
   const x = columnX(state, column);
   const out: Drawable[] = [
-    { id: `${id}-title`, kind: "text", x: x + 18, y: PANEL_TOP + 26, text: title, size: 28, font: "read", anchor: "start", fill: titleRole, z: 1 },
-    { id: `${id}-sub`, kind: "text", x: x + 18, y: PANEL_TOP + 58, text: sub, size: 22, font: "read", anchor: "start", fill: "muted", z: 1 },
+    { id: `${id}-title`, kind: "text", x: x + 18, y: PANEL_TOP + 24, text: title, size: 28, font: "read", anchor: "start", fill: titleRole, z: 1 },
+    { id: `${id}-sub`, kind: "text", x: x + 18, y: PANEL_TOP + 62, text: sub, size: 22, font: "read", anchor: "start", fill: "muted", z: 1 },
   ];
-  if (badge) out.push({ id: `${id}-badge`, kind: "text", x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 26, text: badge.text, size: 28, font: "mark", anchor: "end", fill: badge.role, z: 1 });
+  if (badge) out.push({ id: `${id}-badge`, kind: "text", x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 24, text: badge.text, size: 28, font: "mark", anchor: "end", fill: badge.role, z: 1 });
   return out;
 }
 
@@ -367,7 +396,7 @@ function caption(state: AddressState, id: string, column: number, first: string,
   const center = columnX(state, column) + COLUMN_WIDTH / 2;
   return [
     { id: `${id}-caption-1`, kind: "text", x: center, y: captionY(state) + 14, text: first, size: 26, font: "read", fill: firstRole },
-    { id: `${id}-caption-2`, kind: "text", x: center, y: captionY(state) + 44, text: second, size: 22, font: "read", fill: "muted" },
+    { id: `${id}-caption-2`, kind: "text", x: center, y: captionY(state) + 50, text: second, size: 22, font: "read", fill: "muted" },
   ];
 }
 
@@ -403,7 +432,7 @@ function levelDrawables(state: AddressState, level: number): Drawable[] {
       const center = columnX(state, column) + COLUMN_WIDTH / 2;
       const middle = PANEL_TOP + panelHeight(state) / 2;
       out.push(
-        { id: `${id}-ptbr`, kind: "text", x: center, y: middle - 22, text: "PTBR", size: 26, font: "read", fill: "muted" },
+        { id: `${id}-ptbr`, kind: "text", x: center, y: middle - 28, text: "PTBR", size: 26, font: "read", fill: "muted" },
         { id: `${id}-ptbr-value`, kind: "text", x: center, y: middle + 18, text: hex(state.tables[state.root]!.base, hexWidth(state.bits)), size: 40, font: "read", fill: "ink" },
       );
     }
@@ -460,7 +489,7 @@ function connectors(state: AddressState): Connector[] {
     const source = hit
       ? { right: columnX(state, 0) + COLUMN_WIDTH - 12, y: rowY(state, access.tlbSlot!) }
       : selectedRowCenter(state, state.fields.length - 1);
-    const lane = (hit ? columnX(state, 0) : columnX(state, levelColumn(state, state.fields.length - 1))) + COLUMN_WIDTH + 36;
+    const lane = (hit ? columnX(state, 0) : columnX(state, levelColumn(state, state.fields.length - 1))) + COLUMN_WIDTH + LANE_GAP;
     out.push({ id: "c-physical", role: "ok", points: [[source.right, source.y], [lane, source.y], [lane, laneY(state)], [frameGroup.center, laneY(state)], [frameGroup.center, physicalY(state) - 44]] });
   }
   return out;
@@ -664,7 +693,7 @@ export const lab: LabDef<AddressSpec, AddressState> = {
   },
 
   size(state) {
-    return { w: bandWidth(state), h: totalHeight(state) };
+    return { w: canvasWidth(state), h: totalHeight(state) };
   },
 
   draw(state) {

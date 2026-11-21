@@ -84,7 +84,7 @@ const TRACK_HEIGHT = 64;
 const TRACK_LEFT = 84;
 const TRACK_WIDTH = 1380;
 const TICK_LENGTH = 10;
-const TICK_LABEL_OFFSET = 32;
+const TICK_LABEL_OFFSET = 34;
 const BOTTOM_MARGIN = 50;
 
 const CARD_WIDTH = 128;
@@ -334,8 +334,8 @@ function cardDrawables(state: SchedulerState, id: string, frame: CardFrame, rema
   const left = `${formatTime(remaining)} left`;
   return [
     card,
-    textDrawable(`card-${id}-name`, id, { x: frame.x, y: frame.y - 14 }, { size: fitText(id, 34, room, "mark"), font: "mark", fill: process.color, z: textZ, part }),
-    textDrawable(`card-${id}-left`, left, { x: frame.x, y: frame.y + 20 }, { size: fitText(left, 22, room, "read"), fill: "muted", z: textZ, part }),
+    textDrawable(`card-${id}-name`, id, { x: frame.x, y: frame.y - 18 }, { size: fitText(id, 34, room, "mark"), font: "mark", fill: process.color, z: textZ, part }),
+    textDrawable(`card-${id}-left`, left, { x: frame.x, y: frame.y + 23 }, { size: fitText(left, 22, room, "read"), fill: "muted", z: textZ, part }),
   ];
 }
 
@@ -413,7 +413,7 @@ function ganttDrawables(state: SchedulerState): Drawable[] {
       return [
         { id: `tick-${time}`, kind: "line", x, y: trackBottom, x2: x, y2: trackBottom + TICK_LENGTH, stroke: "edge", strokeWidth: 1.5, z: 1 },
         textDrawable(`tick-${time}-label`, String(time), { x, y: trackBottom + TICK_LABEL_OFFSET }, { size: 22, fill: "muted", z: 1 }),
-        ...(time === 0 || time === state.axis.end ? [] : [{ id: `grid-${time}`, kind: "line" as const, x, y: trackTop, x2: x, y2: trackBottom, stroke: "rule" as const, strokeWidth: 1, z: 1 }]),
+        ...(time === 0 || time === state.axis.end || state.slices.some((slice) => slice.start < time && time < slice.end) ? [] : [{ id: `grid-${time}`, kind: "line" as const, x, y: trackTop, x2: x, y2: trackBottom, stroke: "rule" as const, strokeWidth: 1, z: 1 }]),
       ];
     }),
     ...state.slices.flatMap((slice, index) => sliceDrawables(state, index, slice, slice.end)),

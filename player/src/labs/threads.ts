@@ -89,7 +89,7 @@ const MAX_SHARED_NAME = 12;
 const MAX_LABEL = 24;
 const MAX_ITEM_TEXT = 5;
 
-const CARD = { w: 420, h: 112, gap: 22 };
+const CARD = { w: 420, h: 124, gap: 22 };
 const BOX = { w: 360, h: 118, gap: 22 };
 const ARROW_GAP = 190;
 const COLUMN_GAP = 80;
@@ -439,10 +439,10 @@ function threadDrawables(state: ThreadsState, geometry: Geometry): Drawable[] {
     const deadlocked = state.cycle.includes(thread.name);
     return [
       box(id, card, thread.status === "running" ? "fill2" : "fill", cardStroke(thread, deadlocked), deadlocked ? 2.6 : thread.status === "ready" ? 1 : 1.8, part),
-      text(`${id}-name`, thread.name, { x: card.x + PAD, y: card.y + 28 }, 30, "ink", "start", part),
-      text(`${id}-holds`, holdsText(state, thread), { x: card.x + card.w - PAD, y: card.y + 28 }, 20, "muted", "end", part),
-      text(`${id}-state`, words, { x: card.x + PAD, y: card.y + 62 }, 24, role, "start", part),
-      text(`${id}-doing`, thread.doing, { x: card.x + PAD, y: card.y + 92 }, 22, "muted", "start", part),
+      text(`${id}-name`, thread.name, { x: card.x + PAD, y: card.y + 26 }, 30, "ink", "start", part),
+      text(`${id}-holds`, holdsText(state, thread), { x: card.x + card.w - PAD, y: card.y + 26 }, 20, "muted", "end", part),
+      text(`${id}-state`, words, { x: card.x + PAD, y: card.y + 65 }, 24, role, "start", part),
+      text(`${id}-doing`, thread.doing, { x: card.x + PAD, y: card.y + 102 }, 22, "muted", "start", part),
       ...(thread.carrying ? itemDrawables(thread.carrying, carriedCenter(card), CARRIED_SIZE) : []),
     ];
   });
