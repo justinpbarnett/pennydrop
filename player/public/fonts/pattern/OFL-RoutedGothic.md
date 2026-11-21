@@ -1,6 +1,8 @@
 Copyright (c) 2017, Darren Embry (<https://webonastick.com/>), with
 Reserved Font Name Routed Gothic.
 
+pennydrop-mark.woff2 is a modified version of Routed Gothic with a slashed zero and a flagged one, renamed Pennydrop Mark as the licence requires and built by player/tools/mark-font.py.
+
 This Font Software is licensed under the SIL Open Font License, Version 1.1.  
 This license is copied below, and is also available with a FAQ at:  
 <http://scripts.sil.org/OFL>

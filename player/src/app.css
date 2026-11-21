@@ -1,7 +1,7 @@
 :root {
   --ground: #0B0C0E; --ink: #E7E5DF; --muted: #9C9A93; --rule: #2B2C31; --accent: #FFD60A;
   --fill: #141519; --fill2: #202127; --done: #22C55E; --fault: #E5484D;
-  --font-mark: "Routed Gothic", sans-serif; --font-read: "JetBrains Mono", monospace;
+  --font-mark: "Pennydrop Mark", sans-serif; --font-read: "JetBrains Mono", monospace;
   --weight-mark: 400; --tracking-mark: 0.06em; --corner: 0px; --mark-case: uppercase; --stroke: 1.5px;
   color-scheme: dark;
 }

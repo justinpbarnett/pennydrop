@@ -40,7 +40,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       series1: "#FFD60A", series2: "#4FB3FF", series3: "#22C55E", series4: "#FF7A59", series5: "#B08CFF", series6: "#E7E5DF",
     },
     fonts: {
-      mark: { family: "'Routed Gothic', 'JetBrains Mono', sans-serif", weight: 400, tracking: 0.06 },
+      mark: { family: "'Pennydrop Mark', 'JetBrains Mono', sans-serif", weight: 400, tracking: 0.06 },
       read: { family: "'JetBrains Mono', ui-monospace, monospace", weight: 400, tracking: 0 },
       code: codeFont,
       math: mathFont,

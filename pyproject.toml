@@ -20,6 +20,9 @@ dependencies = [
     "pillow>=13.0.0",
 ]
 
+[dependency-groups]
+fonts = ["fonttools", "brotli", "skia-pathops"]
+
 [project.scripts]
 pd = "pennydrop.cli:main"
 
