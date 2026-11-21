@@ -810,7 +810,7 @@ interface Pose {
 
 const PROOF_SIDE = 520;
 const PROOF_LABEL_BAND = 54;
-const PROOF_SUM_BAND = 70;
+const PROOF_SUM_BAND = 64;
 const MOVE_ORDER = [3, 0, 2, 1];
 const HOLE_FADE = 0.15;
 

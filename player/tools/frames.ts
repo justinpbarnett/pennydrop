@@ -1,12 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { extname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync } from "node:fs";
+import { extname, join, relative, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import { isThemeId, THEME_IDS, type ThemeId } from "../src/theme";
 import { LESSONS_ROOT } from "./load";
 
 const PLAYER_ROOT = resolve(import.meta.dir, "..");
-const DEFAULT_DIST = join(PLAYER_ROOT, "dist");
+const BUILD_CACHE = join(PLAYER_ROOT, "node_modules/.cache/pennydrop-frames");
+const BUILD_INPUTS = ["src", "public", "index.html", "frame.html", "vite.config.ts", "package.json", "tsconfig.json"];
+const STALE_BUILD_MS = 60 * 60 * 1000;
 const WIDTH = 1600;
 const HEIGHT = 900;
 const DEFAULT_FRAME_COUNT = 8;
@@ -18,7 +19,7 @@ function option(name: string): string | undefined {
 }
 
 function usage(message: string): never {
-  console.error(`${message}\nusage: bun player/tools/frames.ts --lesson <id|file> [--theme pattern | --themes pattern,film] [--times 1,2.5,8] [--out dir] [--check] [--no-build]`);
+  console.error(`${message}\nusage: bun player/tools/frames.ts --lesson <id|file> [--theme pattern | --themes pattern,film] [--times 1,2.5,8] [--out dir] [--check]`);
   process.exit(2);
 }
 
@@ -29,9 +30,47 @@ function themesFromArgs(): ThemeId[] {
   return names as ThemeId[];
 }
 
-async function build(outDir: string): Promise<void> {
-  const vite = Bun.spawn([join(PLAYER_ROOT, "node_modules/.bin/vite"), "build", "--logLevel", "error", "--outDir", outDir, "--emptyOutDir"], { cwd: PLAYER_ROOT, stdout: "inherit", stderr: "inherit" });
-  if ((await vite.exited) !== 0) usage("vite build failed");
+function filesUnder(path: string): string[] {
+  if (!existsSync(path)) return [];
+  return readdirSync(path, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? filesUnder(join(path, entry.name)) : [join(path, entry.name)]));
+}
+
+function sourceHash(): string {
+  const hasher = new Bun.CryptoHasher("sha256");
+  const files = BUILD_INPUTS.flatMap((input) => (input.includes(".") ? [join(PLAYER_ROOT, input)] : filesUnder(join(PLAYER_ROOT, input)))).filter(existsSync).sort();
+  for (const file of files) hasher.update(relative(PLAYER_ROOT, file)).update(readFileSync(file));
+  return hasher.digest("hex").slice(0, 16);
+}
+
+function pruneBuildCache(keep: string): void {
+  const cutoff = Date.now() - STALE_BUILD_MS;
+  for (const entry of readdirSync(BUILD_CACHE)) {
+    const path = join(BUILD_CACHE, entry);
+    if (path !== keep && statSync(path).mtimeMs < cutoff) rmSync(path, { recursive: true, force: true });
+  }
+}
+
+async function builtPlayer(): Promise<string> {
+  const target = join(BUILD_CACHE, sourceHash());
+  mkdirSync(BUILD_CACHE, { recursive: true });
+  pruneBuildCache(target);
+  if (existsSync(target)) {
+    utimesSync(target, new Date(), new Date());
+    return target;
+  }
+  const staging = mkdtempSync(join(BUILD_CACHE, "building-"));
+  const vite = Bun.spawn([join(PLAYER_ROOT, "node_modules/.bin/vite"), "build", "--logLevel", "error", "--outDir", staging, "--emptyOutDir"], { cwd: PLAYER_ROOT, stdout: "inherit", stderr: "inherit" });
+  if ((await vite.exited) !== 0) {
+    rmSync(staging, { recursive: true, force: true });
+    usage("vite build failed");
+  }
+  try {
+    renameSync(staging, target);
+  } catch {
+    rmSync(staging, { recursive: true, force: true });
+  }
+  utimesSync(target, new Date(), new Date());
+  return target;
 }
 
 function serveDist(dist: string) {
@@ -53,10 +92,7 @@ const lessonName = lessonPath.split("/").pop()!.replace(/\.jsonl$/, "");
 const themes = themesFromArgs();
 const outDir = resolve(option("out") ?? join(PLAYER_ROOT, ".frames"));
 mkdirSync(outDir, { recursive: true });
-const ownDist = process.argv.includes("--no-build") ? null : mkdtempSync(join(tmpdir(), "pennydrop-frames-"));
-if (ownDist) await build(ownDist);
-
-const server = serveDist(ownDist ?? DEFAULT_DIST);
+const server = serveDist(await builtPlayer());
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
 page.on("pageerror", (error) => console.error(`page error: ${error.message}`));
@@ -64,6 +100,13 @@ await page.goto(`http://localhost:${server.port}/frame.html`);
 await page.evaluate(() => window.pennydrop.ready);
 const lessonText = await Bun.file(lessonPath).text();
 await page.evaluate((text) => window.pennydrop.load(text), lessonText);
+const stepErrors = await page.evaluate(() => window.pennydrop.stepErrors());
+if (stepErrors.length) {
+  stepErrors.forEach((message) => console.error(message));
+  await browser.close();
+  server.stop();
+  process.exit(1);
+}
 const duration = await page.evaluate(() => window.pennydrop.duration());
 
 const times = option("times")
@@ -98,5 +141,4 @@ for (const theme of themes) {
 }
 await browser.close();
 server.stop();
-if (ownDist) rmSync(ownDist, { recursive: true, force: true });
 process.exit(differing ? 1 : 0);

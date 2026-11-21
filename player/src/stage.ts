@@ -1,6 +1,7 @@
 import type { Drawable, Link, Paint, Role } from "./lab";
-import { type Box, layoutScene, STAGE } from "./layout";
+import { type Box, type Layout, layoutScene, STAGE } from "./layout";
 import { definitionOf, type SceneObject, type SceneState } from "./scene";
+import type { Theme } from "./theme";
 
 export interface PlacedObject {
   id: string;
@@ -65,7 +66,9 @@ function highlightOutline(role: Role, size: { w: number; h: number }): Drawable 
 }
 
 const localDrawables = new WeakMap<SceneObject, Drawable[]>();
-const stages = new WeakMap<SceneState, Stage>();
+type LayoutOf = (scene: SceneState, theme?: Theme) => Layout;
+const GEOMETRY_ONLY: object = {};
+const stagesByLayout = new WeakMap<LayoutOf, WeakMap<object, WeakMap<SceneState, Stage>>>();
 
 function linksFor(scene: SceneState, boxes: ReadonlyMap<string, Box>): Record<string, Link> {
   const links: Record<string, Link> = {};
@@ -83,10 +86,14 @@ function cameraFor(scene: SceneState, boxes: ReadonlyMap<string, Box>): Camera {
   return { cx: box.x + box.w / 2, cy: box.y + box.h / 2, zoom };
 }
 
-export function buildStage(scene: SceneState): Stage {
+export function buildStage(scene: SceneState, layout: LayoutOf = layoutScene, theme?: Theme): Stage {
+  let perTheme = stagesByLayout.get(layout);
+  if (!perTheme) stagesByLayout.set(layout, (perTheme = new WeakMap()));
+  let stages = perTheme.get(theme ?? GEOMETRY_ONLY);
+  if (!stages) perTheme.set(theme ?? GEOMETRY_ONLY, (stages = new WeakMap()));
   const cached = stages.get(scene);
   if (cached) return cached;
-  const boxes = layoutScene(scene);
+  const boxes = layout(scene, theme);
   const links = linksFor(scene, boxes);
   const objects = scene.objects.map((object): PlacedObject => {
     const def = definitionOf(object);

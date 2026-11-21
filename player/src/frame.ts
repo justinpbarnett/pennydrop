@@ -1,5 +1,5 @@
 import { gsap } from "gsap";
-import { definitionOf } from "./scene";
+import { definitionOf, type SceneState } from "./scene";
 import { type Camera, buildStage, HOME_CAMERA, type PlacedObject, placeDrawables, type Stage } from "./stage";
 import type { Drawable, DrawableKind, Paint } from "./lab";
 import { lerp } from "./lab";
@@ -56,7 +56,7 @@ const WORD_KINDS: DrawableKind[] = ["text", "code", "math"];
 const ENTER_RISE = 18;
 
 const easings = new Map<string, (progress: number) => number>();
-function easeFor(theme: Theme): (progress: number) => number {
+export function easeFor(theme: Theme): (progress: number) => number {
   let ease = easings.get(theme.ease);
   if (!ease) {
     ease = gsap.parseEase(theme.ease) as (progress: number) => number;
@@ -231,10 +231,10 @@ function applyTouches(
   }
 }
 
-export function renderFrame(timeline: Timeline, time: number, theme: Theme): Frame {
+export function renderFrame(timeline: Timeline, time: number, theme: Theme, stageOf: (scene: SceneState) => Stage = (scene) => buildStage(scene, undefined, theme)): Frame {
   const located = timeline.locate(time, theme.motionScale);
-  const before = buildStage(located.before);
-  const after = buildStage(located.after);
+  const before = stageOf(located.before);
+  const after = stageOf(located.after);
   const progress = located.progress >= 1 ? 1 : easeFor(theme)(located.progress);
   const beforeItems = paintedStage(before, theme);
   const afterItems = paintedStage(after, theme);
@@ -245,9 +245,12 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme): Fra
   } else {
     const oldObjects = new Set(before.objects.map((object) => object.id));
     const clamped = Math.min(1, Math.max(0, progress));
+    const replaced = new Set(located.replaced);
     afterItems.forEach((item, id) => {
       const previous = beforeItems.get(id);
-      if (previous) {
+      if (replaced.has(objectOf(id))) {
+        items.set(id, { ...item, opacity: item.opacity * Math.max(0, clamped * 2 - 1) });
+      } else if (previous) {
         blend(previous, item, progress).forEach((blended) => items.set(blended.id, blended));
       } else {
         const rise = oldObjects.has(objectOf(id)) ? 0 : ENTER_RISE * (1 - clamped);
@@ -255,7 +258,8 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme): Fra
       }
     });
     beforeItems.forEach((item, id) => {
-      if (!afterItems.has(id)) items.set(id, { ...item, opacity: item.opacity * (1 - clamped) });
+      if (replaced.has(objectOf(id))) items.set(`${id}~replaced`, { ...item, id: `${id}~replaced`, opacity: item.opacity * Math.max(0, 1 - clamped * 2) });
+      else if (!afterItems.has(id)) items.set(id, { ...item, opacity: item.opacity * (1 - clamped) });
     });
     applyTouches(items, located.touches, { before, after }, progress, theme);
   }

@@ -10,6 +10,7 @@ export interface Segment {
   before: SceneState;
   after: SceneState;
   touches: Touch[];
+  replaced: string[];
 }
 
 export interface StepSpan {
@@ -25,6 +26,7 @@ export interface Located {
   after: SceneState;
   progress: number;
   touches: Touch[];
+  replaced: string[];
 }
 
 const SCENE_CHANGE_SECONDS = 0.9;
@@ -114,7 +116,7 @@ export class Timeline {
       const isSceneGroup = sceneChanged && index === 0;
       const after = group.ops.at(-1)?.after ?? (isSceneGroup ? plan.afterSceneChange : cursor);
       const baseDuration = Math.max(isSceneGroup ? SCENE_CHANGE_SECONDS : 0, ...group.ops.map((planned) => planned.duration));
-      this.segments.push({ start: group.time, baseDuration, before, after, touches: group.ops.flatMap((planned) => planned.touches) });
+      this.segments.push({ start: group.time, baseDuration, before, after, touches: group.ops.flatMap((planned) => planned.touches), replaced: isSceneGroup ? plan.replaced : [] });
       cursor = after;
       lastSegmentEnd = Math.max(lastSegmentEnd, group.time + baseDuration);
     });
@@ -143,7 +145,7 @@ export class Timeline {
 
   locate(time: number, motionScale: number): Located {
     const first = this.segments[0];
-    if (!first || time < first.start) return { before: first?.before ?? this.scene, after: first?.before ?? this.scene, progress: 1, touches: [] };
+    if (!first || time < first.start) return { before: first?.before ?? this.scene, after: first?.before ?? this.scene, progress: 1, touches: [], replaced: [] };
     let low = 0;
     let high = this.segments.length - 1;
     while (low < high) {
@@ -155,7 +157,7 @@ export class Timeline {
     const next = this.segments[low + 1];
     const naturalEnd = segment.start + segment.baseDuration * motionScale;
     const end = next ? Math.min(naturalEnd, next.start) : naturalEnd;
-    if (time >= end || end - segment.start < SAME_TIME) return { before: segment.after, after: segment.after, progress: 1, touches: [] };
-    return { before: segment.before, after: segment.after, progress: (time - segment.start) / (end - segment.start), touches: segment.touches };
+    if (time >= end || end - segment.start < SAME_TIME) return { before: segment.after, after: segment.after, progress: 1, touches: [], replaced: [] };
+    return { before: segment.before, after: segment.after, progress: (time - segment.start) / (end - segment.start), touches: segment.touches, replaced: segment.replaced };
   }
 }

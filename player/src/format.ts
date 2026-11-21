@@ -83,6 +83,10 @@ export function relationTargets(at: Relation | undefined): string[] {
   return Array.isArray(value) ? value : [value as string];
 }
 
+export const SCENE_RULES = [
+  'A Step\'s "scene" entry for an id that already exists replaces that object: the old one fades out and the new one fades in, with no motion between them; use the "morph" verb when the object should change shape in place.',
+];
+
 export const DO_RULES = [
   'Each "do" entry may carry a "cue": a word or phrase from "say" that fires it when spoken. Cues must appear in the narration, in order.',
   "Entries that share one cue start together.",

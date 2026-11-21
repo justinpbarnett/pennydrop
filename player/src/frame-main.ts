@@ -13,6 +13,7 @@ interface PennydropFrameApi {
   seek(time: number): void;
   setTheme(id: ThemeId): void;
   duration(): number;
+  stepErrors(): string[];
   ready: Promise<void>;
 }
 
@@ -57,6 +58,7 @@ window.pennydrop = {
     draw();
   },
   duration: () => playback.timeline.duration,
+  stepErrors: () => playback.timeline.steps.flatMap((span) => span.errors.map((message) => (message.startsWith(`step ${span.step.step}`) ? message : `step ${span.step.step}: ${message}`))),
 };
 
 playback.subscribe(draw);

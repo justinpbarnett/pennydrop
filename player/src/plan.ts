@@ -19,6 +19,7 @@ export interface StepPlan {
   afterSceneChange: SceneState;
   ops: PlannedOp[];
   final: SceneState;
+  replaced: string[];
   errors: string[];
 }
 
@@ -115,5 +116,6 @@ export function planStep(previous: SceneState, step: Step): StepPlan {
     }
   }
   if (step.challenge) errors.push(...challengeProblems(step.challenge).map((problem) => `${label}: ${problem}`));
-  return { afterSceneChange, ops, final: scene, errors };
+  const replaced = Object.entries(step.scene ?? {}).filter(([id, spec]) => spec !== null && previous.objects.some((object) => object.id === id)).map(([id]) => id);
+  return { afterSceneChange, ops, final: scene, replaced, errors };
 }

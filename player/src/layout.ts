@@ -1,6 +1,8 @@
 import { fail, type Rect, type Size } from "./lab";
 import type { Relation } from "./format";
-import { definitionOf, type SceneState } from "./scene";
+import { NO_REACH, type Reach, reachOf } from "./ink";
+import { definitionOf, type SceneObject, type SceneState } from "./scene";
+import type { Theme } from "./theme";
 
 export const STAGE: Size = { w: 1600, h: 900 };
 const MARGIN = 60;
@@ -104,11 +106,14 @@ function arrange(kind: (typeof GROUP_KINDS)[number], at: Relation, sizes: Size[]
   });
 }
 
-function buildNodes(scene: SceneState): Node[] {
+function buildNodes(scene: SceneState, reaches: ReadonlyMap<string, Reach>): Node[] {
   const sizes = new Map<string, Size>();
   for (const object of scene.objects) {
     const def = definitionOf(object);
-    if (!def.overlay) sizes.set(object.id, def.size(object.state));
+    if (def.overlay) continue;
+    const size = def.size(object.state);
+    const reach = reaches.get(object.id) ?? NO_REACH;
+    sizes.set(object.id, { w: size.w + reach.left + reach.right, h: size.h + reach.top + reach.bottom });
   }
   const claimed = new Set<string>();
   const nodes: Node[] = [];
@@ -272,7 +277,29 @@ function fitToStage(rects: Map<string, Rect>): Layout {
   );
 }
 
-export function layoutScene(scene: SceneState): Layout {
-  const clusters = buildClusters(buildNodes(scene));
-  return fitToStage(placeClusters(clusters));
+const reaches = new WeakMap<object, WeakMap<Theme, Reach>>();
+
+function reachFor(object: SceneObject, theme: Theme): Reach {
+  let perTheme = reaches.get(object);
+  if (!perTheme) reaches.set(object, (perTheme = new WeakMap()));
+  let reach = perTheme.get(theme);
+  if (!reach) {
+    const def = definitionOf(object);
+    reach = def.overlay ? NO_REACH : reachOf(def.draw(object.state, { objectId: object.id, links: {} }), def.size(object.state), theme);
+    perTheme.set(theme, reach);
+  }
+  return reach;
+}
+
+export function layoutScene(scene: SceneState, theme?: Theme): Layout {
+  const reachOfId = new Map<string, Reach>(scene.objects.map((object) => [object.id, theme ? reachFor(object, theme) : NO_REACH]));
+  const clusters = buildClusters(buildNodes(scene, reachOfId));
+  const fitted = fitToStage(placeClusters(clusters));
+  return new Map(
+    [...fitted].map(([id, box]) => {
+      const reach = reachOfId.get(id) ?? NO_REACH;
+      const s = box.scale;
+      return [id, { x: box.x + reach.left * s, y: box.y + reach.top * s, w: box.w - (reach.left + reach.right) * s, h: box.h - (reach.top + reach.bottom) * s, scale: s }];
+    }),
+  );
 }

@@ -1,11 +1,11 @@
 import type { Frame, Painted } from "./frame";
+import { ARROW_HEAD_ANGLE, arrowHeadLength } from "./ink";
 import { STAGE } from "./layout";
 import { cssRgba, parseHex, type Theme, type ThemeId } from "./theme";
 import { typeset } from "./typeset";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const GRAIN_FRAMES_PER_SECOND = 12;
-const ARROW_HEAD_ANGLE = 0.46;
 
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attributes: Record<string, string | number> = {}): SVGElementTagNameMap[K] {
   const element = document.createElementNS(SVG_NS, tag);
@@ -25,7 +25,7 @@ const paintCss = (paint: Painted["fill"]) => (paint ? cssRgba(paint) : "none");
 function arrowPath(item: Painted): string {
   const [x2, y2] = [item.x2!, item.y2!];
   const angle = Math.atan2(y2 - item.y, x2 - item.x);
-  const head = 16 + item.strokeWidth * 2;
+  const head = arrowHeadLength(item.strokeWidth);
   const wing = (offset: number) => `${x2 - head * Math.cos(angle + offset)} ${y2 - head * Math.sin(angle + offset)}`;
   return `M${item.x} ${item.y} L${x2} ${y2} M${wing(ARROW_HEAD_ANGLE)} L${x2} ${y2} L${wing(-ARROW_HEAD_ANGLE)}`;
 }

@@ -489,7 +489,7 @@ function queueBoxDrawables(id: string, name: string, rect: Rect, status: string,
 
 function boxDrawables(state: ThreadsState, geometry: Geometry): Drawable[] {
   const locks = state.locks.flatMap((lock, index) => queueBoxDrawables(`lock-${lock.name}`, lock.name, geometry.lock(index), ownerText(lock), lockInCycle(state, lock) ? "fault" : lock.owner ? "ok" : "muted", "queue", state));
-  const conds = state.conds.flatMap((cond, index) => queueBoxDrawables(`cond-${cond.name}`, cond.name, geometry.cond(index), "", "muted", "asleep", state));
+  const conds = state.conds.flatMap((cond, index) => queueBoxDrawables(`cond-${cond.name}`, cond.name, geometry.cond(index), "asleep", "muted", "", state));
   return [...locks, ...conds, ...chipsOf(state, geometry).flatMap((chip) => chipDrawables(state, chip))];
 }
 
