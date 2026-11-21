@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
+from ..courses import CourseContext
 from ..gateway import CallStats, Gateway
 from ..settings import Job
 from ..store import Profile
@@ -45,6 +46,7 @@ Rules
 - When "say" brings in a new example, number, list or object, that same Step's "scene" sets it, so the stage always shows what the narration talks about.
 - A Learner who is a kid gets words a young child knows, and a warm, playful voice. The kid rules below say more.
 - A Learner level of beginner, intermediate or advanced sets how much you assume.
+- When the brief names a Course Topic, teach that Topic's core idea, use the Terms the brief lists as your vocabulary, and obey the honor code in the brief: explain every concept on a toy example of your own, and never read, write or hint at project code or assignment specs.
 
 ## Kid rules
 
@@ -66,9 +68,19 @@ class Brief:
     plan: Plan
     scene: Any = None
     watching_title: str | None = None
+    course: CourseContext | None = None
+
+    def course_lines(self) -> list[str]:
+        if not self.course:
+            return []
+        return [
+            f"Course Topic: {self.course.topic_title}, part {self.course.part} of {self.course.course_title}",
+            f"Terms: {'; '.join(self.course.terms)}",
+            f"Honor code: {self.course.honor_code}",
+        ]
 
     def text(self) -> str:
-        lines = [f"Ask: {self.ask}", f"Learner: {self.profile.kind.value}, level {self.profile.level}" if self.profile else "Learner: adult, level beginner"]
+        lines = [f"Ask: {self.ask}", f"Learner: {self.profile.kind.value}, level {self.profile.level}" if self.profile else "Learner: adult, level beginner", *self.course_lines()]
         lines.append(
             f"Labs that fit this Ask: {', '.join(self.plan.labs)}. Use them where they help, together with primitives."
             if self.plan.labs else "No Lab fits this Ask: build the explanation from primitives."
@@ -114,6 +126,7 @@ class Writer:
         prompt = "\n".join([
             REPAIR_INSTRUCTIONS,
             brief.text().split("\n")[0],
+            *brief.course_lines(),
             f"Scene before this Step (JSON): {json.dumps(scene)}",
             f"The Step as written: {shown}",
             "It failed with:",

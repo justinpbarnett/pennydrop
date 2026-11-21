@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
+from ..courses import CourseContext
 from ..gateway import Gateway
 from ..lessons import LessonLibrary
 from ..settings import Settings
@@ -37,9 +38,12 @@ class AskRequest:
     received_at: float
     transcription_seconds: float | None = None
     bench: bool = False
+    course: CourseContext | None = None
 
 
 def _source_of(request: AskRequest) -> LessonSource:
+    if request.course:
+        return LessonSource.COURSE
     return LessonSource.BENCH if request.bench else LessonSource.LIVE
 
 
@@ -60,11 +64,12 @@ class Asks:
         record = LessonRecord(
             lesson_id, request.text, "", [], _source_of(request), status="writing",
             transcription_seconds=request.transcription_seconds, profile_id=request.profile_id,
+            topic_id=request.course.topic_id if request.course else None,
         )
         self._store.save_lesson(record)
         live = LiveLesson()
         self._live[lesson_id] = live
-        run = LessonRun(self._kit, Ask(request.text, profile, viewing, earlier_steps), record, live, Stopwatch(request.received_at))
+        run = LessonRun(self._kit, Ask(request.text, profile, viewing, earlier_steps, request.course), record, live, Stopwatch(request.received_at))
         task = asyncio.create_task(run.run())
         self._running.add(task)
         task.add_done_callback(lambda finished: (self._running.discard(finished), self._live.pop(lesson_id, None)))

@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any
 
+from ..courses import CourseContext
 from ..lessons import done_event
 from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
 from ..tts import Speaker, TtsError, Voice
@@ -21,6 +22,7 @@ from .writer import Brief, Writer
 
 LOG = logging.getLogger("pennydrop.asks")
 MAX_REPAIR_TRIES = 2
+HONOR_CODE_ERROR = "the Step touches project code or an assignment spec; explain the concept on a toy example of your own instead"
 PLACEHOLDER = re.compile(r"\s*\{[^}]*\}")
 SAY_FIELD = re.compile(r'"say"\s*:\s*("(?:[^"\\]|\\.)*")')
 
@@ -46,6 +48,7 @@ class Ask:
     profile: Profile | None
     viewing: Viewing | None
     earlier_steps: list[dict[str, Any]]
+    course: CourseContext | None = None
 
 
 @dataclass(frozen=True)
@@ -116,7 +119,7 @@ class LessonRun:
         self._request_missing_lab(plan)
         self._record = replace(self._record, tier=plan.tier.value)
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
-        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None)
+        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()
         ready: asyncio.Queue[ReadyStep | None] = asyncio.Queue()
         async with asyncio.TaskGroup() as group:
@@ -177,6 +180,8 @@ class LessonRun:
                 break
             self._log_repair(pending.number, attempt + 1, checked.errors, "redone by the writer")
             written = await self._kit.writer.repair(brief, scene, written, checked.errors, self._record.id)
+        if HONOR_CODE_ERROR in checked.errors:
+            raise LessonError(f"Step {pending.number} still broke the honor code after {MAX_REPAIR_TRIES} rewrites")
         return await self._salvage(pending.number, written, checked, scene)
 
     async def _check(self, written: dict[str, Any] | Malformed, number: int, scene: Any) -> Checked:
@@ -187,8 +192,12 @@ class LessonRun:
             step = await expand_directives(step, self._kit.directive_tools)
         except DirectiveError as error:
             return Checked([str(error)], None, scene)
-        verdict, fine_for_child = await asyncio.gather(self._kit.validator.check(step, scene, self._reading), self._fine_for_child(step))
+        verdict, fine_for_child, keeps_honor_code = await asyncio.gather(
+            self._kit.validator.check(step, scene, self._reading), self._fine_for_child(step), self._keeps_honor_code(step)
+        )
         errors = list(verdict.errors)
+        if not keeps_honor_code:
+            errors.append(HONOR_CODE_ERROR)
         if not fine_for_child:
             self._redone_for_child.add(number)
             errors.append("say is not fine for a young child; rewrite the narration so it is gentle, true and free of frightening or adult content")
@@ -198,6 +207,12 @@ class LessonRun:
         if not self._is_kid or not isinstance(step.get("say"), str):
             return True
         return await self._kit.classifier.fine_for_young_child(step["say"], self._record.id)
+
+    async def _keeps_honor_code(self, step: dict[str, Any]) -> bool:
+        if not self._ask.course:
+            return True
+        shown = json.dumps({field: step[field] for field in ("say", "scene", "challenge") if field in step})
+        return await self._kit.classifier.keeps_honor_code(shown, self._ask.course.honor_code, self._record.id)
 
     async def _salvage(self, number: int, written: dict[str, Any] | Malformed, last: Checked, scene: Any) -> SettledStep:
         step = last.step or {}

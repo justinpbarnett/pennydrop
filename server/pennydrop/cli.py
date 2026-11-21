@@ -10,7 +10,9 @@ from pathlib import Path
 
 import uvicorn
 
+from . import course_cli
 from .ask_client import AskClient, AskClientError, Arrival, Outcome, breakdown, median_and_max, p90
+from .courses import CourseSeedError
 from .gateway import Choice, GatewayError, Image, YesNo
 from .intake import IntakeError
 from .loudness import TARGET_LUFS, TARGET_TRUE_PEAK
@@ -23,7 +25,7 @@ from .tracer import ALGORITHMS, TraceError
 from .tts import TtsError
 from .tts.ab import compare
 
-EXPECTED_ERRORS = (AskClientError, GatewayError, IntakeError, MintError, TraceError, TtsError, LookupError)
+EXPECTED_ERRORS = (AskClientError, CourseSeedError, GatewayError, IntakeError, MintError, TraceError, TtsError, LookupError)
 
 
 def main() -> None:
@@ -92,6 +94,7 @@ def _parser() -> argparse.ArgumentParser:
     vision.set_defaults(handler=_vision)
 
     mint_cli.add_parser(commands)
+    course_cli.add_parser(commands)
 
     profile = commands.add_parser("profile", help="manage learner profiles")
     profile_commands = profile.add_subparsers(required=True, metavar="profile-command")

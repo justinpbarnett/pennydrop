@@ -14,10 +14,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from .asks import AskRequest, FromStep
+from .courses import Course
 from .intake import IntakeError
 from .mint import minted_labs_router
 from .mint.paths import MintPaths
+from .review import answer_shape
 from .services import Services
+from .store import ReviewItem
 from .system_lines import SYSTEM_LINES
 from .tts import MEDIA_PREFIX, TtsError
 
@@ -44,6 +47,32 @@ class AnswerSubmission(BaseModel):
     prompt: dict[str, Any]
     answer: Any
     correct: bool
+
+
+class ReviewAnswer(BaseModel):
+    answer: Any
+    correct: bool
+
+
+def _lesson_title(services: Services, lesson_id: str) -> str:
+    try:
+        return services.library.raw(lesson_id).header.get("title", lesson_id)
+    except LookupError:
+        return lesson_id
+
+
+def _review_payload(services: Services, item: ReviewItem) -> dict[str, Any]:
+    return {
+        **asdict(item),
+        "lesson_title": _lesson_title(services, item.lesson_id),
+        "kind": item.prompt.get("kind"),
+        "type": item.prompt.get("type"),
+        "answer_shape": answer_shape(item.prompt),
+    }
+
+
+def _course_payload(services: Services, course: Course) -> dict[str, Any]:
+    return {**asdict(course), "topics": [asdict(topic) for topic in services.store.course_topics(course.id)]}
 
 
 def create_app(services: Services) -> FastAPI:
@@ -122,7 +151,24 @@ def create_app(services: Services) -> FastAPI:
 
     @app.get("/api/review")
     async def due_reviews(profile_id: int | None = None):
-        return [asdict(item) for item in services.store.due_reviews(profile_id)]
+        return [_review_payload(services, item) for item in services.store.due_reviews(profile_id)]
+
+    @app.get("/api/review/queue")
+    async def review_queue(profile_id: int):
+        return [_review_payload(services, item) for item in services.store.review_queue(profile_id)]
+
+    @app.post("/api/review/{item_id}")
+    async def review_item(item_id: int, body: ReviewAnswer):
+        item = services.store.review_item(item_id)
+        return _review_payload(services, services.store.record_answer(item.profile_id, item.lesson_id, item.step_n, item.prompt, body.answer, body.correct))
+
+    @app.get("/api/courses")
+    async def list_courses():
+        return [_course_payload(services, course) for course in services.store.courses()]
+
+    @app.get("/api/courses/{reference}")
+    async def get_course(reference: str):
+        return _course_payload(services, services.store.course(reference))
 
     @app.get("/api/profiles")
     async def list_profiles():

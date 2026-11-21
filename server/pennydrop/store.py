@@ -8,6 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from .courses import Course, CourseContext, CourseSeed, CourseTopic
 from .settings import Job
 from .review import NEW_ITEM, Schedule, next_schedule, quality_for
 
@@ -172,6 +173,16 @@ SCHEMA = [
     drop table lessons;
     alter table lessons_rebuilt rename to lessons;
     update lessons set profile_id = (select profile_id from lesson_log where lesson_log.lesson_id = lessons.id);
+    """,
+    """
+    alter table courses add column slug text;
+    alter table courses add column summary text not null default '';
+    alter table courses add column honor_code text not null default '';
+    alter table topics add column code text;
+    alter table topics add column part integer;
+    create unique index courses_slug on courses (slug);
+    create unique index topics_code on topics (course_id, code) where code is not null;
+    create unique index topics_position on topics (course_id, parent_id, position);
     """,
 ]
 
@@ -416,6 +427,89 @@ class Store:
             arguments.append(profile_id)
         return [_review_from(row) for row in self._connection.execute(query + " order by due", arguments)]
 
+    def review_queue(self, profile_id: int) -> list[ReviewItem]:
+        rows = self._connection.execute("select * from review_items where profile_id = ? order by due, id", (profile_id,))
+        return [_review_from(row) for row in rows]
+
+    def review_item(self, item_id: int) -> ReviewItem:
+        row = self._connection.execute("select * from review_items where id = ?", (item_id,)).fetchone()
+        if row is None:
+            raise LookupError(f"no review item with id {item_id}")
+        return _review_from(row)
+
+    def seed_course(self, seed: CourseSeed) -> Course:
+        self._connection.execute("begin")
+        try:
+            self._connection.execute(
+                """
+                insert into courses (slug, name, summary, honor_code, source, created_at) values (?, ?, ?, ?, ?, ?)
+                on conflict(slug) do update set name = excluded.name, summary = excluded.summary, honor_code = excluded.honor_code, source = excluded.source
+                """,
+                (seed.id, seed.title, seed.summary, seed.honor_code, "\n".join(seed.sources), _iso(_now())),
+            )
+            course = self.course(seed.id)
+            for position, topic in enumerate(seed.topics):
+                parent_id = self._upsert_topic(course.id, None, position, topic.title, topic.code, topic.part)
+                for child_position, subtopic in enumerate(topic.subtopics):
+                    self._upsert_topic(course.id, parent_id, child_position, subtopic, None, None)
+                self._connection.execute("delete from topics where parent_id = ? and position >= ?", (parent_id, len(topic.subtopics)))
+            self._connection.execute("commit")
+        except BaseException:
+            self._connection.execute("rollback")
+            raise
+        return course
+
+    def _upsert_topic(self, course_id: int, parent_id: int | None, position: int, title: str, code: str | None, part: int | None) -> int:
+        if code is not None:
+            existing = self._connection.execute("select id from topics where course_id = ? and code = ?", (course_id, code)).fetchone()
+        else:
+            existing = self._connection.execute("select id from topics where parent_id = ? and position = ?", (parent_id, position)).fetchone()
+        if existing is None:
+            return self._connection.execute(
+                "insert into topics (course_id, parent_id, position, title, code, part) values (?, ?, ?, ?, ?, ?)",
+                (course_id, parent_id, position, title, code, part),
+            ).lastrowid
+        self._connection.execute("update topics set position = ?, title = ?, part = ? where id = ?", (position, title, part, existing["id"]))
+        return existing["id"]
+
+    def courses(self) -> list[Course]:
+        return [_course_from(row) for row in self._connection.execute("select * from courses order by id")]
+
+    def course(self, reference: str | int) -> Course:
+        row = self._connection.execute("select * from courses where slug = ? or id = ?", (str(reference), reference if str(reference).isdigit() else -1)).fetchone()
+        if row is None:
+            known = ", ".join(course.slug for course in self.courses()) or "none seeded yet; `pd course seed <file>` loads one"
+            raise LookupError(f"no Course '{reference}', known Courses: {known}")
+        return _course_from(row)
+
+    def course_topics(self, course_id: int) -> list[CourseTopic]:
+        rows = self._connection.execute(
+            """
+            select topics.id, topics.code, topics.title, topics.part,
+                (select lessons.id from lessons where lessons.topic_id = topics.id order by lessons.status = 'ready' desc, lessons.created_at desc limit 1) as lesson_id,
+                (select lessons.status from lessons where lessons.topic_id = topics.id order by lessons.status = 'ready' desc, lessons.created_at desc limit 1) as lesson_status
+            from topics where topics.course_id = ? and topics.parent_id is null order by topics.position
+            """,
+            (course_id,),
+        ).fetchall()
+        subtopics = self._connection.execute(
+            "select parent_id, title from topics where course_id = ? and parent_id is not null order by parent_id, position", (course_id,)
+        ).fetchall()
+        return [
+            CourseTopic(row["id"], row["code"], row["title"], row["part"], [child["title"] for child in subtopics if child["parent_id"] == row["id"]], row["lesson_id"], row["lesson_status"])
+            for row in rows
+        ]
+
+    def course_context(self, topic_id: int) -> CourseContext:
+        row = self._connection.execute(
+            "select topics.id, topics.title, topics.part, courses.id as course_id, courses.name, courses.honor_code from topics join courses on courses.id = topics.course_id where topics.id = ? and topics.parent_id is null",
+            (topic_id,),
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"no top level Topic with id {topic_id}")
+        terms = [child["title"] for child in self._connection.execute("select title from topics where parent_id = ? order by position", (topic_id,))]
+        return CourseContext(row["id"], row["name"], row["honor_code"], row["title"], row["part"], terms)
+
     def log_ask(self, profile_id: int, lesson_id: str, ask: str) -> None:
         self.profile(profile_id)
         self._connection.execute(
@@ -523,6 +617,10 @@ def _lesson_from(row: sqlite3.Row) -> LessonRecord:
         row["transcription_seconds"], json.loads(row["timings"]), row["error"], json.loads(row["repairs"]),
         row["profile_id"], row["topic_id"],
     )
+
+
+def _course_from(row: sqlite3.Row) -> Course:
+    return Course(row["id"], row["slug"], row["name"], row["summary"], row["honor_code"], row["source"])
 
 
 def _lab_request_from(row: sqlite3.Row) -> LabRequest:

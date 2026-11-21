@@ -83,6 +83,11 @@ class Classifier:
         result = await self._gateway.classify(say, {"fine": question}, lesson_id=lesson_id)
         return _yes(result.answers["fine"])
 
+    async def keeps_honor_code(self, step_text: str, honor_code: str, lesson_id: str) -> bool:
+        question = YesNo(f"Does this Lesson Step keep this honor code: {honor_code}")
+        result = await self._gateway.classify(step_text, {"keeps": question}, lesson_id=lesson_id)
+        return _yes(result.answers["keeps"])
+
 
 def _yes(answer) -> bool:
     assert isinstance(answer, YesNoAnswer)
