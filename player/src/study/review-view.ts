@@ -1,6 +1,6 @@
 import { buildChallenge, type ChallengeView } from "../challenge-ui";
 import { h } from "../dom";
-import { headerOf } from "../ask-client";
+import { headerOf } from "../source";
 import { lessonTitle, type Step } from "../format";
 import { Playback } from "../playback";
 import { StageRenderer } from "../render";
