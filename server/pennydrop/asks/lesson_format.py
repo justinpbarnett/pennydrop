@@ -14,6 +14,7 @@ class Header(BaseModel):
     goal: str = ""
     labs: list[str] = []
     start_scene: Any = None
+    reading: bool = True
 
 
 class StepOp(BaseModel):

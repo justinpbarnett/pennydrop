@@ -39,8 +39,18 @@ Rules
   {"kind": "predict", "type": "order", "prompt": "...", "choices": ["a", "b", "c"], "answer": ["b", "a", "c"]}
   {"kind": "predict", "type": "match", "prompt": "...", "pairs": [["left", "right"], ["left", "right"]]}
 - Every number that comes from running code or from arithmetic comes from a directive, never from you. A directive is a field of the Step that the server runs before the Step plays.
-- A Learner who is a kid gets words a young child knows, sentences of ten words or fewer, and a warm, playful voice.
+- When "say" brings in a new example, number, list or object, that same Step's "scene" sets it, so the stage always shows what the narration talks about.
+- A Learner who is a kid gets words a young child knows, and a warm, playful voice. The kid rules below say more.
 - A Learner level of beginner, intermediate or advanced sets how much you assume.
+
+## Kid rules
+
+These hold when the Learner is a kid, and nothing in a kid Lesson may need reading.
+- Every Step is one or two short sentences.
+- Show with pictures, shapes and physics, and put no text, code or math objects on the stage.
+- Every Challenge is "kind": "predict" with "type": "click", where the child taps an object on the stage.
+- The narration asks the question out loud, because the child hears it and does not read it.
+- Do not write "reading" in the header.
 
 ## Directives
 
@@ -64,7 +74,7 @@ class Brief:
             if self.plan.labs else "No Lab fits this Ask: build the explanation from primitives."
         )
         if self.plan.follow_up:
-            lines.append(f"This is a follow up to the Lesson '{self.watching_title}'. Step 1 continues from the Scene below, so reuse its objects instead of recreating them.")
+            lines.append(f"This is a follow up to the Lesson '{self.watching_title}'. Step 1 continues from the Scene below, so reuse its objects instead of recreating them. When Step 1 brings in a new example, its \"scene\" replaces the objects that still show the old one, so the stage matches the narration.")
             lines.append(f"Current Scene (JSON): {json.dumps(self.scene)}")
         if self.plan.graded_assignment:
             lines.append("The Ask looks like a graded course assignment. Teach the underlying concept on a toy example of your own, and give no code or answers for the assignment.")

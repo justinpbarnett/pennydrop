@@ -74,6 +74,9 @@ class ReadyStep:
     voice: asyncio.Task[Voice | None]
 
 
+PLAYER_CRASH_MARK = "\n    at "
+
+
 class LessonRun:
     def __init__(self, toolkit: Toolkit, ask: Ask, record: LessonRecord, live: LiveLesson, stopwatch: Stopwatch):
         self._kit = toolkit
@@ -85,6 +88,14 @@ class LessonRun:
         self._repairs: list[dict[str, Any]] = []
         self._catalog_labs: set[str] = set()
         self._published = 0
+
+    @property
+    def _reading(self) -> bool:
+        return not self._is_kid
+
+    @property
+    def _is_kid(self) -> bool:
+        return self._ask.profile is not None and self._ask.profile.kind is ProfileKind.KID
 
     async def run(self) -> None:
         try:
@@ -103,7 +114,7 @@ class LessonRun:
         plan = await kit.classifier.plan(self._ask.text, self._ask.profile, snapshot.labs, self._ask.viewing, self._record.id)
         self._stopwatch.mark("classified")
         self._record = replace(self._record, tier=plan.tier.value)
-        start_scene = await kit.validator.replay(self._ask.earlier_steps) if plan.follow_up else None
+        start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
         brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()
         ready: asyncio.Queue[ReadyStep | None] = asyncio.Queue()
@@ -131,7 +142,7 @@ class LessonRun:
         await pending.put(None)
 
     def _open(self, header: Header, start_scene: Any) -> None:
-        header = header.model_copy(update={"labs": [lab for lab in header.labs if lab in self._catalog_labs], "start_scene": start_scene})
+        header = header.model_copy(update={"labs": [lab for lab in header.labs if lab in self._catalog_labs], "start_scene": start_scene, "reading": self._reading})
         data = header.model_dump(exclude_none=True)
         self._record = replace(self._record, title=header.title, labs=header.labs, header=data)
         self._kit.store.save_lesson(self._record)
@@ -151,6 +162,8 @@ class LessonRun:
             checked = await self._check(written, pending.number, scene)
             if not checked.errors:
                 return SettledStep(checked.step, checked.scene)
+            if crash := next((error for error in checked.errors if PLAYER_CRASH_MARK in error), None):
+                raise LessonError(f"the player's validator crashed on step {pending.number}, which no rewrite can fix: {crash.splitlines()[0]}")
             if attempt == MAX_REPAIR_TRIES:
                 break
             self._log_repair(pending.number, attempt + 1, checked.errors, "redone by the writer")
@@ -165,15 +178,14 @@ class LessonRun:
             step = await expand_directives(step, self._kit.directive_tools)
         except DirectiveError as error:
             return Checked([str(error)], None, scene)
-        verdict, fine_for_child = await asyncio.gather(self._kit.validator.check(step, scene), self._fine_for_child(step))
+        verdict, fine_for_child = await asyncio.gather(self._kit.validator.check(step, scene, self._reading), self._fine_for_child(step))
         errors = list(verdict.errors)
         if not fine_for_child:
             errors.append("say is not fine for a young child; rewrite the narration so it is gentle, true and free of frightening or adult content")
         return Checked(errors, step, verdict.scene)
 
     async def _fine_for_child(self, step: dict[str, Any]) -> bool:
-        profile = self._ask.profile
-        if profile is None or profile.kind is not ProfileKind.KID or not isinstance(step.get("say"), str):
+        if not self._is_kid or not isinstance(step.get("say"), str):
             return True
         return await self._kit.classifier.fine_for_young_child(step["say"], self._record.id)
 
@@ -183,14 +195,14 @@ class LessonRun:
         validator = self._kit.validator
         for kept_fields in (("scene", "challenge"), ("scene",), ()):
             candidate = {"step": number, "say": say, **{field: step[field] for field in kept_fields if field in step}}
-            verdict = await validator.check(candidate, scene)
+            verdict = await validator.check(candidate, scene, self._reading)
             if verdict.ok:
                 break
         else:
             raise LessonError(f"Step {number} could not be repaired, and even its narration alone failed: {'; '.join(verdict.errors)}")
         kept_ops: list[dict[str, Any]] = []
         for operation in step.get("do", []) if "scene" in candidate else []:
-            trial = await validator.check({**candidate, "do": [*kept_ops, operation]}, scene)
+            trial = await validator.check({**candidate, "do": [*kept_ops, operation]}, scene, self._reading)
             if trial.ok:
                 kept_ops.append(operation)
                 verdict = trial

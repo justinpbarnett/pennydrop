@@ -37,24 +37,24 @@ class Validator:
         self._session: _Session | None = None
         self._start_lock = asyncio.Lock()
 
-    async def check(self, step: dict[str, Any], scene: Any) -> Verdict:
+    async def check(self, step: dict[str, Any], scene: Any, reading: bool = True) -> Verdict:
         try:
             wire = Step.model_validate(step).as_wire()
         except ValidationError as error:
             return Verdict(tuple(describe(error)), scene)
         for attempt in (1, 2):
             try:
-                reply = await (await self._running()).ask({"scene": scene, "step": wire})
+                reply = await (await self._running()).ask({"scene": scene, "step": wire, **({} if reading else {"reading": False})})
                 return Verdict(tuple(reply["errors"]), reply["scene"] if reply["ok"] else scene)
             except ValidatorError:
                 if attempt == 2:
                     raise
         raise AssertionError("unreachable")
 
-    async def replay(self, steps: list[dict[str, Any]]) -> Any:
+    async def replay(self, steps: list[dict[str, Any]], reading: bool = True) -> Any:
         scene = None
         for step in steps:
-            verdict = await self.check({key: value for key, value in step.items() if key != "voice"}, scene)
+            verdict = await self.check({key: value for key, value in step.items() if key != "voice"}, scene, reading)
             if not verdict.ok:
                 raise ValidatorError(f"stored step {step.get('step')} no longer plays: {'; '.join(verdict.errors)}")
             scene = verdict.scene

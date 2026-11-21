@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import base64
+import io
+import wave
 
 import httpx
 
@@ -8,7 +11,7 @@ from ..words import WordTiming, normalize_word
 from .provider import Provider, Synthesis, TtsError
 
 ENDPOINT = "https://api.elevenlabs.io/v1/text-to-speech/{voice}/with-timestamps"
-EXTENSIONS = {"mp3": "mp3", "pcm": "wav", "ulaw": "wav"}
+PCM_SAMPLE_WIDTH_BYTES = 2
 
 
 class ElevenLabsProvider(Provider):
@@ -29,8 +32,38 @@ class ElevenLabsProvider(Provider):
             raise TtsError(f"elevenlabs answered {response.status_code}: {response.text[:300]}")
         body = response.json()
         words = _words_from(body["alignment"])
-        extension = EXTENSIONS[self.section["output_format"].split("_")[0]]
-        return Synthesis(base64.b64decode(body["audio_base64"]), extension, words[-1].end if words else 0.0, words)
+        audio = base64.b64decode(body["audio_base64"])
+        codec, _, rate = self.section["output_format"].partition("_")
+        if codec == "pcm":
+            return _pcm_synthesis(audio, int(rate), words)
+        if codec == "mp3":
+            return Synthesis(audio, "mp3", await _mp3_duration(audio), words)
+        raise TtsError(f"tts.elevenlabs output_format '{self.section['output_format']}' is not supported; use an mp3_* or pcm_* format")
+
+
+def _pcm_synthesis(pcm: bytes, sample_rate: int, words: list[WordTiming]) -> Synthesis:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(PCM_SAMPLE_WIDTH_BYTES)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+    return Synthesis(buffer.getvalue(), "wav", len(pcm) / (PCM_SAMPLE_WIDTH_BYTES * sample_rate), words)
+
+
+async def _mp3_duration(audio: bytes) -> float:
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-v", "error", "-nostats", "-i", "pipe:0", "-f", "null", "-", "-progress", "pipe:1",
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        raise TtsError("'ffmpeg' is not installed or not on PATH; it measures the length of elevenlabs mp3 audio") from None
+    stdout, stderr = await process.communicate(audio)
+    decoded = [int(line.split("=")[1]) for line in stdout.decode().splitlines() if line.startswith("out_time_us=")]
+    if process.returncode != 0 or not decoded:
+        raise TtsError(f"ffmpeg could not decode the elevenlabs mp3: {stderr.decode(errors='replace')[-300:]}")
+    return decoded[-1] / 1_000_000
 
 
 def _words_from(alignment: dict) -> list[WordTiming]:
