@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import shutil
 import socket
 from collections.abc import AsyncIterator
 import tempfile
@@ -11,6 +12,7 @@ from pathlib import Path
 import httpx
 
 from .settings import Settings
+from .tether import tethered_argv
 from .words import WordTiming, normalize_word
 
 SAMPLE_RATE = 16000
@@ -27,14 +29,17 @@ class Transcriber:
         self._server: asyncio.subprocess.Process | None = None
         self._base_url = ""
         self._starting = asyncio.Lock()
+        self._closed = False
 
     async def warm(self) -> None:
         await self._resident_server()
 
     async def close(self) -> None:
-        if self._server and self._server.returncode is None:
-            self._server.kill()
-            await self._server.wait()
+        self._closed = True
+        async with self._starting:
+            if self._server and self._server.returncode is None:
+                self._server.stdin.close()
+                await self._server.wait()
 
     async def transcribe(self, audio: bytes | Path) -> str:
         base_url = await self._resident_server()
@@ -49,18 +54,19 @@ class Transcriber:
 
     async def _resident_server(self) -> str:
         async with self._starting:
+            if self._closed:
+                raise IntakeError("the transcriber is closed")
             if self._server and self._server.returncode is None:
                 return self._base_url
             if not self._model.exists():
                 raise IntakeError(f"whisper model not found at {self._model}")
+            if not shutil.which("whisper-server"):
+                raise IntakeError("'whisper-server' is not installed or not on PATH; install whisper-cpp")
             port = _free_port()
-            try:
-                self._server = await asyncio.create_subprocess_exec(
-                    "whisper-server", "-m", str(self._model), "--host", "127.0.0.1", "--port", str(port), "-t", str(self._threads),
-                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-                )
-            except FileNotFoundError:
-                raise IntakeError("'whisper-server' is not installed or not on PATH; install whisper-cpp") from None
+            self._server = await asyncio.create_subprocess_exec(
+                *tethered_argv(["whisper-server", "-m", str(self._model), "--host", "127.0.0.1", "--port", str(port), "-t", str(self._threads)]),
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL, start_new_session=True,
+            )
             self._base_url = f"http://127.0.0.1:{port}"
             await self._await_ready()
             return self._base_url
@@ -68,6 +74,8 @@ class Transcriber:
     async def _await_ready(self) -> None:
         async with httpx.AsyncClient(timeout=2) as client:
             for _ in range(120):
+                if self._closed:
+                    raise IntakeError("the transcriber closed while whisper-server was loading")
                 if self._server.returncode is not None:
                     raise IntakeError(f"whisper-server exited with {self._server.returncode} while loading the model")
                 try:

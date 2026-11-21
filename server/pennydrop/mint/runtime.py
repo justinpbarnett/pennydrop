@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ..asks.validator import Validator, ValidatorError
 from ..store import LessonRecord, LessonSource, Store
+from ..tether import lifeline, tethered_argv
 from .paths import MintPaths
 
 ALLOWED_ASSET_LICENSES = ("MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "CC0-1.0", "CC-BY-4.0", "CC-BY-3.0", "OFL-1.1", "Unlicense")
@@ -80,7 +81,8 @@ def _failed_replays(validator: Validator, store: Store, lab_id: str) -> list[str
 
 
 def _run_tool(paths: MintPaths, tool: str, *arguments: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["bun", str(paths.tools / tool), *arguments], capture_output=True, text=True, cwd=paths.player)
+    with lifeline() as stdin:
+        return subprocess.run(tethered_argv(["bun", str(paths.tools / tool), *arguments]), stdin=stdin, capture_output=True, text=True, cwd=paths.player)
 
 
 def _problems(result: subprocess.CompletedProcess[str]) -> list[str]:
@@ -101,10 +103,11 @@ def format_source(paths: MintPaths, source: Path) -> None:
 
 
 def build(paths: MintPaths, lab_id: str) -> None:
-    result = subprocess.run(
-        ["bun", str(paths.tools / "mint-build.ts"), str(paths.minted_source(lab_id)), str(paths.minted_build(lab_id))],
-        capture_output=True, text=True, cwd=paths.player,
-    )
+    with lifeline() as stdin:
+        result = subprocess.run(
+            tethered_argv(["bun", str(paths.tools / "mint-build.ts"), str(paths.minted_source(lab_id)), str(paths.minted_build(lab_id))]),
+            stdin=stdin, capture_output=True, text=True, cwd=paths.player,
+        )
     if result.returncode != 0:
         raise MintError(f"building the minted Lab '{lab_id}' failed: {(result.stderr or result.stdout).strip()[-600:]}")
 

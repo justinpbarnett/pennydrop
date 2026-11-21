@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..tether import lifeline, tethered_argv
 from .paths import MintPaths
 
 
@@ -18,11 +19,12 @@ class Finding:
 
 
 async def run_checks(paths: MintPaths, workspace: Path) -> list[Finding]:
-    process = await asyncio.create_subprocess_exec(
-        "bun", str(paths.tools / "mint-check.ts"), str(workspace), "--json",
-        cwd=paths.player, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await process.communicate()
+    with lifeline() as stdin:
+        process = await asyncio.create_subprocess_exec(
+            *tethered_argv(["bun", str(paths.tools / "mint-check.ts"), str(workspace), "--json"]),
+            stdin=stdin, cwd=paths.player, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
     try:
         return [Finding(item["stage"], item["message"]) for item in json.loads(stdout.decode().strip().splitlines()[-1])]
     except (json.JSONDecodeError, IndexError):

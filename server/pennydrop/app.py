@@ -81,10 +81,11 @@ def create_app(services: Services) -> FastAPI:
         services.store.fail_unfinished_lessons()
         warming = [asyncio.create_task(asyncio.to_thread(services.speaker.warm)), asyncio.create_task(services.transcriber.warm())]
         yield
+        await services.transcriber.close()
         for task in warming:
             task.cancel()
+        await asyncio.gather(*warming, return_exceptions=True)
         await services.asks.close()
-        await services.transcriber.close()
 
     app = FastAPI(title="Pennydrop", lifespan=lifespan)
     app.include_router(minted_labs_router(MintPaths.of(services.settings)))
