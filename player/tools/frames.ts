@@ -52,14 +52,20 @@ function pruneBuildCache(keep: string): void {
   }
 }
 
+function touched(path: string): boolean {
+  try {
+    utimesSync(path, new Date(), new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function builtPlayer(): Promise<string> {
   const target = join(BUILD_CACHE, sourceHash());
   mkdirSync(BUILD_CACHE, { recursive: true });
   pruneBuildCache(target);
-  if (existsSync(target)) {
-    utimesSync(target, new Date(), new Date());
-    return target;
-  }
+  if (touched(target)) return target;
   const staging = mkdtempSync(join(BUILD_CACHE, "building-"));
   const vite = Bun.spawn([join(PLAYER_ROOT, "node_modules/.bin/vite"), "build", "--logLevel", "error", "--outDir", staging, "--emptyOutDir"], { cwd: PLAYER_ROOT, stdout: "inherit", stderr: "inherit" });
   if ((await vite.exited) !== 0) {
@@ -71,7 +77,7 @@ async function builtPlayer(): Promise<string> {
   } catch {
     rmSync(staging, { recursive: true, force: true });
   }
-  utimesSync(target, new Date(), new Date());
+  if (!touched(target)) usage("the built player disappeared while frames was starting; run it again");
   return target;
 }
 

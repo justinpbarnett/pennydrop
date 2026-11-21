@@ -27,9 +27,9 @@ const roleTheme = {
 };
 
 let highlighter: HighlighterCore | null = null;
+let loading: Promise<void> | null = null;
 
-export async function loadHighlighter(): Promise<void> {
-  if (highlighter) return;
+async function createHighlighter(): Promise<HighlighterCore> {
   const [{ createHighlighterCore }, { createJavaScriptRegexEngine }, c, javascript, python, typescript] = await Promise.all([
     import("shiki/core"),
     import("shiki/engine/javascript"),
@@ -38,11 +38,24 @@ export async function loadHighlighter(): Promise<void> {
     import("@shikijs/langs/python"),
     import("@shikijs/langs/typescript"),
   ]);
-  highlighter = await createHighlighterCore({
+  return createHighlighterCore({
     themes: [roleTheme],
     langs: [...python.default, ...javascript.default, ...typescript.default, ...c.default],
     engine: createJavaScriptRegexEngine(),
   });
+}
+
+export function loadHighlighter(): Promise<void> {
+  loading ??= createHighlighter().then(
+    (created) => {
+      highlighter = created;
+    },
+    (error) => {
+      loading = null;
+      throw error;
+    },
+  );
+  return loading;
 }
 
 export const CODE_LANGUAGES = ["python", "javascript", "typescript", "c"];
