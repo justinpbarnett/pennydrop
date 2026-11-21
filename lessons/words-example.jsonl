@@ -1,0 +1,5 @@
+{"lesson": {"title": "Reading the word banana", "goal": "Say, stress, spell and understand the word banana.", "labs": ["words"]}}
+{"step": 1, "say": "Here is a new word: banana. Listen as I say it, ba, na, na.", "scene": {"w": {"lab": "words", "word": "ba-na-na", "meanings": ["a red fruit", "a long yellow fruit", "a green vegetable"], "answer": 1}}, "do": [{"cue": "Listen", "op": "say", "on": ["w"]}]}
+{"step": 2, "say": "One part is louder than the others. It is the middle one, ba, NA, na.", "do": [{"cue": "middle one", "op": "stress", "on": ["w"], "syllable": 1}, {"cue": "ba, NA, na", "op": "say", "on": ["w"]}]}
+{"step": 3, "say": "Now we spell it, one letter at a time. B, A, N, A, N, A.", "do": [{"cue": "spell it", "op": "spell", "on": ["w"]}]}
+{"step": 4, "say": "Is a banana a red fruit? No. It is a long yellow fruit, and that is the right card.", "do": [{"cue": "red fruit", "op": "match", "on": ["w"], "meaning": 0}, {"cue": "long yellow fruit", "op": "match", "on": ["w"], "meaning": 1}]}
