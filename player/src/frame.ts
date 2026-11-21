@@ -214,6 +214,7 @@ function applyTouches(
   touches: Touch[],
   stages: { before: Stage; after: Stage },
   progress: number,
+  linearProgress: number,
   theme: Theme,
 ): void {
   for (const touch of touches) {
@@ -227,7 +228,8 @@ function applyTouches(
       const def = definitionOf(touch.after);
       if (!def.during) continue;
       const labOp = { name: touch.action.name, parts: touch.action.parts, args: touch.action.args };
-      const local = def.during(touch.before.state, touch.after.state, labOp, progress, { objectId: touch.objectId, links: {} });
+      const drive = def.linearOps?.includes(touch.action.name) ? linearProgress : progress;
+      const local = def.during(touch.before.state, touch.after.state, labOp, drive, { objectId: touch.objectId, links: {} });
       placeDrawables(touch.objectId, local, box).forEach((drawable) => items.set(drawable.id, paintDrawable(drawable, theme)));
     }
   }
@@ -243,7 +245,8 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
   const hasExits = replaced.size > 0 || [...beforeItems.keys()].some((id) => !afterItems.has(id));
   const exitShare = hasExits ? EXIT_SHARE : 0;
   const exitProgress = located.progress >= 1 ? 1 : exitShare === 0 ? 0 : unit(located.progress / exitShare);
-  const progress = located.progress >= 1 ? 1 : easeFor(theme)(unit((located.progress - exitShare) / (1 - exitShare)));
+  const linearProgress = located.progress >= 1 ? 1 : unit((located.progress - exitShare) / (1 - exitShare));
+  const progress = located.progress >= 1 ? 1 : easeFor(theme)(linearProgress);
 
   const items = new Map<string, Painted>();
   if (before === after || progress >= 1) {
@@ -266,7 +269,7 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
       if (replaced.has(objectOf(id))) items.set(`${id}~replaced`, { ...item, id: `${id}~replaced`, opacity: item.opacity * (1 - exitProgress) });
       else if (!afterItems.has(id)) items.set(id, { ...item, opacity: item.opacity * (1 - exitProgress) });
     });
-    applyTouches(items, located.touches, { before, after }, progress, theme);
+    applyTouches(items, located.touches, { before, after }, progress, linearProgress, theme);
   }
 
   const camera = before === after || progress >= 1 ? after.camera : {

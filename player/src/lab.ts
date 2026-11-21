@@ -90,6 +90,7 @@ export interface LabDef<Spec = Record<string, unknown>, State = unknown> {
   title: string;
   overlay?: boolean;
   round?: boolean;
+  linearOps?: readonly string[];
   catalog: Catalog;
   init(spec: Spec, objectId: string): State;
   apply(state: State, op: LabOp): State;
