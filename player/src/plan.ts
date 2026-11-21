@@ -1,5 +1,6 @@
 import { challengeProblems } from "./challenge";
-import { relationTargets, type Step, type StepOp } from "./format";
+import type { Step, StepOp } from "./format";
+import { relationTargets } from "./relation";
 import { LabError, type LabOp } from "./lab";
 import { narrate, resolveCues } from "./narration";
 import { parseSelector } from "./selector";

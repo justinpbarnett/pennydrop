@@ -1,13 +1,13 @@
 import { fail, type Rect, type Size } from "./lab";
-import type { Relation } from "./format";
 import { NO_REACH, type Reach, reachOf } from "./ink";
+import { groupOf, type GroupKind, type Region, type Relation, RELATION_GAP, regionOf, sideClear, sideOf, sideSpot } from "./relation";
 import { definitionOf, type SceneObject, type SceneState } from "./scene";
 import type { Theme } from "./theme";
 
 export const STAGE: Size = { w: 1600, h: 900 };
 const MARGIN = 60;
+const CHILD_SCALE_CAP = 2.5;
 const FLOW_GAP = 44;
-const RELATION_GAP = 36;
 const GROUP_GAP = 44;
 
 export interface Box extends Rect {
@@ -35,20 +35,7 @@ interface Cluster {
   h: number;
 }
 
-const GROUP_KINDS = ["row", "column", "grid", "ring", "timeline", "tree"] as const;
-
-function groupOf(at: Relation | undefined): { kind: (typeof GROUP_KINDS)[number]; ids: string[] } | null {
-  if (!at || typeof at === "string") return null;
-  const kind = GROUP_KINDS.find((candidate) => candidate in at);
-  if (!kind) return null;
-  if (kind === "tree") {
-    const tree = (at as { tree: Record<string, string[]> }).tree;
-    return { kind, ids: [...new Set(Object.entries(tree).flatMap(([parent, children]) => [parent, ...children]))] };
-  }
-  return { kind, ids: (at as Record<string, string[]>)[kind]! };
-}
-
-function arrange(kind: (typeof GROUP_KINDS)[number], at: Relation, sizes: Size[], ids: string[]): Rect[] {
+function arrange(kind: GroupKind, at: Relation, sizes: Size[], ids: string[]): Rect[] {
   const gap = kind === "timeline" ? GROUP_GAP * 2 : GROUP_GAP;
   if (kind === "row" || kind === "timeline") {
     let x = 0;
@@ -143,22 +130,25 @@ function buildNodes(scene: SceneState, reaches: ReadonlyMap<string, Reach>): Nod
   return nodes;
 }
 
-function relativeTarget(relation: Relation | undefined): { side: string; target: string } | null {
-  if (!relation || typeof relation === "string") return null;
-  const entry = Object.entries(relation).find(([key]) => ["below", "above", "left of", "right of", "next to"].includes(key));
-  return entry ? { side: entry[0], target: entry[1] as string } : null;
-}
-
 function buildClusters(nodes: Node[]): Cluster[] {
   const nodeOf = new Map<string, Node>();
   nodes.forEach((node) => node.members.forEach((member) => nodeOf.set(member.id, node)));
   const placements = new Map<string, { x: number; y: number }>();
   const rootOf = new Map<string, Node>();
+  const blockerFor = (node: Node, root: Node, spot: { x: number; y: number }): Rect | undefined => {
+    for (const other of nodes) {
+      const at = placements.get(other.key);
+      if (other === node || !at || rootOf.get(other.key) !== root) continue;
+      const clear = spot.x + node.w + RELATION_GAP <= at.x + 1 || at.x + other.w + RELATION_GAP <= spot.x + 1 || spot.y + node.h + RELATION_GAP <= at.y + 1 || at.y + other.h + RELATION_GAP <= spot.y + 1;
+      if (!clear) return { x: at.x, y: at.y, w: other.w, h: other.h };
+    }
+    return undefined;
+  };
   const resolve = (node: Node, trail: string[]): Node => {
     const cached = rootOf.get(node.key);
     if (cached) return cached;
     if (trail.includes(node.key)) fail(`placement loop between ${[...trail, node.key].join(" -> ")}: break the cycle in "at"`);
-    const relative = relativeTarget(node.relation);
+    const relative = sideOf(node.relation);
     let root = node;
     if (relative) {
       const target = nodeOf.get(relative.target);
@@ -166,18 +156,9 @@ function buildClusters(nodes: Node[]): Cluster[] {
       root = resolve(target, [...trail, node.key]);
       const anchor = placements.get(target.key) ?? { x: 0, y: 0 };
       const member = target.members.find((candidate) => candidate.id === relative.target)!;
-      const left = anchor.x + member.x;
-      const top = anchor.y + member.y;
-      const centerX = left + member.w / 2 - node.w / 2;
-      const centerY = top + member.h / 2 - node.h / 2;
-      const spot: Record<string, { x: number; y: number }> = {
-        below: { x: centerX, y: top + member.h + RELATION_GAP },
-        above: { x: centerX, y: top - node.h - RELATION_GAP },
-        "left of": { x: left - node.w - RELATION_GAP, y: centerY },
-        "right of": { x: left + member.w + RELATION_GAP, y: centerY },
-        "next to": { x: left + member.w + RELATION_GAP, y: centerY },
-      };
-      placements.set(node.key, spot[relative.side]!);
+      let spot = sideSpot(relative.side, { x: anchor.x + member.x, y: anchor.y + member.y, w: member.w, h: member.h }, node);
+      for (let blocker = blockerFor(node, root, spot); blocker; blocker = blockerFor(node, root, spot)) spot = sideClear(relative.side, spot, blocker, node);
+      placements.set(node.key, spot);
     } else {
       placements.set(node.key, { x: 0, y: 0 });
     }
@@ -199,15 +180,9 @@ function buildClusters(nodes: Node[]): Cluster[] {
   });
 }
 
-type Region = "top" | "bottom" | "left" | "right" | "center" | "flow";
-
-function regionOf(relation: Relation | undefined): Region {
-  return typeof relation === "string" ? relation : "flow";
-}
-
 function placeClusters(clusters: Cluster[]): Map<string, Rect> {
   const origins = new Map<Cluster, { x: number; y: number }>();
-  const inRegion = (region: Region) => clusters.filter((cluster) => regionOf(cluster.root.relation) === region);
+  const inRegion = (region: Region | "flow") => clusters.filter((cluster) => regionOf(cluster.root.relation) === region);
   let topEdge = MARGIN;
   for (const cluster of inRegion("top")) {
     origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: topEdge });
@@ -259,14 +234,14 @@ function placeClusters(clusters: Cluster[]): Map<string, Rect> {
   return rects;
 }
 
-function fitToStage(rects: Map<string, Rect>): Layout {
+function fitToStage(rects: Map<string, Rect>, maxScale: number): Layout {
   const all = [...rects.values()];
   if (all.length === 0) return new Map();
   const minX = Math.min(...all.map((rect) => rect.x));
   const maxX = Math.max(...all.map((rect) => rect.x + rect.w));
   const minY = Math.min(...all.map((rect) => rect.y));
   const maxY = Math.max(...all.map((rect) => rect.y + rect.h));
-  const scale = Math.min(1, (STAGE.w - 2 * MARGIN) / (maxX - minX), (STAGE.h - 2 * MARGIN) / (maxY - minY));
+  const scale = Math.min(maxScale, (STAGE.w - 2 * MARGIN) / (maxX - minX), (STAGE.h - 2 * MARGIN) / (maxY - minY));
   const centerX = STAGE.w / 2;
   const centerY = STAGE.h / 2;
   return new Map(
@@ -294,7 +269,7 @@ function reachFor(object: SceneObject, theme: Theme): Reach {
 export function layoutScene(scene: SceneState, theme?: Theme): Layout {
   const reachOfId = new Map<string, Reach>(scene.objects.map((object) => [object.id, theme ? reachFor(object, theme) : NO_REACH]));
   const clusters = buildClusters(buildNodes(scene, reachOfId));
-  const fitted = fitToStage(placeClusters(clusters));
+  const fitted = fitToStage(placeClusters(clusters), scene.reading === false ? CHILD_SCALE_CAP : 1);
   return new Map(
     [...fitted].map(([id, box]) => {
       const reach = reachOfId.get(id) ?? NO_REACH;

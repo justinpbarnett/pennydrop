@@ -67,7 +67,7 @@ interface Geometry {
   size: Size;
 }
 
-const SPEC_KEYS = ["lab", "nodes", "edges", "directed", "layout", "root", "frontier", "distances"];
+const SPEC_KEYS = ["lab", "reading", "nodes", "edges", "directed", "layout", "root", "frontier", "distances"];
 const LAYOUTS: LayoutKind[] = ["tree", "layers", "ring"];
 const FRONTIERS: FrontierKind[] = ["queue", "stack", "heap"];
 const SIDES: Side[] = ["left", "right"];
@@ -653,7 +653,7 @@ export const lab: LabDef<GraphSpec, GraphState> = {
 
   init(spec, objectId) {
     const unknown = Object.keys(spec).find((key) => !SPEC_KEYS.includes(key));
-    if (unknown) fail(`${objectId}: graph has no spec field "${unknown}"; fields: ${SPEC_KEYS.slice(1).join(", ")}`);
+    if (unknown) fail(`${objectId}: graph has no spec field "${unknown}"; fields: ${SPEC_KEYS.slice(2).join(", ")}`);
     const layout = oneOf(spec.layout, LAYOUTS, "layout", objectId, "layers")!;
     const nodes = readNodes(spec.nodes, layout, objectId);
     const directed = spec.directed === true;

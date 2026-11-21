@@ -1,4 +1,5 @@
 import { fail } from "./lab";
+import type { Relation } from "./relation";
 import type { SceneState } from "./scene";
 
 export interface Voice {
@@ -6,12 +7,6 @@ export interface Voice {
   duration: number;
   words: { word: string; start: number; end: number }[];
 }
-
-export type Relation =
-  | "center" | "top" | "bottom" | "left" | "right"
-  | { below: string } | { above: string } | { "left of": string } | { "right of": string } | { "next to": string }
-  | { row: string[] } | { column: string[] } | { grid: string[] } | { ring: string[] } | { timeline: string[] }
-  | { tree: Record<string, string[]> };
 
 export interface ObjectSpec {
   lab?: string;
@@ -74,13 +69,6 @@ export function parseJsonl(id: string, text: string): LessonSource {
   });
   if (!lesson) fail(`lesson ${id} has no {"lesson": ...} header line`);
   return { id, lesson, steps, done: true };
-}
-
-export function relationTargets(at: Relation | undefined): string[] {
-  if (!at || typeof at === "string") return [];
-  if ("tree" in at) return Object.entries(at.tree).flatMap(([parent, children]) => [parent, ...children]);
-  const [value] = Object.values(at);
-  return Array.isArray(value) ? value : [value as string];
 }
 
 export const SCENE_RULES = [

@@ -1,6 +1,7 @@
 import { definitionByKey, definitionKeyForSpec } from "./registry";
-import type { LessonHeader, ObjectSpec, Relation } from "./format";
+import type { LessonHeader, ObjectSpec } from "./format";
 import { type AnyLabDef, fail, type Role } from "./lab";
+import { parseRelation, type Relation } from "./relation";
 
 export interface SceneObject {
   id: string;
@@ -37,7 +38,7 @@ export function createObject(id: string, spec: ObjectSpec, scene: SceneState): S
   }
   const { at, ...fields } = spec;
   const state = definitionByKey(defKey).init({ ...fields, reading }, id);
-  return at === undefined ? { id, defKey, state } : { id, defKey, state, at };
+  return at === undefined ? { id, defKey, state } : { id, defKey, state, at: parseRelation(id, at) };
 }
 
 export function findObject(scene: SceneState, id: string): SceneObject | undefined {

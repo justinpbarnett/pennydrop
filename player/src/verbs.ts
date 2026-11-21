@@ -2,7 +2,8 @@ import { isRole, fail, lerp, type Drawable } from "./lab";
 import {
   createObject, findObject, removeObject, requireObject, type SceneObject, type SceneState, upsertObject,
 } from "./scene";
-import type { ObjectSpec, Relation } from "./format";
+import type { ObjectSpec } from "./format";
+import { parseRelation } from "./relation";
 import type { Selector } from "./selector";
 
 export type Effect =
@@ -121,7 +122,7 @@ const VERBS: Record<string, Verb> = {
       let next = scene;
       const touches = requireIds(op, "any").map((id) => {
         const before = requireObject(next, id);
-        const after = { ...before, at: op.args.to as Relation };
+        const after = { ...before, at: parseRelation(id, op.args.to) };
         next = upsertObject(next, after);
         return sceneTouch(id, before, after);
       });
