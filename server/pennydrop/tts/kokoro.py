@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import queue
+import threading
 import warnings
 
 import soundfile
@@ -11,6 +12,7 @@ from ..words import WordTiming, normalize_word
 from .provider import Provider, Synthesis, TtsError
 
 SAMPLE_RATE = 24000
+ESPEAK_INIT = threading.Lock()
 
 
 class KokoroProvider(Provider):
@@ -23,7 +25,13 @@ class KokoroProvider(Provider):
             self._pipelines.put(None)
 
     def warm(self) -> None:
-        self._pipelines.put(self._borrow())
+        pipelines = [self._borrow() for _ in range(self.section["workers"])]
+        try:
+            for pipeline in pipelines:
+                self._speak_with(pipeline, "Ready.", self.default_voice)
+        finally:
+            for pipeline in pipelines:
+                self._pipelines.put(pipeline)
 
     async def synthesize(self, text: str, voice: str) -> Synthesis:
         return await asyncio.to_thread(self._synthesize_blocking, text, voice)
@@ -37,23 +45,28 @@ class KokoroProvider(Provider):
                 warnings.simplefilter("ignore")
                 from kokoro import KPipeline
 
-                return KPipeline(lang_code=self.section["language"], repo_id="hexgrad/Kokoro-82M")
+                with ESPEAK_INIT:
+                    return KPipeline(lang_code=self.section["language"], repo_id="hexgrad/Kokoro-82M")
         except BaseException:
             self._pipelines.put(None)
             raise
+
+    def _speak_with(self, pipeline, text: str, voice: str) -> tuple[list, list[WordTiming], float]:
+        chunks = []
+        words: list[WordTiming] = []
+        offset_seconds = 0.0
+        for result in pipeline(text, voice=voice, speed=self.section["speed"]):
+            chunks.append(result.audio.numpy())
+            words += _words_from(result.tokens, offset_seconds)
+            offset_seconds += len(result.audio) / SAMPLE_RATE
+        return chunks, words, offset_seconds
 
     def _synthesize_blocking(self, text: str, voice: str) -> Synthesis:
         import numpy
 
         pipeline = self._borrow()
         try:
-            chunks = []
-            words: list[WordTiming] = []
-            offset_seconds = 0.0
-            for result in pipeline(text, voice=voice, speed=self.section["speed"]):
-                chunks.append(result.audio.numpy())
-                words += _words_from(result.tokens, offset_seconds)
-                offset_seconds += len(result.audio) / SAMPLE_RATE
+            chunks, words, offset_seconds = self._speak_with(pipeline, text, voice)
         finally:
             self._pipelines.put(pipeline)
         if not chunks:

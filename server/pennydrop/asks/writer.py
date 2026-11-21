@@ -26,15 +26,22 @@ Rules
 - The Ask may be a speech transcript, so it can hold misheard words. Fix an evident mishearing, such as "Mudex" for "mutex", in the title and in the narration, and never repeat the wrong word.
 - The title is in sentence case: only its first word and proper nouns start with a capital, as in "Bubble sort" and "A page table walk".
 - Write 6 to 10 Steps.
-- Step 1 is short: one or two sentences and at most one or two scene objects, so it can start playing at once.
+- Step 1 is short: one sentence of at most 14 words and at most one or two scene objects, so it can start playing at once; the Steps after it carry the detail.
 - "say" is spoken aloud: plain words, about 25 words at most, no markdown, no symbols that are hard to speak.
 - Use only the Labs and primitives of the catalog below, with their exact spec fields and operations. An object with "lab" is a Lab, an object with "kind" is a primitive.
 - When no Lab fits the Ask, build the explanation from primitives and the generic verbs.
 - Never write coordinates, pixel sizes or colors. Place objects with "at" relations and color with roles.
 - A Step's "scene" sets or replaces the objects it names, and null removes one. Every other object stays. A Step with no "scene" keeps the Scene as it was.
 - Keep at most about three objects on stage at once, because a Scene that fits only below 60% size fails. Remove what a Step no longer talks about (null in "scene") before it adds a big panel such as a code trace or a simulation, and never show the same Lab twice.
+- An object's "scene" entry creates it, or resets it to the state of that entry when it is already on stage. A Step that continues an object leaves it out of "scene" and only adds "do" entries on it, and a "do" entry never names an object that is not on stage yet.
 - Put new objects in "scene". Use the generic verb "create" only for an object that must appear on a spoken Cue, and then always with "spec" holding the full object spec.
 - "do" runs after "scene". Each entry's "cue" is a word or phrase copied exactly from that Step's "say", and cues appear in the order they are spoken.
+- A Step with a Challenge only asks: its "say", "scene" text and labels never state, show or hint at the answer. The next Step plays the reveal.
+- Spoken Cues are copied letter for letter from the same Step's "say". Write "say" first and pick each cue from it.
+- A number Challenge's "answer" is a plain number, or the name of a directive value such as "simulate.final" or "trace.swaps" only when a directive of that name computed it.
+- A braced placeholder such as {trace.comparisons} in "say" works only in a Step that carries that same directive, or after a Step that already ran it. In every earlier Step write the narration without the number.
+- In a sequence diagram, every "send" is followed by one "receive" or "drop" on the same diagram before the next "send".
+- A plot, chart or graph of numbers shows the Ask's own quantity, computed from the formula or data the Ask is about, and never a stand-in curve.
 - Include at least one predict Challenge. Put it on a Step before the Step that reveals the answer, and let that Step's narration ask the question without giving the answer.
 - Challenge shapes, all with "kind": "predict":
   {"kind": "predict", "type": "number", "prompt": "...", "answer": 6}
@@ -43,6 +50,8 @@ Rules
   {"kind": "predict", "type": "order", "prompt": "...", "choices": ["a", "b", "c"], "answer": ["b", "a", "c"]}
   {"kind": "predict", "type": "match", "prompt": "...", "pairs": [["left", "right"], ["left", "right"]]}
 - Every number that comes from running code or from arithmetic comes from a directive, never from you. A directive is a field of the Step that the server runs before the Step plays.
+- A Lab whose operations are steps of one process (address, scheduler, threads, hash, shapes) accepts them only in the order its catalog example shows, and each operation needs what the earlier ones built: copy the example's order, start from its first operation, and write in a Step only the operations its narration says.
+- A trace owns its object's counters and the code object's lines and variables: a later Step never changes those counters, and never traces the same code and input again. Show the end state by leaving the object on stage, and let the narration use the trace's own numbers.
 - When a directive can play your example on a Lab (trace for the array, code and graph Labs, simulate for the scheduler, threads and address Labs), always use that directive for it, and never write by hand the operations it writes, even though the Lab's catalog entry shows them. The directive plays the whole run inside one Step, so give that Step enough narration for it, and put the intro of the run in Steps before it.
 - When "say" brings in a new example, number, list or object, that same Step's "scene" sets it, so the stage always shows what the narration talks about.
 - A Learner who is a kid gets words a young child knows, and a warm, playful voice. The kid rules below say more.
@@ -100,7 +109,7 @@ class Brief:
         return "\n".join(lines)
 
 WRITER_EFFORT = "low"
-WRITER_HEDGE_SECONDS = 2.5
+WRITER_HEDGE_SECONDS = 2.0
 NO_THINKING = "Reply straight away without extended thinking: this task needs none."
 
 

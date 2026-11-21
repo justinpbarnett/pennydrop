@@ -110,6 +110,7 @@ const LABEL_SIZE = 40;
 const LABEL_PAD = 24;
 const LABEL_HEIGHT = 68;
 const LABEL_LEADER = 56;
+const LARGE_PART = 0.4;
 
 const POINTER_REACHES = [POINTER_LENGTH, 80];
 const LABEL_REACHES = [LABEL_LEADER, 2 * LABEL_LEADER];
@@ -423,14 +424,17 @@ function labelGeometry(state: PictureState, box: Rect, name: string, placement: 
     top: { x: center.x, y: box.y - reach - pill.h / 2 },
     bottom: { x: center.x, y: box.y + box.h + reach + pill.h / 2 },
   }[placement.side];
-  return {
-    anchor,
-    pill,
-    spot: {
-      x: pill.w + 2 * EDGE_MARGIN > state.frame.w ? state.frame.w / 2 : clamp(spot.x, EDGE_MARGIN + pill.w / 2, state.frame.w - EDGE_MARGIN - pill.w / 2),
-      y: clamp(spot.y, EDGE_MARGIN + pill.h / 2, state.frame.h - EDGE_MARGIN - pill.h / 2),
-    },
+  const clamped = {
+    x: pill.w + 2 * EDGE_MARGIN > state.frame.w ? state.frame.w / 2 : clamp(spot.x, EDGE_MARGIN + pill.w / 2, state.frame.w - EDGE_MARGIN - pill.w / 2),
+    y: clamp(spot.y, EDGE_MARGIN + pill.h / 2, state.frame.h - EDGE_MARGIN - pill.h / 2),
   };
+  const gapX = Math.max(box.x - (clamped.x + pill.w / 2), clamped.x - pill.w / 2 - (box.x + box.w), 0);
+  const gapY = Math.max(box.y - (clamped.y + pill.h / 2), clamped.y - pill.h / 2 - (box.y + box.h), 0);
+  const large = box.w > LARGE_PART * state.frame.w || box.h > LARGE_PART * state.frame.h;
+  if (!large && Math.hypot(gapX, gapY) <= reach + pill.h) return { anchor, pill, spot: clamped };
+  const dot = { x: clamp(center.x, EDGE_MARGIN, state.frame.w - EDGE_MARGIN), y: clamp(box.y + LABEL_LEADER / 2, EDGE_MARGIN, state.frame.h - EDGE_MARGIN) };
+  const below = { x: clamp(dot.x, EDGE_MARGIN + pill.w / 2, Math.max(state.frame.w - EDGE_MARGIN - pill.w / 2, EDGE_MARGIN + pill.w / 2)), y: clamp(dot.y + LABEL_LEADER / 2 + pill.h / 2, EDGE_MARGIN + pill.h / 2, state.frame.h - EDGE_MARGIN - pill.h / 2) };
+  return { anchor: dot, pill, spot: below };
 }
 
 function mentionHazards(state: PictureState, mention: Mention, box: Rect, placement: Placement): Hazard[] {
@@ -560,6 +564,10 @@ function crossfade(before: Weighted[], after: Weighted[], progress: number): Wei
   });
 }
 
+function named(state: PictureState, part: Part): Pick<PictureState, "labels" | "history"> {
+  return state.reading ? { labels: [part.name], history: remember(state, "label", part) } : { labels: state.labels, history: state.history };
+}
+
 function remember(state: PictureState, kind: Mention["kind"], part: Part): Mention[] {
   return state.history.some((mention) => mention.kind === kind && mention.part === part.name) ? state.history : [...state.history, { kind, part: part.name }];
 }
@@ -583,23 +591,33 @@ const ops: Record<string, OpDef<PictureState>> = {
     apply: (state) => ({ ...state, shown: true }),
     during,
   },
+  found: {
+    doc: '{"on": ["pic"], "parts": [{"name": "beak", "box": {"x": 0.42, "y": 0.3, "w": 0.1, "h": 0.2}}]}; gives a picture that is already shown its located parts, without changing what is on screen. Used when the parts were not known at the Step that showed the picture',
+    seconds: 0.2,
+    apply(state, op) {
+      requireShown(state, op);
+      return { ...state, parts: readParts(op.args.parts, state.objectId) };
+    },
+    during,
+  },
   point: {
-    doc: '{"on": ["pic[beak]"]}; a pointer arrow and a glowing outline appear on that part, replacing an earlier point',
+    doc: '{"on": ["pic[beak]"]}; a pointer arrow and a glowing outline appear on that part, replacing an earlier point, and with reading on its name is written on a tag',
     seconds: 0.8,
     apply(state, op) {
       requireShown(state, op);
       const part = partOf(state, op);
-      return { ...state, pointing: part.name, history: remember(state, "pointer", part) };
+      const pointed = { ...state, history: remember(state, "pointer", part) };
+      return { ...pointed, pointing: part.name, ...named(pointed, part) };
     },
     during,
   },
   zoom: {
-    doc: '{"on": ["pic[beak]"]}; the camera glides in until that part fills the frame; a pointer on another part is dropped, the pointer and labels on this part stay on it. Very small parts stop zooming once the picture would turn blurry',
+    doc: '{"on": ["pic[beak]"]}; the camera glides in until that part fills the frame; a pointer on another part is dropped, and the pointer stays on this part. Very small parts stop zooming once the picture would turn blurry',
     seconds: 1.7,
     apply(state, op) {
       requireShown(state, op);
       const part = partOf(state, op);
-      return { ...state, view: viewFor(state, part.box), pointing: state.pointing === part.name ? state.pointing : null };
+      return { ...state, view: viewFor(state, part.box), pointing: state.pointing === part.name ? state.pointing : null, ...named(state, part) };
     },
     during,
   },
@@ -613,12 +631,12 @@ const ops: Record<string, OpDef<PictureState>> = {
     during,
   },
   label: {
-    doc: '{"on": ["pic[beak]"]}; writes the part\'s name on a tag with a line to the part and keeps it. With reading false it pulses the part\'s outline twice instead and keeps nothing',
+    doc: '{"on": ["pic[beak]"]}; writes the part\'s name on a tag with a line to the part, replacing the tag of an earlier part. Point and zoom write the tag too. With reading false it pulses the part\'s outline twice instead and keeps nothing',
     seconds: (_op, state) => (state.reading ? 0.9 : PULSE_SECONDS),
     apply(state, op) {
       requireShown(state, op);
       const part = partOf(state, op);
-      return state.reading && !state.labels.includes(part.name) ? { ...state, labels: [...state.labels, part.name], history: remember(state, "label", part) } : state;
+      return { ...state, ...named(state, part) };
     },
     during,
   },

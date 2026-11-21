@@ -14,14 +14,19 @@ from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
 from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
+from .coaching import coached
 from .directives import DirectiveError, DirectiveTools, expand_directives
+from .directives.images import dropped_picture
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
+from .mending import mended, mended_by_verdict, mended_cues
+from .stage import Stage
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator
 from .writer import Brief, Writer
 
 LOG = logging.getLogger("pennydrop.asks")
+MAX_MENDS = 3
 MAX_REPAIR_TRIES = 2
 HONOR_CODE_ERROR = "the Step touches project code or an assignment spec; explain the concept on a toy example of your own instead"
 PLACEHOLDER = re.compile(r"\s*\{[^}]*\}")
@@ -86,11 +91,13 @@ class LessonRun:
         self._live = live
         self._stopwatch = stopwatch
         self._voices: dict[str, asyncio.Task[Voice | None]] = {}
+        self._first_voice: asyncio.Task[Voice | None] | None = None
         self._repairs: list[dict[str, Any]] = []
         self._catalog_labs: set[str] = set()
         self._published = 0
         self._redone_for_child: set[int] = set()
         self._remembered_values: dict[str, Any] = {}
+        self._stage = Stage()
         self._refused = False
         self._warm_picture: asyncio.Task[None] | None = None
 
@@ -125,6 +132,7 @@ class LessonRun:
             self._warm_picture = asyncio.create_task(prefetch(kit.directive_tools.images, photo_search, not self._is_kid, self._record.id))
         self._record = replace(self._record, tier=plan.tier.value)
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
+        self._stage = Stage(start_scene)
         brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, photo_search)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()
         ready: asyncio.Queue[ReadyStep | None] = asyncio.Queue()
@@ -172,6 +180,7 @@ class LessonRun:
             except PlayerCrash as crash:
                 raise LessonError(f"the player's validator crashed on step {step.number}, and no rewrite can fix that: {crash}") from None
             scene = settled.scene
+            self._stage.settle(settled.step)
             self._stopwatch.mark("first_step_checked")
             await ready.put(ReadyStep(settled.step, self._voice(settled.step["say"])))
         await ready.put(None)
@@ -181,6 +190,7 @@ class LessonRun:
         for attempt in range(MAX_REPAIR_TRIES + 1):
             checked = await self._check(written, pending.number, scene)
             if not checked.errors:
+                self._stage.remember_trace(written, checked.step)
                 return SettledStep(checked.step, checked.scene)
             if attempt == MAX_REPAIR_TRIES:
                 break
@@ -192,17 +202,29 @@ class LessonRun:
 
     async def _check(self, written: dict[str, Any] | Malformed, number: int, scene: Any) -> Checked:
         if isinstance(written, Malformed):
-            return Checked([written.reason], None, scene)
-        step = {**written, "step": number}
+            return Checked([coached(written.reason)], None, scene)
+        step = mended({**written, "step": number}, self._stage)
+        owned = self._stage.errors_in_written(written)
+        if owned:
+            return Checked(owned, None, scene)
         try:
-            tools = replace(self._kit.directive_tools, lesson_id=self._record.id, young_child=self._is_kid)
-            step = await expand_directives(step, tools, self._remembered_values)
+            tools = replace(self._kit.directive_tools, lesson_id=self._record.id, young_child=self._is_kid, staged=self._stage.on_stage(), traced=frozenset(self._stage.traces), pictures=dict(self._stage.specs))
+            expanded = mended_cues(await expand_directives(step, tools, self._remembered_values))
+            lost_picture = dropped_picture(step, tools)
+            step = expanded
         except DirectiveError as error:
-            return Checked([str(error)], None, scene)
+            return Checked([coached(str(error))], None, scene)
         verdict, fine_for_child, keeps_honor_code = await asyncio.gather(
-            self._kit.validator.check(step, scene, self._reading), self._fine_for_child(step), self._keeps_honor_code(step)
+            self._kit.validator.check(step, scene, self._reading, replay=lost_picture), self._fine_for_child(step), self._keeps_honor_code(step)
         )
-        errors = list(verdict.errors)
+        for _ in range(MAX_MENDS):
+            if (roomier := mended_by_verdict(step, verdict.errors, self._stage)) is None:
+                break
+            retry = await self._kit.validator.check(roomier, scene, self._reading, replay=lost_picture)
+            if retry.errors == verdict.errors:
+                break
+            step, verdict = roomier, retry
+        errors = [coached(error) for error in verdict.errors] + self._stage.errors_in(step)
         if not keeps_honor_code:
             errors.append(HONOR_CODE_ERROR)
         if not fine_for_child:
@@ -227,7 +249,7 @@ class LessonRun:
         validator = self._kit.validator
         for kept_fields in (("scene", "challenge"), ("scene",), ()):
             candidate = {"step": number, "say": say, **{field: step[field] for field in kept_fields if field in step}}
-            verdict = await validator.check(candidate, scene, self._reading)
+            verdict = await validator.check(candidate, scene, self._reading, replay=not kept_fields)
             if verdict.ok:
                 break
         else:
@@ -252,12 +274,15 @@ class LessonRun:
 
     def _voice(self, text: str) -> asyncio.Task[Voice | None]:
         if text not in self._voices:
-            task = asyncio.create_task(self._speak(text))
+            task = asyncio.create_task(self._speak(text, after=self._first_voice))
+            self._first_voice = self._first_voice or task
             task.add_done_callback(lambda finished: finished.cancelled() or finished.exception())
             self._voices[text] = task
         return self._voices[text]
 
-    async def _speak(self, text: str) -> Voice | None:
+    async def _speak(self, text: str, after: asyncio.Task[Voice | None] | None) -> Voice | None:
+        if after:
+            await asyncio.wait([after])
         try:
             return await self._kit.speaker.voice(text)
         except TtsError as error:

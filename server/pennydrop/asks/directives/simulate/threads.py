@@ -11,7 +11,7 @@ COUNTER_STEPS = ("read", "add", "write")
 
 GUIDE = "\n".join([
     '`{"lab": "threads", "threads": ["A", "B"], "lock": false, "increments": 1, "interleave": true}` runs the threads that each do `count++` on one shared counter that starts at 0. Each `count++` is three separate steps: read, add one, write.',
-    "`lock: true` wraps every increment in acquire and release of one lock, so a thread that finds it held blocks. `interleave: true` switches thread after every step, the worst case for a race, and `false` lets each thread finish before the next starts.",
+    "`increments` is 1 or 2 and never more. `lock: true` wraps every increment in acquire and release of one lock, so a thread that finds it held blocks. `interleave: true` switches thread after every step, the worst case for a race, and `false` lets each thread finish before the next starts.",
     "Values: `final` (what the counter ends at), `expected` (threads times increments) and `lost` (the increments that vanished), such as `{simulate.final}`.",
 ])
 

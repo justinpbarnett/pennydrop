@@ -30,7 +30,7 @@ def apply(step: dict[str, Any], object_id: str, run: TracedRun) -> dict[str, Any
     return {
         **step,
         "scene": {**step["scene"], object_id: spec},
-        "do": [*step.get("do", []), *_operations(run, object_id)],
+        "do": [*step.get("do", []), *(operation for _, operations in operations_by_event(run, object_id) for operation in operations)],
     }
 
 
@@ -77,13 +77,14 @@ def _tree(children: Any, root: Any) -> dict[str, Any]:
     return {"nodes": [str(node) for node in children], "edges": edges, "directed": False, "root": str(root if root is not None else next(iter(children))), "layout": "tree"}
 
 
-def _operations(run: TracedRun, object_id: str) -> list[dict[str, Any]]:
+def operations_by_event(run: TracedRun, object_id: str) -> list[tuple[int, list[dict[str, Any]]]]:
     start = run.input.get("start") if isinstance(run.input, dict) else None
-    operations = [{"op": "dist", "on": [object_id], "node": str(start), "value": 0}] if any(event.function == "relax" for event in run.trace.events if event.type == "call") and start is not None else []
-    for event in run.trace.events:
+    relaxes = any(event.function == "relax" for event in run.trace.events if event.type == "call")
+    found: list[tuple[int, list[dict[str, Any]]]] = [(-1, [{"op": "dist", "on": [object_id], "node": str(start), "value": 0}])] if relaxes and start is not None else []
+    for position, event in enumerate(run.trace.events):
         if event.type == "call" and event.function in MARKERS:
-            operations.append(_operation(event.function, event.arguments, object_id))
-    return operations
+            found.append((position, [_operation(event.function, event.arguments, object_id)]))
+    return found
 
 
 def _operation(function: str, arguments: dict[str, Any], object_id: str) -> dict[str, Any]:

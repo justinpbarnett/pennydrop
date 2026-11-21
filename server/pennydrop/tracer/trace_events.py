@@ -52,6 +52,7 @@ class CompareEvent:
     operator: str
     result: bool
     type: Literal["compare"] = "compare"
+    counted: bool = True
 
 
 @dataclass

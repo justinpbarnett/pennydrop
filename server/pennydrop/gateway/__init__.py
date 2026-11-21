@@ -17,6 +17,7 @@ from .codex import CodexRoute
 from .jev import Answer, Choice, ChoiceAnswer, JevRoute, Question, Score, ScoreAnswer, YesNo, YesNoAnswer
 from .types import Completion, GatewayError, Image, Request, RouteError, Thinking, Usage
 
+MAX_HEDGED_ATTEMPTS = 3
 LOG = logging.getLogger("pennydrop.gateway")
 
 __all__ = [
@@ -164,6 +165,7 @@ class Gateway:
                 await queue.put((index, error))
 
         tasks = {0: spawn(0)}
+        latest = 0
         winner: int | None = None
         hedged = False
         lost: list[int] = []
@@ -174,13 +176,15 @@ class Gateway:
                 try:
                     index, item = await asyncio.wait_for(queue.get(), None if hedge_due is None else max(hedge_due, 0))
                 except TimeoutError:
+                    latest = 1
                     tasks[1] = spawn(1)
                     hedged = True
                     continue
                 if isinstance(item, Thinking):
-                    if index == 0 and winner is None and not hedged:
-                        LOG.warning("hedge: %s began thinking %.1fs in, so a second attempt starts now", route, time.monotonic() - starts[0])
-                        tasks[1] = spawn(1)
+                    if index == latest and winner is None and latest + 1 < MAX_HEDGED_ATTEMPTS:
+                        LOG.warning("hedge: %s attempt %d began thinking %.1fs in, so attempt %d starts now", route, index + 1, time.monotonic() - starts[index], index + 2)
+                        latest += 1
+                        tasks[latest] = spawn(latest)
                         hedged = True
                     continue
                 if winner is None and isinstance(item, str):

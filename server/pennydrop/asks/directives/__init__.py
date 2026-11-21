@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import sys
 from typing import Any
 
@@ -16,11 +17,16 @@ async def expand_directives(step: dict[str, Any], tools: DirectiveTools, remembe
         if name in expanded:
             expanded, found = await directive.expand(expanded, expanded.pop(name), tools)
             values.update(found)
+    for directive in DIRECTIVES.values():
+        if hasattr(directive, "finish"):
+            expanded = directive.finish(expanded, tools)
+            if inspect.isawaitable(expanded):
+                expanded = await expanded
     remembered.update({name: value for name, value in values.items() if name != "math"})
     filled = fill_values(expanded, {**remembered, **values})
     for name, thing in (filled.get("scene") or {}).items():
-        if isinstance(thing, dict) and thing.get("lab") == "picture" and not tools.images.holds(str(thing.get("src"))):
-            raise DirectiveError(f"scene object '{name}' has a src that is not a real photo, so you must not write src, w, h, credit or parts yourself; remove the whole '{name}' object from \"scene\" and instead add \"images\": {{\"on\": \"{name}\", \"query\": \"<plain name of the subject>\"}} and \"locate\" to this Step, or teach this Step with shapes")
+        if isinstance(thing, dict) and (thing.get("lab") == "picture" or thing.get("kind") == "image") and not tools.images.holds(str(thing.get("src") or thing.get("url"))):
+            raise DirectiveError(f"scene object '{name}' has a src or url that is not a real photo, so you must not write src, url, w, h, credit or parts yourself; remove the whole '{name}' object from \"scene\" and instead add \"images\": {{\"on\": \"{name}\", \"query\": \"<plain name of the subject>\"}} and \"locate\" to this Step, or teach this Step with shapes")
     return filled
 
 

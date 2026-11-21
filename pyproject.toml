@@ -17,6 +17,7 @@ dependencies = [
     "en-core-web-sm",
     "mlx-audio>=0.6.7",
     "num2words>=0.5.14",
+    "pillow>=13.0.0",
 ]
 
 [project.scripts]

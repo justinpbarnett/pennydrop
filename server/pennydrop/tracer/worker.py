@@ -29,6 +29,7 @@ class Recorder:
         self.max_events = max_events
         self.deadline = deadline
         self.pending_set = None
+        self.last_probe = None
 
     def emit(self, event):
         self.flush_pending_set()
@@ -63,8 +64,12 @@ class Recorder:
             self._append(SetEvent(index, value))
 
     def record_compare(self, i, j, operator_symbol, result):
-        self.counters.comparisons += 1
-        self.emit(CompareEvent(i, j, operator_symbol, result))
+        probe = i if j is None else None
+        repeated = probe is not None and probe == self.last_probe
+        self.last_probe = probe
+        if not repeated:
+            self.counters.comparisons += 1
+        self.emit(CompareEvent(i, j, operator_symbol, result, counted=not repeated))
 
     def check_deadline(self):
         if time.monotonic() > self.deadline:

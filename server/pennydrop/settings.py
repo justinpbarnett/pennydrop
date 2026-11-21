@@ -109,7 +109,7 @@ class Settings:
 def load_settings(config_path: Path | None = None) -> Settings:
     root = REPO_ROOT
     load_dotenv(root / ".env")
-    with open(config_path or root / "config.toml", "rb") as handle:
+    with open(config_path or Path(os.environ.get("PENNYDROP_CONFIG") or root / "config.toml"), "rb") as handle:
         raw = tomllib.load(handle)
     paths = raw["paths"]
     return Settings(

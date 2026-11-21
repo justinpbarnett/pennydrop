@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import faulthandler
 import json
 import subprocess
 import sys
@@ -113,6 +114,9 @@ def _parser() -> argparse.ArgumentParser:
 def _serve(services: Services, _) -> None:
     from .app import create_app
 
+    services.settings.data_dir.mkdir(parents=True, exist_ok=True)
+    crashes = (services.settings.data_dir / "crash.log").open("a")
+    faulthandler.enable(file=crashes, all_threads=True)
     uvicorn.run(create_app(services), host=services.settings.host, port=services.settings.port)
 
 

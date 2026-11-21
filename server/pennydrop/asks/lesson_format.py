@@ -100,9 +100,11 @@ def parse_line(text: str) -> ParsedLine | None:
     if not stripped or stripped.startswith("```"):
         return None
     try:
-        value = json.loads(stripped)
+        value, end = json.JSONDecoder().raw_decode(stripped)
     except json.JSONDecodeError as error:
         return Malformed(stripped, f"the line is not valid JSON: {error}")
+    if stripped[end:].strip(" \t,]}"):
+        return Malformed(stripped, f"the line is not valid JSON: extra text after the object at character {end}")
     if not isinstance(value, dict):
         return Malformed(stripped, "the line is JSON but not an object")
     if "lesson" in value:

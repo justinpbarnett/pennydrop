@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib
+import json
+import re
 import pkgutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any
 
@@ -27,6 +29,9 @@ class DirectiveTools:
     locator: PartLocator
     lesson_id: str | None = None
     young_child: bool = False
+    staged: dict[str, dict[str, Any]] = field(default_factory=dict)
+    traced: frozenset[str] = frozenset()
+    pictures: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,12 @@ class Simulation:
     scene: dict[str, Any]
     operations: list[dict[str, Any]]
     values: dict[str, int | float | str]
+
+
+def trace_key(raw: Any) -> str | None:
+    if not isinstance(raw, dict):
+        return None
+    return json.dumps({"code": raw.get("code"), "input": raw.get("input")}, sort_keys=True, default=str)
 
 
 def limit_operations(directive: str, operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -65,8 +76,32 @@ def parse_spec(model: type[BaseModel], raw: Any, directive: str):
         raise DirectiveError(f"{directive} directive: " + "; ".join(describe(error))) from None
 
 
+SHOWN_DECIMALS = 6
+LONG_FRACTION = re.compile(rf"\d+\.\d{{{SHOWN_DECIMALS + 1},}}")
+
+
+def plain_text(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{round(value, SHOWN_DECIMALS):.{SHOWN_DECIMALS}f}".rstrip("0").rstrip(".")
+    if isinstance(value, list):
+        return "[" + ", ".join(plain_text(item) if isinstance(item, float) else repr(item) for item in value) + "]"
+    return str(value)
+
+
+def plain_repr(value: Any) -> str:
+    if isinstance(value, float):
+        return plain_text(value)
+    if isinstance(value, list) and any(isinstance(item, float) for item in value):
+        return plain_text(value)
+    return repr(value)
+
+
+def plain_output(text: str) -> str:
+    return LONG_FRACTION.sub(lambda found: plain_text(float(found.group())), text)
+
+
 def fill_values(step: dict[str, Any], values: dict[str, int | float | str]) -> dict[str, Any]:
-    filled = _fill_text(step, {"{" + name + "}": str(value) for name, value in values.items()})
+    filled = _fill_text(step, {"{" + name + "}": plain_text(value) for name, value in values.items()})
     challenge = filled.get("challenge")
     if isinstance(challenge, dict) and isinstance(challenge.get("answer"), str) and challenge["answer"] in values:
         filled["challenge"] = {**challenge, "answer": values[challenge["answer"]]}

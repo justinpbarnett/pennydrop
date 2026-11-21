@@ -13,6 +13,9 @@ LAB_QUESTION_PREFIX = "lab_"
 KID_LAB_HINTS = {
     "picture": "Answer yes when a child asks what a real thing looks like, asks to see it, or asks what is inside it or what parts it has: a real photo shows it better than drawn shapes.",
 }
+LAB_LIMITS = {
+    "picture": "Answer yes when the Ask is about what a physical thing looks like or about its parts, such as an animal, a vehicle, a machine, a building, a plant or a body part: a real photo shows it. Answer no for mathematics, code, data, processes and abstract ideas.",
+}
 FOLLOW_UP = "follow_up"
 NEW_TOPIC = "new_topic"
 
@@ -61,6 +64,8 @@ class Classifier:
         is_kid = profile is not None and profile.kind is ProfileKind.KID
         for lab in labs:
             question = f"Would the {lab.title} Lab help show this Ask as an animation? The {lab.title} Lab is: {lab.summary}"
+            if lab.id in LAB_LIMITS:
+                question += " " + LAB_LIMITS[lab.id]
             if is_kid and lab.id in KID_LAB_HINTS:
                 question += " " + KID_LAB_HINTS[lab.id]
             questions[LAB_QUESTION_PREFIX + lab.id] = YesNo(question)

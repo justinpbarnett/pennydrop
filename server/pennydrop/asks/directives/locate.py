@@ -31,22 +31,70 @@ class LocateSpec(BaseModel):
 
 async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple[dict[str, Any], dict[str, Any]]:
     spec = parse_spec(LocateSpec, raw, "locate")
+    if tools.images.pending(tools.lesson_id, spec.on):
+        names = [name.strip() for name in spec.parts]
+        _check_names(names)
+        tools.images.want_parts(tools.lesson_id, spec.on, names)
+        return step, {}
+    if tools.images.lacks(tools.lesson_id, spec.on):
+        return step, {}
     picture = (step.get("scene") or {}).get(spec.on)
     if not isinstance(picture, dict) or not str(picture.get("src", "")).startswith(MEDIA_PREFIX):
         raise DirectiveError(f"locate directive: '{spec.on}' is not a picture in this Step's scene; add an images directive for '{spec.on}' in the same Step")
     names = [name.strip() for name in spec.parts]
     _check_names(names)
+    file = picture["src"].removeprefix(MEDIA_PREFIX)
+    if not _points_at(step, spec.on):
+        tools.locator.plan(file, names, tools.lesson_id)
+        return {**step, "scene": {**step["scene"], spec.on: {**picture, "parts": []}}}, {}
     try:
         located = await tools.locator.locate(picture["src"].removeprefix(MEDIA_PREFIX), names, tools.lesson_id)
-    except PartsNotFound as reason:
-        raise DirectiveError(f"locate directive: the photo of '{spec.on}' cannot show its parts, because {reason}; change the query of its images directive to get another photo") from None
+    except PartsNotFound:
+        return _without_parts(step, spec.on, set(), {**step["scene"], spec.on: {**picture, "parts": []}}), {}
     except GatewayError as error:
         raise DirectiveError(f"locate directive: the vision call failed ({error}); write the same Step again") from None
-    if located.missing:
-        shown = ", ".join(located.found) or "none"
-        raise DirectiveError(f"locate directive: cannot see {', '.join(located.missing)} in the photo of '{spec.on}' (found: {shown}); drop the missing parts from the Step and its narration, or change the images query to get a photo that shows them")
     parts = [{"name": name, "box": box} for name, box in located.found.items()]
-    return {**step, "scene": {**step["scene"], spec.on: {**picture, "parts": parts}}}, {}
+    return _without_parts(step, spec.on, {name.lower() for name in located.found}, {**step["scene"], spec.on: {**picture, "parts": parts}}), {}
+
+
+def _without_parts(step: dict[str, Any], object_id: str, visible: set[str], scene: dict[str, Any] | None = None) -> dict[str, Any]:
+    kept = [operation for operation in step.get("do", []) if not any(_hides(target, object_id, visible) for target in operation.get("on", []))]
+    return {**step, "do": kept, **({"scene": scene} if scene is not None else {})}
+
+
+def _hides(target: str, object_id: str, visible: set[str]) -> bool:
+    return target.startswith(object_id + "[") and target[len(object_id) + 1:].rstrip("]").lower() not in visible
+
+
+def _points_at(step: dict[str, Any], object_id: str) -> bool:
+    return any(target.startswith(object_id + "[") for operation in step.get("do", []) for target in operation.get("on", []))
+
+
+async def finish(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
+    scene = step.get("scene") or {}
+    operations = list(step.get("do", []))
+    for object_id in dict.fromkeys(target.split("[")[0] for operation in operations for target in operation.get("on", []) if "[" in target):
+        staged = tools.pictures.get(object_id)
+        if object_id in scene or not staged or staged.get("lab") != "picture" or staged.get("parts"):
+            continue
+        file = str(staged.get("src", "")).removeprefix(MEDIA_PREFIX)
+        try:
+            located = await tools.locator.planned(file)
+        except PartsNotFound:
+            operations = _without_parts({"do": operations}, object_id, set())["do"]
+            continue
+        except GatewayError as error:
+            raise DirectiveError(f"locate directive: the vision call failed ({error}); write the same Step again") from None
+        if located is None:
+            continue
+        operations = _without_parts({"do": operations}, object_id, {name.lower() for name in located.found})["do"]
+        parts = [{"name": name, "box": box} for name, box in located.found.items()]
+        if parts and operations:
+            operations = [{"cue": operations[0]["cue"], "op": "found", "on": [object_id], "parts": parts}, *operations]
+    for object_id, staged in tools.pictures.items():
+        if object_id not in scene and staged.get("lab") == "picture" and staged.get("parts"):
+            operations = _without_parts({"do": operations}, object_id, {str(part["name"]).lower() for part in staged["parts"]})["do"]
+    return {**step, "do": operations}
 
 
 def _check_names(names: list[str]) -> None:

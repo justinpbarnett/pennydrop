@@ -4,13 +4,14 @@ import json
 from collections.abc import AsyncIterator
 
 from ..settings import Settings
-from .process import run_process
+from .process import SpareProcesses, run_process
 from .types import Request, RouteError, Thinking, Usage
 
 
 class ClaudeRoute:
     def __init__(self, settings: Settings):
         self._neutral_cwd = settings.scratch_dir
+        self._spares = SpareProcesses()
 
     def unavailable_reason(self) -> str | None:
         return None
@@ -30,11 +31,10 @@ class ClaudeRoute:
             argv += ["--permission-mode", request.permission_mode]
         if request.allowed_tools:
             argv += ["--allowedTools", request.allowed_tools]
-        if request.images:
-            argv += ["--input-format", "stream-json"]
+        argv += ["--input-format", "stream-json"]
         cwd = request.cwd or self._neutral_cwd
         cwd.mkdir(parents=True, exist_ok=True)
-        lines = run_process(argv, stdin=_stdin_for(request), cwd=cwd, env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1"})
+        lines = run_process(argv, stdin=_stdin_for(request), cwd=cwd, env={"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1"}, spares=self._spares)
         try:
             async for line in lines:
                 event = json.loads(line)
@@ -61,8 +61,6 @@ class ClaudeRoute:
 
 
 def _stdin_for(request: Request) -> bytes:
-    if not request.images:
-        return request.prompt.encode()
     content = [
         {"type": "image", "source": {"type": "base64", "media_type": image.media_type, "data": image.base64}}
         for image in request.images
