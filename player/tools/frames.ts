@@ -48,7 +48,7 @@ function pruneBuildCache(keep: string): void {
   const cutoff = Date.now() - STALE_BUILD_MS;
   for (const entry of readdirSync(BUILD_CACHE)) {
     const path = join(BUILD_CACHE, entry);
-    if (path !== keep && statSync(path).mtimeMs < cutoff) rmSync(path, { recursive: true, force: true });
+    if (path !== keep && (statSync(path, { throwIfNoEntry: false })?.mtimeMs ?? 0) < cutoff) rmSync(path, { recursive: true, force: true });
   }
 }
 

@@ -19,16 +19,26 @@ Lessons place Labs in a Scene, and ops fire on spoken Cues, so a Lab is judged b
 - `export const lab: LabDef<Spec, State>` exactly as `lab.ts` in the player defines it (TASK.md gives the path), with `id` equal to the id in your task.
 - Import only from `../lab` and `../text-metrics`, plus npm packages that your task names.
   Never import another file from the player.
-- `catalog` is the writer's only documentation.
+- `ops` is one table, `Record<string, OpDef<State>>`, and it is the only place an op lives.
+  Each entry holds `doc` (the writer's documentation for the op: its args and the parts it acts on, in the style of the player's `labs/array.ts`), `seconds` (a number, or `(op, state) => number` when the length depends on the op or the state), `apply(state, op)` (pure: returns the new state), and optionally `during(before, after, op, progress, ctx)`, `sound(op, state)` and `trueTime`.
+  `lab.ts` derives the catalog, the routing of an op to its entry, the op's duration, and the one "unknown op" message from this table.
+  Never write a `switch` over `op.name`, a duration function, or an unknown-op branch.
+  Name ops with domain verbs the narration can say ("send", "drop", "probe"), and keep the set small enough to learn at a glance.
+- `catalog` is `{summary, spec, example}`, and with each op's `doc` it is the writer's only documentation.
   `summary` says in one or two sentences what the Lab draws and which ideas it teaches.
   `spec` describes every field with its type, meaning and default.
-  `ops` describes every op with its args and the parts it acts on, in the style of the player's `labs/array.ts`.
   `example` holds complete Step lines that validate, and a model must be able to copy one and adapt it.
-  Name ops with domain verbs the narration can say ("send", "drop", "probe"), and keep the set small enough to learn at a glance.
+- `reading` is `"required"` when the Lab cannot draw anything useful without words, and `"optional"` when it can.
+  A Lesson with `"reading": false` rejects a `"required"` Lab with a message that tells the writer to pick another.
+  An `"optional"` Lab must honor `spec.reading === false` as the Reading section says.
+- `prepare?(): Promise<void>` loads an asset the Lab needs (a library, a font, a model) before its first Step plays.
+  The player and the validator both call it before they add a Step that uses the Lab, so `init`, `apply` and `draw` stay synchronous.
+- `trueTime: true` marks an op that simulates real time (a ball rolling, a lock held).
+  The timeline never cuts or squeezes it when a later Cue lands inside it, it makes the later entries wait instead, and `during` receives progress as elapsed seconds over `seconds`, with no easing.
 - Errors go through `fail(...)` or `LabError` from `../lab`.
   A message names the object, the field or op, and what to write instead, as in the player's `labs/array.ts`.
   Validate every spec field and every op argument, and never let a bad value reach a `TypeError`.
-- `init` and `apply` are pure.
+- `init` and every op's `apply` are pure.
   `apply` returns a new state and never mutates the old one.
   Parts (`obj[3]`, `obj.name`) arrive in `op.parts` as written.
 
@@ -49,7 +59,8 @@ Lessons place Labs in a Scene, and ops fire on spoken Cues, so a Lab is judged b
   The check measures this on every state of the example Lesson, and also fails a gap in what is drawn wider than 15 percent of `w` or `h`, and a left, right, top or bottom margin more than twice its opposite (margins under 12 do not count).
 - Drawable ids are stable across states so the player can animate the change.
   A mark that persists keeps its id, and new marks get new ids.
-- Give ops the time and motion that the contract in `lab.ts` provides for them, as the exemplar Labs do.
+- Give each op its `seconds` and, where something moves, a `during` that draws the in-between frame, as the exemplar Labs do.
+- Shared helpers in `lab.ts` replace local copies: `textDrawable` and `boxDrawable` build text and rect Drawables (`boxDrawable` takes a top-left `Rect`), `fitText` sizes text to a width, `clamp01` and `lerpRect` blend, and `roleField`, `numberField`, `positiveField`, `integerField`, `rangeField`, `stringField` and `integerArg` validate spec fields and op args with a message that names the object.
 
 ## Roles, never colors or fonts
 
@@ -73,13 +84,14 @@ Lessons place Labs in a Scene, and ops fire on spoken Cues, so a Lab is judged b
 - The engine passes `reading` in the spec.
   `spec.reading !== false` gates every word, number and unit the Lab draws, including axis ticks, labels, legends and values.
   When it is `false` (a child who cannot read), draw no `text`, `math` or `code` at all and carry the meaning with shape, size, color, position and count instead.
-  Keep `reading` in your state so `draw` can see it.
+  Declare `reading: "optional"` on the Lab, and keep `reading` in your state so `size` and `draw` can see it.
+  A Lab that cannot draw without words declares `reading: "required"` instead and need not honor `spec.reading`.
   The check re-renders the example Lesson with `reading: false` and fails any word or number it finds.
 
 ## Audio
 
 - A Lab never makes sound while it computes state or draws.
-  If the brief asks for sound, put all of it in one exported function beside `lab`: `export function sound(op: LabOp, state: State): void`.
+  If the brief asks for sound, put all of it in the op's `sound(op, state)` entry in `ops`.
   The live player alone calls it when an op starts, and the validator, the frame renderer and the Film renderer never do.
   Load the audio library with a dynamic `import("tone")` inside that function, so the module still loads in bun with no browser.
   The visual result of the op must not depend on sound.
