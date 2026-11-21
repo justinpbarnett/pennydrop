@@ -1,4 +1,4 @@
-import { type Drawable, fail, type LabDef, type LabOp, type Role } from "../lab";
+import { type Drawable, fail, type LabDef, type LabOp, type Role, textDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
 interface Field {
@@ -307,13 +307,13 @@ interface GroupLabel {
 
 function bandDrawables(state: AddressState, prefix: string, label: string, value: number, valueRole: Role, y: number, layout: Band, labels: GroupLabel[] | null, digitRole: (group: number) => Role): Drawable[] {
   const out: Drawable[] = [
-    { id: `${prefix}-label`, kind: "text", x: 0, y: y - 35, text: label, size: 24, font: "read", anchor: "start", fill: "muted" },
-    { id: `${prefix}-hex`, kind: "text", x: 0, y: y + 10, text: hex(value, hexWidth(state.bits)), size: 40, font: "read", anchor: "start", fill: valueRole },
+    textDrawable(`${prefix}-label`, label, { x: 0, y: y - 35 }, { size: 24, anchor: "start", fill: "muted" }),
+    textDrawable(`${prefix}-hex`, hex(value, hexWidth(state.bits)), { x: 0, y: y + 10 }, { size: 40, anchor: "start", fill: valueRole }),
   ];
   const text = binary(value, state.bits);
   const groupOf = (bit: number) => layout.groups.findIndex((group) => bit >= group.from && bit <= group.to);
   layout.bitX.forEach((x, bit) => {
-    out.push({ id: `${prefix}-bit-${bit}`, kind: "text", x, y, text: text[bit]!, size: Math.round(layout.pitch * 0.95), font: "read", fill: digitRole(groupOf(bit)), z: 1 });
+    out.push(textDrawable(`${prefix}-bit-${bit}`, text[bit]!, { x, y }, { size: Math.round(layout.pitch * 0.95), fill: digitRole(groupOf(bit)), z: 1 }));
   });
   labels?.forEach((entry, index) => {
     const group = layout.groups[index]!;
@@ -321,7 +321,7 @@ function bandDrawables(state: AddressState, prefix: string, label: string, value
     const right = group.right - 4;
     out.push(
       { id: `${prefix}-bracket-${index}`, kind: "path", x: left, y: y + 50, points: [left, y + 50, left, y + 62, right, y + 62, right, y + 50], fill: "none", stroke: entry.bracketRole, strokeWidth: 2, z: 1 },
-      { id: `${prefix}-name-${index}`, kind: "text", x: group.center, y: y + 92, text: entry.text, size: 32, font: "read", fill: entry.textRole, z: 1 },
+      textDrawable(`${prefix}-name-${index}`, entry.text, { x: group.center, y: y + 92 }, { size: 32, fill: entry.textRole, z: 1 }),
     );
   });
   return out;
@@ -364,10 +364,10 @@ function panelRect(state: AddressState, id: string, column: number, fill: "fill"
 function header(state: AddressState, id: string, column: number, title: string, sub: string, badge: { text: string; role: Role } | null, titleRole: Role): Drawable[] {
   const x = columnX(state, column);
   const out: Drawable[] = [
-    { id: `${id}-title`, kind: "text", x: x + 18, y: PANEL_TOP + 24, text: title, size: 28, font: "read", anchor: "start", fill: titleRole, z: 1 },
-    { id: `${id}-sub`, kind: "text", x: x + 18, y: PANEL_TOP + 62, text: sub, size: 22, font: "read", anchor: "start", fill: "muted", z: 1 },
+    textDrawable(`${id}-title`, title, { x: x + 18, y: PANEL_TOP + 24 }, { size: 28, anchor: "start", fill: titleRole, z: 1 }),
+    textDrawable(`${id}-sub`, sub, { x: x + 18, y: PANEL_TOP + 62 }, { size: 22, anchor: "start", fill: "muted", z: 1 }),
   ];
-  if (badge) out.push({ id: `${id}-badge`, kind: "text", x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 24, text: badge.text, size: 28, font: "mark", anchor: "end", fill: badge.role, z: 1 });
+  if (badge) out.push(textDrawable(`${id}-badge`, badge.text, { x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 24 }, { size: 28, font: "mark", anchor: "end", fill: badge.role, z: 1 }));
   return out;
 }
 
@@ -387,16 +387,16 @@ function rowCell(state: AddressState, { id, column, row, role, left, right, righ
   const height = rowHeight(state) - 6;
   return [
     { id: `${id}-row-${row}`, kind: "rect", x: x + COLUMN_WIDTH / 2, y, w: COLUMN_WIDTH - 24, h: height, fill: role ? "fill2" : "fill", stroke: role ?? "rule", strokeWidth: role ? 1.8 : 1, radius: 1, z: 1 },
-    { id: `${id}-left-${row}`, kind: "text", x: x + 28, y, text: left, size: 28, font: "read", anchor: "start", fill: role ? "ink" : "muted", z: 2 },
-    { id: `${id}-right-${row}`, kind: "text", x: x + COLUMN_WIDTH - 28, y, text: right, size: 28, font: "read", anchor: "end", fill: rightRole, z: 2 },
+    textDrawable(`${id}-left-${row}`, left, { x: x + 28, y }, { size: 28, anchor: "start", fill: role ? "ink" : "muted", z: 2 }),
+    textDrawable(`${id}-right-${row}`, right, { x: x + COLUMN_WIDTH - 28, y }, { size: 28, anchor: "end", fill: rightRole, z: 2 }),
   ];
 }
 
 function caption(state: AddressState, id: string, column: number, first: string, second: string, firstRole: Role): Drawable[] {
   const center = columnX(state, column) + COLUMN_WIDTH / 2;
   return [
-    { id: `${id}-caption-1`, kind: "text", x: center, y: captionY(state) + 14, text: first, size: 26, font: "read", fill: firstRole },
-    { id: `${id}-caption-2`, kind: "text", x: center, y: captionY(state) + 50, text: second, size: 22, font: "read", fill: "muted" },
+    textDrawable(`${id}-caption-1`, first, { x: center, y: captionY(state) + 14 }, { size: 26, fill: firstRole }),
+    textDrawable(`${id}-caption-2`, second, { x: center, y: captionY(state) + 50 }, { size: 22, fill: "muted" }),
   ];
 }
 
@@ -432,8 +432,8 @@ function levelDrawables(state: AddressState, level: number): Drawable[] {
       const center = columnX(state, column) + COLUMN_WIDTH / 2;
       const middle = PANEL_TOP + panelHeight(state) / 2;
       out.push(
-        { id: `${id}-ptbr`, kind: "text", x: center, y: middle - 28, text: "PTBR", size: 26, font: "read", fill: "muted" },
-        { id: `${id}-ptbr-value`, kind: "text", x: center, y: middle + 18, text: hex(state.tables[state.root]!.base, hexWidth(state.bits)), size: 40, font: "read", fill: "ink" },
+        textDrawable(`${id}-ptbr`, "PTBR", { x: center, y: middle - 28 }, { size: 26, fill: "muted" }),
+        textDrawable(`${id}-ptbr-value`, hex(state.tables[state.root]!.base, hexWidth(state.bits)), { x: center, y: middle + 18 }, { size: 40 }),
       );
     }
     return out;

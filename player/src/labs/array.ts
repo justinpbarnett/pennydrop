@@ -1,4 +1,4 @@
-import { type Drawable, fail, indexPart, type LabDef, type LabOp, lerp, numberArg, type Role, stringArg } from "../lab";
+import { type Drawable, fail, indexPart, type LabDef, type LabOp, lerp, numberArg, type Role, stringArg, textDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
 interface Cell {
@@ -150,7 +150,7 @@ function cellDrawables(state: ArrayState, cell: Cell, slot: number, at: { x: num
   const part = `${state.objectId}[${slot}]`;
   return [
     { id: `cell-${cell.id}`, kind: "rect", x: at.x, y: at.y, w: size * scale, h: size * scale, fill: style.fill, stroke: style.stroke, strokeWidth: role === "none" ? 1 : 1.8, radius: 1, z: 1, part },
-    { id: `value-${cell.id}`, kind: "text", x: at.x, y: at.y, text: String(cell.value), size: size * (String(cell.value).length > 3 ? 0.3 : 0.42) * scale, font: "read", fill: role === "done" ? "done" : "ink", z: 2, part },
+    textDrawable(`value-${cell.id}`, String(cell.value), at, { size: size * (String(cell.value).length > 3 ? 0.3 : 0.42) * scale, fill: role === "done" ? "done" : "ink", z: 2, part }),
   ];
 }
 
@@ -171,8 +171,8 @@ function counterLayout(state: ArrayState, values: Map<string, string>): { counte
 
 function counterDrawables(state: ArrayState, values: Map<string, string>): Drawable[] {
   return counterLayout(state, values).flatMap(({ counter, labelEnd, valueText }) => [
-    { id: `counter-${counter.name}-label`, kind: "text" as const, x: labelEnd, y: COUNTER_Y, text: counter.name, size: COUNTER_LABEL_SIZE, font: "read" as const, anchor: "end" as const, fill: "muted" as const },
-    { id: `counter-${counter.name}-value`, kind: "text" as const, x: labelEnd + COUNTER_LABEL_GAP, y: COUNTER_Y, text: valueText, size: COUNTER_VALUE_SIZE, font: "read" as const, anchor: "start" as const, fill: "ink" as const },
+    textDrawable(`counter-${counter.name}-label`, counter.name, { x: labelEnd, y: COUNTER_Y }, { size: COUNTER_LABEL_SIZE, anchor: "end", fill: "muted" }),
+    textDrawable(`counter-${counter.name}-value`, valueText, { x: labelEnd + COUNTER_LABEL_GAP, y: COUNTER_Y }, { size: COUNTER_VALUE_SIZE, anchor: "start" }),
   ]);
 }
 
@@ -184,7 +184,7 @@ function pointerDrawables(state: ArrayState): Drawable[] {
     const tip = bottom + POINTER_TIP + pointerLevel(state, pointer) * POINTER_LEVEL;
     return [
       { id: `pointer-${pointer.name}`, kind: "path" as const, x, y: tip, points: [x, tip, x - 13, tip + 22, x + 13, tip + 22], closed: true, fill: "active" as const, stroke: "none" as const, z: 3 },
-      { id: `pointer-${pointer.name}-label`, kind: "text" as const, x, y: tip + POINTER_LABEL, text: pointer.name, size: 32, font: "read" as const, fill: "active" as const, z: 3 },
+      textDrawable(`pointer-${pointer.name}-label`, pointer.name, { x, y: tip + POINTER_LABEL }, { size: 32, fill: "active", z: 3 }),
     ];
   });
 }
@@ -366,10 +366,7 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
     const y = cellCenterY(state);
     const { top, cell: cellSize } = metrics(state);
     const cells = state.cells.flatMap((cell, slot) => cellDrawables(state, cell, slot, { x: slotCenterX(state, slot), y }));
-    const indices = state.cells.map((_, slot): Drawable => ({
-      id: `index-${slot}`, kind: "text", x: slotCenterX(state, slot), y: top + cellSize + 24,
-      text: String(slot), size: 22, font: "read", fill: "muted",
-    }));
+    const indices = state.cells.map((_, slot) => textDrawable(`index-${slot}`, String(slot), { x: slotCenterX(state, slot), y: top + cellSize + 24 }, { size: 22, fill: "muted" }));
     return [...cells, ...indices, ...pointerDrawables(state), ...windowDrawable(state), ...counterDrawables(state, new Map())];
   },
 };
