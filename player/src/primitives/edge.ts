@@ -10,7 +10,7 @@ interface EdgeState {
 
 const GAP = 10;
 
-function borderPoint(link: Link, toward: Point): Point {
+export function borderPoint(link: Link, toward: Point): Point {
   const center = { x: link.x + link.w / 2, y: link.y + link.h / 2 };
   const dx = toward.x - center.x;
   const dy = toward.y - center.y;

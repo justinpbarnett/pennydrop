@@ -1,9 +1,30 @@
-import { fail, type LabDef, numberField, type Role, roleField, stringField } from "../lab";
+import { type Drawable, fail, type LabDef, numberField, type Paint, type Point, type Role, roleField, stringField } from "../lab";
+import { textWidth } from "../text-metrics";
 
 interface NodeState {
   label: string;
   radius: number;
   role: Role;
+}
+
+export interface NodeLook {
+  stroke: Role;
+  fill: Paint;
+  strokeWidth: number;
+  labelFill: Paint;
+}
+
+const LABEL_SCALE = 0.8;
+const LABEL_FIT = 1.5;
+
+export function nodeDrawables(label: string, center: Point, radius: number, look: NodeLook): Drawable[] {
+  const natural = radius * LABEL_SCALE;
+  const width = textWidth(label, natural, "mark");
+  const size = width > radius * LABEL_FIT ? (natural * radius * LABEL_FIT) / width : natural;
+  return [
+    { id: "body", kind: "circle", x: center.x, y: center.y, r: radius, fill: look.fill, stroke: look.stroke, strokeWidth: look.strokeWidth },
+    { id: "label", kind: "text", x: center.x, y: center.y, text: label, size, font: "mark", fill: look.labelFill, z: 1 },
+  ];
 }
 
 export const primitive: LabDef<Record<string, unknown>, NodeState> = {
@@ -23,8 +44,5 @@ export const primitive: LabDef<Record<string, unknown>, NodeState> = {
     return fail(`node has no op "${op.name}"; use highlight or color`);
   },
   size: (state) => ({ w: state.radius * 2, h: state.radius * 2 }),
-  draw: (state) => [
-    { id: "body", kind: "circle", x: state.radius, y: state.radius, r: state.radius, fill: "fill", stroke: state.role, strokeWidth: 1.6 },
-    { id: "label", kind: "text", x: state.radius, y: state.radius, text: state.label, size: state.radius * 0.8, font: "mark", fill: "ink", z: 1 },
-  ],
+  draw: (state) => nodeDrawables(state.label, { x: state.radius, y: state.radius }, state.radius, { stroke: state.role, fill: "fill", strokeWidth: 1.6, labelFill: "ink" }),
 };
