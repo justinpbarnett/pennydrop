@@ -28,6 +28,13 @@ language = "a"
 speed = 1.0
 workers = 2
 
+[tts.qwen3]
+model = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
+voice = "Ryan"
+language = "English"
+instruct = "Calm, clear, steady explanatory narration."
+pause_seconds = 0.25
+
 [tts.elevenlabs]
 voice = "JBFqnCBsd6RMkjVDRZzb"
 model = "eleven_v3"

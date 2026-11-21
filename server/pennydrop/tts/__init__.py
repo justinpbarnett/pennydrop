@@ -12,11 +12,12 @@ from .align import align_to_text
 from .elevenlabs import ElevenLabsProvider
 from .kokoro import KokoroProvider
 from .provider import Provider, Synthesis, TtsError
+from .qwen3 import Qwen3Provider
 
 __all__ = ["Speaker", "TtsError", "Voice"]
 
 MEDIA_PREFIX = "/media/tts"
-PROVIDERS = {provider.name: provider for provider in (KokoroProvider, ElevenLabsProvider)}
+PROVIDERS = {provider.name: provider for provider in (KokoroProvider, ElevenLabsProvider, Qwen3Provider)}
 
 
 @dataclass(frozen=True)

@@ -13,11 +13,13 @@ import uvicorn
 from .ask_client import AskClient, AskClientError, Arrival, Outcome, breakdown, median_and_max
 from .gateway import Choice, GatewayError, Image, YesNo
 from .intake import IntakeError
+from .loudness import TARGET_LUFS, TARGET_TRUE_PEAK
 from .services import Services
 from .settings import Job
 from .store import ProfileKind
 from .tracer import ALGORITHMS, TraceError
 from .tts import TtsError
+from .tts.ab import compare
 
 EXPECTED_ERRORS = (AskClientError, GatewayError, IntakeError, TraceError, TtsError, LookupError)
 
@@ -52,6 +54,14 @@ def _parser() -> argparse.ArgumentParser:
     tts.add_argument("--provider")
     tts.add_argument("--voice")
     tts.set_defaults(handler=_tts)
+
+    voice = commands.add_parser("voice", help="narration voice tools")
+    voice_commands = voice.add_subparsers(required=True, metavar="voice-command")
+    ab = voice_commands.add_parser("ab", help="voice one text file with several providers, loudness matched, and score each")
+    ab.add_argument("file", type=Path)
+    ab.add_argument("--providers", default="kokoro,qwen3", help="comma separated provider names")
+    ab.add_argument("--out", type=Path, help="output directory, default data/voice-ab")
+    ab.set_defaults(handler=_voice_ab)
 
     transcribe = commands.add_parser("transcribe", help="turn a speech file into text")
     transcribe.add_argument("file", type=Path)
@@ -188,6 +198,16 @@ def _tts(services: Services, arguments) -> None:
     print(f"duration {voice.duration:.2f} s, {len(voice.words)} words")
     for word in voice.words:
         print(f"  {word.start:6.3f} {word.end:6.3f}  {word.word}")
+
+
+def _voice_ab(services: Services, arguments) -> None:
+    out_dir = arguments.out or services.settings.data_dir / "voice-ab"
+    providers = [name.strip() for name in arguments.providers.split(",") if name.strip()]
+    results = asyncio.run(compare(services.settings, services.transcriber, arguments.file.read_text(), providers, out_dir))
+    print(f"{'provider':12} {'seconds':>8} {'audio s':>8} {'RTF':>6} {'WER':>7} {'LUFS':>6} {'dBTP':>6}  file")
+    for result in results:
+        print(f"{result.provider:12} {result.seconds:8.2f} {result.audio_seconds:8.2f} {result.real_time_factor:6.3f} {result.word_error_rate:7.2%} {result.loudness_lufs:6.1f} {result.true_peak_dbtp:6.1f}  {result.file}")
+    print(f"loudness matched to {TARGET_LUFS} LUFS with true peak at most {TARGET_TRUE_PEAK} dBTP, summary in {out_dir / 'ab.json'}")
 
 
 def _transcribe(services: Services, arguments) -> None:
