@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..gateway import CallStats, Gateway
@@ -47,6 +47,7 @@ class Mint:
         return self._paths
 
     async def run(self, lab_id: str, brief: str, *, request_id: int | None = None, max_rounds: int = DEFAULT_MAX_ROUNDS, report: Callable[[str], None] = print) -> MintOutcome:
+        workspace_builder.require_references(self._paths)
         ask = self._store.lab_request(request_id).ask if request_id is not None else None
         workspace_path = self._fresh_workspace(lab_id, brief, ask)
         started = time.monotonic()
@@ -117,16 +118,17 @@ def _with_round(record: MintRecord, number: int, seconds: float, codex: CallStat
         "check_findings": [str(item) for item in findings],
         "judge_findings": [str(item) for item in defects],
     }
-    return MintRecord(
-        record.lab_id, record.brief, record.status, record.path, record.request_id, number, round(total_seconds, 1),
-        record.input_tokens + sum(call.input_tokens for call in calls), record.cached_tokens + sum(call.cached_tokens for call in calls),
-        record.output_tokens + sum(call.output_tokens for call in calls), round(record.cost_usd + sum(call.cost_usd for call in calls), 5),
-        [*record.round_log, entry],
+    return replace(
+        record,
+        rounds=number,
+        seconds=round(total_seconds, 1),
+        input_tokens=record.input_tokens + sum(call.input_tokens for call in calls),
+        cached_tokens=record.cached_tokens + sum(call.cached_tokens for call in calls),
+        output_tokens=record.output_tokens + sum(call.output_tokens for call in calls),
+        cost_usd=round(record.cost_usd + sum(call.cost_usd for call in calls), 5),
+        round_log=[*record.round_log, entry],
     )
 
 
 def _finish(record: MintRecord, status: MintStatus) -> MintRecord:
-    return MintRecord(
-        record.lab_id, record.brief, status, record.path, record.request_id, record.rounds, record.seconds,
-        record.input_tokens, record.cached_tokens, record.output_tokens, record.cost_usd, record.round_log,
-    )
+    return replace(record, status=status)

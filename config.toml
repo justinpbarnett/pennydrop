@@ -6,6 +6,7 @@ port = 8740
 data_dir = "data"
 lessons_dir = "lessons"
 player_dist = "player/dist"
+improve_references = "~/dev/ai/skills/improve-codebase/references"
 
 [routes]
 classify = ["jev:typesafe/jev-1.14"]

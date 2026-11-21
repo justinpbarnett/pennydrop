@@ -45,7 +45,8 @@ Lessons place Labs in a Scene, and ops fire on spoken Cues, so a Lab is judged b
   Make the Lab fill that space with a balanced composition at every state, including the empty first state.
 - Text is at least 22 in size, and anything the learner must read is 28 or more.
   Measure text with `textWidth` from `../text-metrics`, and size boxes from the measured width so no text touches a line, an edge or a neighbour.
-  Leave at least 12 of clear space between text and any line or shape edge.
+  Leave at least 12 of clear space between text and any line or shape edge, and between two texts, unless the text sits wholly inside the shape.
+  The check measures this on every state of the example Lesson, and also fails a gap in what is drawn wider than 15 percent of `w` or `h`, and a left, right, top or bottom margin more than twice its opposite (margins under 12 do not count).
 - Drawable ids are stable across states so the player can animate the change.
   A mark that persists keeps its id, and new marks get new ids.
 - Give ops the time and motion that the contract in `lab.ts` provides for them, as the exemplar Labs do.

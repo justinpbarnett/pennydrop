@@ -73,6 +73,7 @@ class Settings:
     data_dir: Path
     lessons_dir: Path
     player_dist: Path
+    improve_references: Path
     routes: dict[Job, tuple[RouteSpec, ...]]
     tts_provider: str
     tts_sections: dict[str, dict]
@@ -113,6 +114,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
         data_dir=root / paths["data_dir"],
         lessons_dir=root / paths["lessons_dir"],
         player_dist=root / paths["player_dist"],
+        improve_references=root / Path(paths["improve_references"]).expanduser(),
         routes=_parse_routes(raw["routes"]),
         tts_provider=raw["tts"]["provider"],
         tts_sections={name: section for name, section in raw["tts"].items() if isinstance(section, dict)},

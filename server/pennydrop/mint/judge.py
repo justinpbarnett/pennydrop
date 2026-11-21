@@ -19,9 +19,12 @@ You are shown frames from one Lesson, taken at different times, all drawn in one
 List only concrete, visible defects, each one a thing a designer would send back:
 - overlap: marks, text or shapes covering each other when they should not
 - clipping: anything cut off by the stage edge or by its own box
-- text touching: text touching or crossing a line, border or neighbouring shape
+- text touching: text touching or crossing a line, border or neighbouring shape, or any text closer than about 12 px (on the 1600 by 900 stage) to a line or to another label
 - contrast: text or marks that are hard to read against what is behind them
+- empty band: a strip across the Lab's drawing area (the box the Lab draws in, not the whole stage) that is more than about 15 percent of that box wide or tall and has nothing drawn in it, whether at a side, the top, the bottom or in the middle
+- unbalanced space: the drawing's margin on one side is more than twice the margin on the opposite side (left against right, top against bottom) inside the Lab's drawing area, so the drawing sits off-centre
 - composition: the drawing is empty, tiny, lopsided, or crowded into one part of the stage when it could use the space; a panel or row where the marks sit in one corner and more than a third of its width is blank, items unevenly spaced from the label next to them, and a title or caption that is not aligned to anything are all defects
+Estimate these distances from the frame as carefully as you can, and report every frame that breaks one of the three measured rules (empty band, unbalanced space, labels within 12 px).
 - reading: placeholder, garbled or wrong looking labels
 A frame can be captured in the middle of an op, and the player crossfades text that changes, so two strings overlapping while one fades out is not a defect unless the final settled state also has the overlap.
 Do not report the shapes of the theme's typeface glyphs (such as a 1 resembling an I), theme colors the Lab cannot choose, taste, motion, or anything you cannot point to in a specific frame.

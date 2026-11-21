@@ -12,10 +12,11 @@ MINT_JOB_TIMEOUT_SECONDS = 1800.0
 class MintPaths:
     player: Path
     data: Path
+    improve_references: Path
 
     @classmethod
     def of(cls, settings: Settings) -> MintPaths:
-        return cls(settings.player_dir, settings.data_dir)
+        return cls(settings.player_dir, settings.data_dir, settings.improve_references)
 
     @property
     def workspaces(self) -> Path:

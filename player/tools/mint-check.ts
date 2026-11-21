@@ -2,28 +2,15 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { basename, join, resolve } from "node:path";
 import { type Step, parseJsonl } from "../src/format";
 import { renderFrame } from "../src/frame";
-import type { Drawable } from "../src/lab";
 import { definitionOf, startSceneOf } from "../src/scene";
 import { THEMES } from "../src/theme";
 import { Timeline } from "../src/timeline";
-import { textWidth } from "../src/text-metrics";
+import { type Box, type Finding, boxOf, compositionFindings } from "./composition";
 import { buildMinted } from "./mint-build";
 
 const PLAYER_ROOT = resolve(import.meta.dir, "..");
 const WORD_KINDS = ["text", "code", "math"];
 const EDGE_TOLERANCE = { pixels: 10, share: 0.08 };
-
-interface Finding {
-  stage: string;
-  message: string;
-}
-
-interface Box {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
 
 export function findComments(source: string): { line: number; text: string }[] {
   const found: { line: number; text: string }[] = [];
@@ -118,36 +105,6 @@ export function findComments(source: string): { line: number; text: string }[] {
   };
   scan(false);
   return found;
-}
-
-function boxOf(drawable: Drawable): Box | null {
-  const { x, y } = drawable;
-  switch (drawable.kind) {
-    case "rect":
-    case "image":
-    case "code":
-    case "math":
-      return drawable.w === undefined || drawable.h === undefined ? null : { minX: x - drawable.w / 2, maxX: x + drawable.w / 2, minY: y - drawable.h / 2, maxY: y + drawable.h / 2 };
-    case "circle": {
-      const r = drawable.r ?? 0;
-      return { minX: x - r, maxX: x + r, minY: y - r, maxY: y + r };
-    }
-    case "line":
-    case "arrow":
-      return { minX: Math.min(x, drawable.x2 ?? x), maxX: Math.max(x, drawable.x2 ?? x), minY: Math.min(y, drawable.y2 ?? y), maxY: Math.max(y, drawable.y2 ?? y) };
-    case "path": {
-      const points = drawable.points ?? [];
-      const xs = points.filter((_, position) => position % 2 === 0);
-      const ys = points.filter((_, position) => position % 2 === 1);
-      return xs.length ? { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) } : null;
-    }
-    case "text": {
-      const size = drawable.size ?? 28;
-      const width = textWidth(drawable.text ?? "", size, drawable.font ?? "read");
-      const left = drawable.anchor === "start" ? x : drawable.anchor === "end" ? x - width : x - width / 2;
-      return { minX: left, maxX: left + width, minY: y - size / 2, maxY: y + size / 2 };
-    }
-  }
 }
 
 function union(boxes: Box[]): Box {
@@ -322,9 +279,33 @@ export async function checkWorkspace(workspace: string, dist: string | undefined
     writeFileSync(examplePath, contract.exampleLesson);
     findings.push(...(await validateLesson(examplePath, mintedDir, "catalog.example")));
   }
-  findings.push(...extentFindings(id, lessonText), ...readingFindings(lessonText));
+  findings.push(...extentFindings(id, lessonText), ...compositionFindings(parseJsonl("lesson", lessonText), (key) => key === `lab:${id}`), ...readingFindings(lessonText));
   if (findings.length === 0) findings.push(...(await framesFindings(workspace, dist, mintedDir)));
   return findings;
+}
+
+async function builtinCompositionFindings(): Promise<Finding[]> {
+  const { registerAllLabs, LESSONS_ROOT } = await import("./load");
+  const { allDefinitions } = await import("../src/registry");
+  await registerAllLabs();
+  const findings: Finding[] = [];
+  const lessonFiles = [...new Bun.Glob("*.jsonl").scanSync(LESSONS_ROOT)].sort();
+  for (const { key, def } of allDefinitions().filter(({ key }) => key.startsWith("lab:"))) {
+    const { example } = def.catalog;
+    if (example.length) findings.push(...compositionFindings(parseJsonl(key, [JSON.stringify({ lesson: { title: "catalog example" } }), ...example].join("\n")), (defKey) => defKey === key, `${key} catalog example, `));
+  }
+  for (const file of lessonFiles) {
+    const lesson = parseJsonl(file, readFileSync(join(LESSONS_ROOT, file), "utf8"));
+    findings.push(...compositionFindings(lesson, (defKey) => defKey.startsWith("lab:"), `${file}, `));
+  }
+  return findings;
+}
+
+if (import.meta.main && process.argv[2] === "--builtin") {
+  const findings = await builtinCompositionFindings();
+  findings.forEach(({ stage, message }) => console.log(`${stage}: ${message}`));
+  console.log(`${findings.length} composition findings across the built-in Labs`);
+  process.exit(findings.length ? 1 : 0);
 }
 
 if (import.meta.main) {

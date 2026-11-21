@@ -6,10 +6,11 @@ import subprocess
 from pathlib import Path
 
 from .paths import MintPaths
+from .runtime import MintError
 
 RULES_FILE = Path(__file__).with_name("RULES.md")
 ROLES_FILE = Path(__file__).with_name("roles.md")
-IMPROVE_REFERENCES = Path.home() / "dev/ai/skills/improve-codebase/references"
+REFERENCE_FILES = ("smell-guide.md", "workflow.md")
 SAMPLE_LESSON = "bubble-sort.jsonl"
 
 CHECK_SCRIPT = """#!/bin/sh
@@ -39,6 +40,15 @@ Touch only `src/labs/{lab_id}.ts` and `lesson.jsonl`.
 """
 
 
+def require_references(paths: MintPaths) -> None:
+    missing = [name for name in REFERENCE_FILES if not (paths.improve_references / name).is_file()]
+    if missing:
+        raise MintError(
+            f"the code standard references {', '.join(missing)} are missing from {paths.improve_references}; "
+            "set improve_references under [paths] in config.toml to the improve-codebase skill's references directory"
+        )
+
+
 def prepare(paths: MintPaths, lab_id: str, brief: str, ask: str | None) -> Path:
     workspace = paths.workspace(lab_id)
     (workspace / "src" / "labs").mkdir(parents=True, exist_ok=True)
@@ -46,8 +56,8 @@ def prepare(paths: MintPaths, lab_id: str, brief: str, ask: str | None) -> Path:
     shutil.copy(RULES_FILE, workspace / "RULES.md")
     shutil.copy(ROLES_FILE, workspace / "reference" / "roles.md")
     shutil.copy(paths.lessons / SAMPLE_LESSON, workspace / "reference" / "sample-lesson.jsonl")
-    shutil.copy(IMPROVE_REFERENCES / "smell-guide.md", workspace / "reference" / "smell-guide.md")
-    (workspace / "reference" / "code-standard.md").write_text(_code_standard())
+    shutil.copy(paths.improve_references / "smell-guide.md", workspace / "reference" / "smell-guide.md")
+    (workspace / "reference" / "code-standard.md").write_text(_code_standard(paths))
     (workspace / "reference" / "catalog.md").write_text(_catalog(paths))
     (workspace / "tsconfig.json").write_text(json.dumps(_tsconfig(paths, workspace), indent=2))
     check = workspace / "check"
@@ -66,8 +76,8 @@ def _tsconfig(paths: MintPaths, workspace: Path) -> dict:
     }
 
 
-def _code_standard() -> str:
-    workflow = (IMPROVE_REFERENCES / "workflow.md").read_text()
+def _code_standard(paths: MintPaths) -> str:
+    workflow = (paths.improve_references / "workflow.md").read_text()
     return (
         "# Code standard\n\n"
         "Write the Lab to the standard of the improve-codebase skill: deep modules, one home for each piece of knowledge, "
