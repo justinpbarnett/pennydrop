@@ -6,7 +6,7 @@ import re
 import pkgutil
 from dataclasses import dataclass, field
 from types import ModuleType
-from typing import Any
+from typing import Any, Callable
 
 from pydantic import BaseModel, ValidationError
 
@@ -101,20 +101,40 @@ def plain_output(text: str) -> str:
 
 
 def fill_values(step: dict[str, Any], values: dict[str, int | float | str]) -> dict[str, Any]:
-    filled = _fill_text(step, {"{" + name + "}": plain_text(value) for name, value in values.items()})
+    shown = {"{" + name + "}": plain_text(value) for name, value in values.items()}
+    filled = _each_text(step, lambda text: _filled(text, shown))
     challenge = filled.get("challenge")
     if isinstance(challenge, dict) and isinstance(challenge.get("answer"), str) and challenge["answer"] in values:
         filled["challenge"] = {**challenge, "answer": values[challenge["answer"]]}
     return filled
 
 
-def _fill_text(value: Any, replacements: dict[str, str]) -> Any:
+NOT_PLURALS = {"series", "species"}
+
+
+def _filled(text: str, shown: dict[str, str]) -> str:
+    ones = [token for token, value in shown.items() if value == "1" and token in text]
+    if ones:
+        counted = re.compile("(" + "|".join(map(re.escape, ones)) + r")(\s+)([a-z]+s)\b")
+        text = counted.sub(lambda found: found[1] + found[2] + _singular(found[3]), text)
+    for token, value in shown.items():
+        text = text.replace(token, value)
+    return text
+
+
+def _singular(noun: str) -> str:
+    if noun in NOT_PLURALS or noun.endswith(("ss", "us", "is")):
+        return noun
+    if noun.endswith("ies"):
+        return noun[:-3] + "y"
+    return noun[:-2] if noun.endswith(("xes", "ches", "shes", "zes", "sses")) else noun[:-1]
+
+
+def _each_text(value: Any, change: Callable[[str], str]) -> Any:
     if isinstance(value, str):
-        for token, text in replacements.items():
-            value = value.replace(token, text)
-        return value
+        return change(value)
     if isinstance(value, list):
-        return [_fill_text(item, replacements) for item in value]
+        return [_each_text(item, change) for item in value]
     if isinstance(value, dict):
-        return {key: _fill_text(item, replacements) for key, item in value.items()}
+        return {key: _each_text(item, change) for key, item in value.items()}
     return value

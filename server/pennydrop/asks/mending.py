@@ -176,8 +176,18 @@ def _with_room_made(step: dict[str, Any], errors: list[str]) -> dict[str, Any] |
         return None
     scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
     worked_on = {name.split("[")[0] for operation in step.get("do", []) if isinstance(operation, dict) for name in operation.get("on", []) if isinstance(name, str)}
-    idle = [name for name in crowded["names"].split(", ") if name not in worked_on and scene.get(name) is None]
-    return {**step, "scene": {**scene, **dict.fromkeys(idle)}} if idle else None
+    names = crowded["names"].split(", ")
+    idle = [name for name in names if name not in worked_on and scene.get(name) is None]
+    if idle:
+        return {**step, "scene": {**scene, **dict.fromkeys(idle)}}
+    def touches(operation: Any, name: str) -> bool:
+        return isinstance(operation, dict) and any(str(target).split("[")[0] == name for target in operation.get("on", []))
+
+    weight = {name: sum(1 for operation in step.get("do", []) if touches(operation, name)) for name in names}
+    least = min(names, key=lambda name: weight[name])
+    if len(names) < 2 or weight[least] == max(weight.values()):
+        return None
+    return {**step, "scene": {**scene, least: None}, "do": [operation for operation in step.get("do", []) if not touches(operation, least)]}
 
 
 def _without_operations_on_missing(step: dict[str, Any], errors: list[str]) -> dict[str, Any] | None:

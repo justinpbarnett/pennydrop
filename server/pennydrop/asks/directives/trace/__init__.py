@@ -15,6 +15,7 @@ from .._support import MAX_STEP_OPERATIONS, DirectiveError, DirectiveTools, Trac
 TRACE_TOTALS = ("comparisons", "swaps", "writes")
 TARGETS = discover(sys.modules[__name__])
 
+BRIEF = "The trace directive can play the {lab} Labs when a library algorithm or a short function of your own fits the Ask: then write no operations for it yourself. When none fits, show the idea with plain objects and operations."
 GUIDE = "\n".join([
     "### Directive `trace`",
     '`"trace": {"code": "bubble_sort", "input": [4, 3, 2, 1]}` runs real code and plays every compare, swap and write of it on an object of a Lab, in order.',
@@ -28,6 +29,7 @@ GUIDE = "\n".join([
     'The `{trace.name}` placeholders and the `"answer": "trace.name"` form work only in the Step that carries `trace` or after it, so a predict Challenge placed before the trace gives its answer as a plain number you worked out by hand, from an input small enough to count.',
     'For your own code, `code` is the whole source text of one function, such as `"def grow(balance, years):\\n    for _ in range(years):\\n        balance = balance * 1.05\\n    return balance"`, never a bare function name that is not in the library list',
     "Write the `input` with exactly the keys named above, such as `{\"array\": [1, 3, 5], \"target\": 3}` for binary_search, and never `arr` or other short names.",
+    "For binary_search choose a target that is not the middle value of the array: the first guess is the middle, and a search that ends at once shows no halving, so aim for at least 3 comparisons.",
     "Keep the input small, 3 to 6 numbers, because a Step plays at most 40 operations.",
 ])
 
@@ -79,10 +81,17 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     if library and spec.code not in library:
         raise DirectiveError(f"trace directive: this Lab plays only a library algorithm, so write `code` as one of {', '.join(library)} with its input, not your own code")
     run = await _run(spec, tools.tracer)
+    _require_a_search_worth_watching(spec, run)
     played = len(step.get("do", []))
     expanded = _with_code_following(target.apply(step, object_id, run), played, object_id, target, run)
     limit_operations("trace", expanded.get("do", [])[played:])
     return expanded, {f"trace.{name}": getattr(run.trace.counters, name) for name in TRACE_TOTALS}
+
+
+def _require_a_search_worth_watching(spec: TraceSpec, run: TracedRun) -> None:
+    values = spec.input.get("array") if isinstance(spec.input, dict) else None
+    if spec.code == "binary_search" and isinstance(values, list) and len(values) >= 7 and run.trace.counters.comparisons < 3:
+        raise DirectiveError(f"trace directive: binary_search found its target in {run.trace.counters.comparisons} comparisons, which shows no halving; to fix it, pick a \"target\" that sits near an end of the sorted array (not the middle value), so the search takes at least 3 comparisons")
 
 
 def _with_code_following(step: dict[str, Any], played: int, data_id: str, target: Any, run: TracedRun) -> dict[str, Any]:

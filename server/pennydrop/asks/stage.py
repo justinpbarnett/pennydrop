@@ -27,6 +27,11 @@ def _scalars(value: Any) -> list[str]:
     return [] if value is None or isinstance(value, bool) else [str(value).lower()]
 
 
+def _holds_nothing(spec: dict[str, Any]) -> bool:
+    lists = [value for key, value in spec.items() if key != "parts" and isinstance(value, list)]
+    return bool(lists) and not any(lists)
+
+
 class Stage:
     def __init__(self, snapshot: Any = None):
         self.specs: dict[str, dict[str, Any]] = {}
@@ -34,6 +39,7 @@ class Stage:
         self.traces: set[str] = set()
         self.trace_counters: dict[str, set[str]] = {}
         self.in_flight: set[str] = set()
+        self.lost_runs = False
         self.retired: dict[str, dict[str, Any]] = {}
         for thing in (snapshot or {}).get("objects", []):
             key = str(thing.get("defKey", ""))
@@ -66,7 +72,7 @@ class Stage:
         return [f"the trace owns the counter {entry}, and its value is final; remove the operation that changes it, and let the narration state the trace's own count" for entry in owned]
 
     def on_stage(self) -> dict[str, dict[str, Any]]:
-        return {name: self.specs.get(name, {"lab": lab}) for name, lab in self.labs.items()}
+        return {name: self.specs.get(name, {"lab": lab}) for name, lab in self.labs.items() if not _holds_nothing(self.specs.get(name, {"lab": lab}))}
 
     def settle(self, step: dict[str, Any]) -> None:
         self.attach_parts(step)
@@ -95,8 +101,20 @@ class Stage:
                 name = operation["on"][0]
                 self.specs[name] = {**self.specs[name], "parts": operation.get("parts", [])}
 
-    def errors_in(self, step: dict[str, Any]) -> list[str]:
-        return answer_given_away(step) + self._insert_already_shown(step)
+    def errors_in(self, step: dict[str, Any], ran: bool = False) -> list[str]:
+        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + self.unran_values(step, ran)
+
+    def _empty_figures(self, step: dict[str, Any]) -> list[str]:
+        scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+        empty = [name for name, spec in scene.items() if isinstance(spec, dict) and isinstance(spec.get("lab"), str) and _holds_nothing(spec)]
+        return [f"step {step.get('step')} scene: {name} is a {scene[name]['lab']} Lab figure with nothing in it; fill it with its data, or let a directive fill it, or remove it" for name in empty]
+
+    def unran_values(self, step: dict[str, Any], ran: bool) -> list[str]:
+        challenge = step.get("challenge")
+        answer = challenge.get("answer") if isinstance(challenge, dict) else None
+        if not self.lost_runs or ran or isinstance(answer, bool) or not isinstance(answer, int | float):
+            return []
+        return ["the challenge answer comes from a trace or simulation that a shipped Step never ran; first show the run in this Step (with the trace or simulate directive) and make the answer the value it ends with, or ask a Challenge that needs no run"]
 
     def _insert_already_shown(self, step: dict[str, Any]) -> list[str]:
         challenge = step.get("challenge")

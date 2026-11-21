@@ -224,7 +224,7 @@ class LessonRun:
             if retry.errors == verdict.errors:
                 break
             step, verdict = roomier, retry
-        errors = [coached(error) for error in verdict.errors] + self._stage.errors_in(step)
+        errors = [coached(error) for error in verdict.errors] + self._stage.errors_in(step, ran=_ran_something(written))
         if not keeps_honor_code:
             errors.append(HONOR_CODE_ERROR)
         if not fine_for_child:
@@ -247,7 +247,11 @@ class LessonRun:
         step = last.step or {}
         say = _recover_say(step, written)
         validator = self._kit.validator
+        self._stage.lost_runs = self._stage.lost_runs or _ran_something(written)
+        answerable = not self._stage.unran_values(step, False)
         for kept_fields in (("scene", "challenge"), ("scene",), ()):
+            if "challenge" in kept_fields and not answerable:
+                continue
             candidate = {"step": number, "say": say, **{field: step[field] for field in kept_fields if field in step}}
             verdict = await validator.check(candidate, scene, self._reading, replay=not kept_fields)
             if verdict.ok:
@@ -328,6 +332,10 @@ class LessonRun:
         )
         self._kit.store.save_lesson(record)
         self._live.publish("error", {"message": str(error)})
+
+
+def _ran_something(written: dict[str, Any] | Malformed) -> bool:
+    return isinstance(written, dict) and any(key in written for key in ("trace", "simulate"))
 
 
 def _recover_say(step: dict[str, Any], written: dict[str, Any] | Malformed) -> str:

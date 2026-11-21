@@ -47,10 +47,10 @@ def directives_for_labs(labs: tuple[str, ...]) -> dict[str, str]:
 
 
 def directive_briefs(labs: tuple[str, ...]) -> list[str]:
-    return [
-        getattr(DIRECTIVES[name], "BRIEF", DEFAULT_BRIEF).format(lab=lab, directive=name)
-        for lab, name in directives_for_labs(labs).items()
-    ]
+    grouped: dict[str, list[str]] = {}
+    for lab, name in directives_for_labs(labs).items():
+        grouped.setdefault(name, []).append(lab)
+    return [getattr(DIRECTIVES[name], "BRIEF", DEFAULT_BRIEF).format(lab=", ".join(found), directive=name) for name, found in grouped.items()]
 
 
 def directive_guides() -> str:
