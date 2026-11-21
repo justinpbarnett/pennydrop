@@ -4,14 +4,14 @@ import type { Step } from "../src/format";
 import { renderFrame } from "../src/frame";
 import { LabError } from "../src/lab";
 import { crowdedSceneError } from "../src/layout";
-import { EMPTY_SCENE, type SceneState, startSceneOf } from "../src/scene";
+import { EMPTY_SCENE, type SceneSnapshot, sceneFromSnapshot, type SceneState, snapshotOf, startSceneOf } from "../src/scene";
 import { THEMES } from "../src/theme";
 import { Timeline } from "../src/timeline";
 import { readLessonFile, registerAllLabs } from "./load";
 
 interface Request {
   id?: string;
-  scene?: SceneState | null;
+  scene?: SceneSnapshot | null;
   step?: Step;
   reading?: boolean;
 }
@@ -40,11 +40,6 @@ async function checkStep(timeline: Timeline, step: Step): Promise<StepResult> {
   return { step: step.step, ok: errors.length === 0, errors };
 }
 
-function isScene(value: unknown): value is SceneState {
-  const scene = value as SceneState | null;
-  return typeof scene === "object" && scene !== null && Array.isArray(scene.objects) && "focus" in scene;
-}
-
 async function validateFile(path: string): Promise<boolean> {
   const lesson = await readLessonFile(path);
   const start = startSceneOf(lesson.lesson);
@@ -61,14 +56,19 @@ async function validateFile(path: string): Promise<boolean> {
 
 async function answer(request: Request): Promise<object> {
   const { id, step } = request;
-  const start = request.scene ?? EMPTY_SCENE;
-  if (!step) return { id, ok: false, errors: ['request needs a "step"; send {"id": "...", "scene": <SceneState or null>, "step": {...}}'], scene: start };
-  if (!isScene(start)) return { id, step: step.step, ok: false, errors: ['"scene" must be null or a SceneState with "objects" and "focus", as an earlier reply returned it'], scene: null };
+  if (!step) return { id, ok: false, errors: ['request needs a "step"; send {"id": "...", "scene": <scene snapshot or null>, "step": {...}}'], scene: request.scene ?? snapshotOf(EMPTY_SCENE) };
+  let start: SceneState;
+  try {
+    start = request.scene ? sceneFromSnapshot(request.scene) : EMPTY_SCENE;
+  } catch (error) {
+    if (!(error instanceof LabError)) throw error;
+    return { id, step: step.step, ok: false, errors: [`"scene" must be null or a scene snapshot, as an earlier reply returned it: ${error.message}`], scene: null };
+  }
   const scene = request.reading === undefined ? start : { ...start, reading: request.reading };
   await prepareStepAssets(scene);
   const timeline = new Timeline(scene);
   const result = await checkStep(timeline, step);
-  return { id, ...result, scene: result.ok ? timeline.finalScene : start };
+  return { id, ...result, scene: snapshotOf(result.ok ? timeline.finalScene : start) };
 }
 
 function crashMessage(error: unknown): string {

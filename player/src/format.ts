@@ -1,6 +1,6 @@
 import { fail } from "./lab";
 import type { Relation } from "./relation";
-import type { SceneState } from "./scene";
+import type { SceneSnapshot } from "./scene";
 
 export const lessonTitle = (title: string | null): string => title ?? "a removed Lesson";
 
@@ -45,7 +45,7 @@ export interface LessonHeader {
   goal?: string;
   labs?: string[];
   reading?: boolean;
-  start_scene?: SceneState;
+  start_scene?: SceneSnapshot;
 }
 
 export interface LessonSource {

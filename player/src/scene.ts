@@ -1,6 +1,6 @@
-import { definitionByKey, definitionKeyForSpec, specText, wordlessKeys } from "./registry";
+import { definitionByKey, definitionIfRegistered, definitionKeyForSpec, specText, wordlessKeys } from "./registry";
 import type { LessonHeader, ObjectSpec } from "./format";
-import { type AnyLabDef, fail, type Role } from "./lab";
+import { type AnyLabDef, fail, isRole, type Role } from "./lab";
 import { parseRelation, type Relation } from "./relation";
 
 export interface SceneObject {
@@ -18,14 +18,51 @@ export interface SceneState {
   reading?: boolean;
 }
 
+export interface SceneSnapshot {
+  objects: { id: string; defKey: string; state: unknown; at?: Relation; tint?: Role; highlight?: Role }[];
+  focus: string | null;
+}
+
 export const EMPTY_SCENE: SceneState = { objects: [], focus: null };
+
+export function snapshotOf(scene: SceneState): SceneSnapshot {
+  return {
+    objects: scene.objects.map(({ id, defKey, state, at, tint, highlight }) => ({ id, defKey, state, at, tint, highlight })),
+    focus: scene.focus,
+  };
+}
+
+function snapshotObject(value: unknown, index: number): SceneObject {
+  const where = `scene.objects[${index}]`;
+  if (typeof value !== "object" || value === null) return fail(`${where} must be an object with "id", "defKey" and "state"`);
+  const { id, defKey, state, at, tint, highlight } = value as Record<string, unknown>;
+  if (typeof id !== "string" || !id) return fail(`${where} needs an "id" as text`);
+  if (typeof defKey !== "string" || !definitionIfRegistered(defKey)) return fail(`${where} (${id}) has defKey ${JSON.stringify(defKey)}, which is not a registered Lab or primitive`);
+  if (state === undefined || state === null) return fail(`${where} (${id}) needs a "state"`);
+  for (const [name, role] of [["tint", tint], ["highlight", highlight]] as const) {
+    if (role !== undefined && !isRole(role)) fail(`${where} (${id}) has ${name} ${JSON.stringify(role)}, which is not a role`);
+  }
+  return { id, defKey, state, ...(at == null ? {} : { at: parseRelation(id, at) }), ...(tint === undefined ? {} : { tint: tint as Role }), ...(highlight === undefined ? {} : { highlight: highlight as Role }) };
+}
+
+export function sceneFromSnapshot(value: unknown): SceneState {
+  if (typeof value !== "object" || value === null || !Array.isArray((value as { objects?: unknown }).objects)) {
+    return fail('a scene snapshot must be an object with an "objects" list and a "focus"');
+  }
+  const { objects, focus } = value as { objects: unknown[]; focus?: unknown };
+  if (focus !== undefined && focus !== null && typeof focus !== "string") return fail('a scene snapshot "focus" must be an object id or null');
+  const parsed = objects.map(snapshotObject);
+  const duplicate = parsed.find((object, index) => parsed.findIndex((other) => other.id === object.id) !== index);
+  if (duplicate) return fail(`scene snapshot lists "${duplicate.id}" twice`);
+  return { objects: parsed, focus: focus ?? null };
+}
 
 export function definitionOf(object: SceneObject): AnyLabDef {
   return definitionByKey(object.defKey);
 }
 
 export function startSceneOf(header: LessonHeader): SceneState {
-  return { ...(header.start_scene ?? EMPTY_SCENE), reading: header.reading !== false };
+  return { ...(header.start_scene === undefined ? EMPTY_SCENE : sceneFromSnapshot(header.start_scene)), reading: header.reading !== false };
 }
 
 export function createObject(id: string, spec: ObjectSpec, scene: SceneState): SceneObject {
