@@ -105,11 +105,13 @@ export const lab: LabDef<Spec, State> = {
 
 | Task | Owner | State |
 |---|---|---|
-| Player core, four Themes, array Lab, bubble sort Lesson, validate, catalog and frames tools | Sonnet agent | running |
+| Player core, four Themes, array Lab, bubble sort Lesson, validate, catalog and frames tools | Sonnet agent | done, `267932f` |
 | Server core: config, gateway, JEV, store, TTS seam with Kokoro, intake, tracer, API, CLI | Sonnet agent | done, `ec669f0` |
+| Player fixes: stateless validator per contract, `start_scene`, real font metrics, even code panel padding, caption aligned to stage, Challenge card, lazy KaTeX and Shiki, drop the `plot` alias | player core agent | running |
 | M2 Ask pipeline (server): catalog, JEV classify, streamed writer, directives, validator with redo, TTS per Step, live events, timing and cost, `pd ask`, `pd bench` | Sonnet agent | running |
-| Timeline: cue-less ops play in sequence, compressed to fit the narration | player core agent | asked |
-| Next: `address` Lab and page table walk Lesson, `shapes` Lab and Pythagoras Lesson, player Ask UI with mic | after player core | waiting |
+| `address` Lab and `lessons/page-table-walk.jsonl` | Sonnet agent | running |
+| `shapes` Lab and `lessons/pythagoras.jsonl` | Sonnet agent | running |
+| Next: player Ask UI with mic, M1 close (serve, tailnet, Chrome check, push), M3 Labs | build session | waiting |
 
 ### Server facts for later work
 
@@ -121,8 +123,7 @@ export const lab: LabDef<Spec, State> = {
 - A codex call carries about 19k input tokens of its own context.
 - JEV wire format: `questions` is an object keyed by name, score `criteria` is a list of anchor strings, answers come back keyed by name.
 - `.venv` adds 952 MB, torch is 566 MB of it.
-- Open: the player posts Challenge answers as `{lesson, step, challenge, given, correct}` while `POST /api/answers` takes `{profile_id, lesson_id, step, prompt, answer, correct}`.
-  The M2 work reconciles them on the server's names.
+- The player posts Challenge answers with the server's names `{profile_id, lesson_id, step, prompt, answer, correct}`.
 - Open: Store methods for courses, topics, films, lesson_log, lab_requests and minted_labs come with M4, M5 and M6.
 
 ## Evidence log
