@@ -56,6 +56,25 @@ The goal and the design live outside the repo, in the workshop initiative `penny
 - Subagents do not commit.
   The build session reviews each result, commits it as the repo's noreply identity, and pushes.
 
+## Code standard
+
+Justin asked on 2026-11-21 that the build follow the improve-codebase skill as the reference for good code.
+Every agent brief points at `~/dev/ai/skills/improve-codebase/references/smell-guide.md` and `workflow.md`.
+- Deep modules behind small interfaces, checked with the deletion test, and no forwarding layers or speculative extension points.
+- One home for each piece of knowledge, and a dependency direction that points down: format and contracts, then state, then layout and drawing, then the app; config and store, then gateway, TTS, intake and tracer, then API and CLI.
+- Per kind behavior lives with the kind (a Lab, a route adapter, a TTS provider), never in switch statements spread across files.
+- Typed records cross module boundaries, and errors carry messages a person or a model can act on.
+
+Each milestone closes only after this gate:
+
+```
+SKILL=~/dev/ai/skills/improve-codebase
+$SKILL/.venv/bin/python $SKILL/scripts/improve_codebase.py scan --root "$PWD" --summary --format json
+```
+
+Then a fresh read only reviewer checks the milestone's code on the three axes (smells and standards, architecture, contracts), and every finding is fixed before the milestone is marked done.
+The scanner's ledger lives in `.improve-codebase/`, which the scanner keeps out of git through the local exclude file.
+
 ## Contracts
 
 ### Lesson stream
@@ -87,7 +106,24 @@ export const lab: LabDef<Spec, State> = {
 | Task | Owner | State |
 |---|---|---|
 | Player core, four Themes, array Lab, bubble sort Lesson, validate, catalog and frames tools | Sonnet agent | running |
-| Server core: config, gateway, JEV, store, TTS seam with Kokoro, intake, tracer, API, CLI | Sonnet agent | running |
+| Server core: config, gateway, JEV, store, TTS seam with Kokoro, intake, tracer, API, CLI | Sonnet agent | done, `ec669f0` |
+| M2 Ask pipeline (server): catalog, JEV classify, streamed writer, directives, validator with redo, TTS per Step, live events, timing and cost, `pd ask`, `pd bench` | Sonnet agent | running |
+| Timeline: cue-less ops play in sequence, compressed to fit the narration | player core agent | asked |
+| Next: `address` Lab and page table walk Lesson, `shapes` Lab and Pythagoras Lesson, player Ask UI with mic | after player core | waiting |
+
+### Server facts for later work
+
+- Measured by `uv run pd gateway ping`: Haiku 1.5 s, Sonnet 1.2 s, Fable 0.9 s, Opus 2 to 5 s, codex 3 to 4 s, JEV 0.3 to 0.5 s.
+- Kokoro: 7 s cold load, then about 0.26 s for a short sentence on the warm server, and 0.39 s for a cache hit.
+- `pd transcribe` takes about 1.5 s, mostly whisper model load per spawn.
+- A bare `claude -p` call carries about 3.9k input tokens of Claude Code context, 3.1k of it cached.
+  Pass `system` on every call so the default Claude Code prompt is replaced.
+- A codex call carries about 19k input tokens of its own context.
+- JEV wire format: `questions` is an object keyed by name, score `criteria` is a list of anchor strings, answers come back keyed by name.
+- `.venv` adds 952 MB, torch is 566 MB of it.
+- Open: the player posts Challenge answers as `{lesson, step, challenge, given, correct}` while `POST /api/answers` takes `{profile_id, lesson_id, step, prompt, answer, correct}`.
+  The M2 work reconciles them on the server's names.
+- Open: Store methods for courses, topics, films, lesson_log, lab_requests and minted_labs come with M4, M5 and M6.
 
 ## Evidence log
 
