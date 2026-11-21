@@ -10,7 +10,8 @@
 html, body { margin: 0; height: 100%; }
 body { background: var(--ground); color: var(--ink); font-family: var(--font-read); transition: background 0.4s, color 0.4s; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-#app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; height: 100dvh; max-width: 1900px; margin: 0 auto; padding: 0 16px; }
+#app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; height: 100dvh; padding: 0 16px; }
+.top, .transport { width: var(--stage-width, 100%); margin-inline: auto; }
 
 .top { display: flex; align-items: center; gap: 20px; padding: 14px 0 12px; flex-wrap: wrap; }
 .mark { margin: 0; font: var(--weight-mark) 22px/1 var(--font-mark); letter-spacing: var(--tracking-mark); text-transform: var(--mark-case); display: flex; align-items: center; gap: 10px; }
@@ -23,8 +24,8 @@ body { background: var(--ground); color: var(--ink); font-family: var(--font-rea
 .swatch .chip { width: 22px; height: 22px; border: 1px solid; border-radius: 50%; display: grid; place-items: center; }
 .swatch .chip i { width: 9px; height: 9px; border-radius: 50%; }
 
-.stage-area { container-type: size; display: grid; place-items: center; min-height: 0; }
-.stage-frame { position: relative; width: min(100cqw, 177.78cqh); aspect-ratio: 16 / 9; border: 1px solid var(--rule); border-radius: min(var(--corner), 20px); overflow: hidden; background: var(--ground); }
+.stage-area { display: grid; place-items: center; min-height: 0; }
+.stage-frame { position: relative; width: var(--stage-width, 100%); aspect-ratio: 16 / 9; border: 1px solid var(--rule); border-radius: min(var(--corner), 20px); overflow: hidden; background: var(--ground); }
 #stage { display: block; width: 100%; height: 100%; }
 .overlay { position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--ground) 62%, transparent); backdrop-filter: blur(3px); padding: 24px; }
 .overlay[hidden], .status[hidden] { display: none; }
@@ -53,7 +54,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 button:focus-visible, select:focus-visible, input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .transport { padding: 12px 0 16px; display: grid; gap: 10px; }
-.caption { margin: 0; min-height: 3.2em; max-width: 1100px; font: 500 20px/1.55 var(--font-read); color: var(--muted); }
+.caption { margin: 0; min-height: 3.2em; font: 500 20px/1.55 var(--font-read); color: var(--muted); }
 .caption .spoken { color: var(--ink); }
 .caption .now { color: var(--ground); background: var(--accent); border-radius: min(var(--corner), 4px); padding: 0 3px; margin: 0 -3px; }
 .controls { display: flex; align-items: center; gap: 16px; }

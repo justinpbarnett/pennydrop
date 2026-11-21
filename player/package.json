@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "metrics": "bun tools/font-metrics.ts",
+    "prebuild": "bun tools/font-metrics.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
@@ -19,6 +21,7 @@
   "devDependencies": {
     "@types/katex": "^0.16.8",
     "bun-types": "^1.4.5",
+    "fontkit": "^3.0.0",
     "playwright-core": "1.59.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"

@@ -1,4 +1,4 @@
-import { type Drawable, fail, type LabDef, numberField, type Role, roleField } from "../lab";
+import { type Drawable, fail, type LabDef, labelDrawable, numberField, type Role, roleField, segmentDrawable } from "../lab";
 
 type ShapeName = "rect" | "circle" | "line" | "arrow" | "path";
 
@@ -81,15 +81,15 @@ export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
     if (shape === "circle") out.push({ id: "body", kind: "circle", ...box, r: w / 2, fill: state.fillRole, stroke: role, strokeWidth: 1.6 });
     if (shape === "line" || shape === "arrow") {
       const [dx, dy] = DIRECTIONS[state.direction];
-      out.push({
-        id: "body", kind: shape,
-        x: dx < 0 ? w : dx > 0 ? 0 : w / 2, y: dy < 0 ? h : dy > 0 ? 0 : h / 2,
-        x2: dx < 0 ? 0 : dx > 0 ? w : w / 2, y2: dy < 0 ? 0 : dy > 0 ? h : h / 2,
-        stroke: role, strokeWidth: 2,
-      });
+      out.push(segmentDrawable(
+        shape,
+        { x: dx < 0 ? w : dx > 0 ? 0 : w / 2, y: dy < 0 ? h : dy > 0 ? 0 : h / 2 },
+        { x: dx < 0 ? 0 : dx > 0 ? w : w / 2, y: dy < 0 ? 0 : dy > 0 ? h : h / 2 },
+        role, 2,
+      ));
     }
     if (shape === "path") out.push({ id: "body", kind: "path", x: 0, y: 0, points: state.points, fill: state.fillRole, stroke: role, strokeWidth: 2, closed: state.fillRole !== "none" });
-    if (label) out.push({ id: "label", kind: "text", ...box, text: label, size: 34, font: "mark", fill: "ink", z: 1 });
+    if (label) out.push(labelDrawable(label, box, 34, "mark", "ink", 1));
     return out;
   },
 };

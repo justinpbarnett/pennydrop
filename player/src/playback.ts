@@ -1,4 +1,5 @@
 import type { Challenge, LessonHeader, LessonSource, Step } from "./format";
+import { prepareStepAssets } from "./assets";
 import { type Frame, renderFrame } from "./frame";
 import { THEMES, type Theme, type ThemeId } from "./theme";
 import { Timeline } from "./timeline";
@@ -13,7 +14,7 @@ export interface PendingChallenge {
 const AUDIO_DRIFT_SECONDS = 0.25;
 
 export class Playback {
-  readonly timeline = new Timeline();
+  timeline = new Timeline();
   header: LessonHeader = { title: "" };
   error: string | null = null;
   time = 0;
@@ -26,6 +27,7 @@ export class Playback {
   private audioStep = -1;
   private lastTick = 0;
   private listeners: (() => void)[] = [];
+  private arrivals: Promise<void> = Promise.resolve();
 
   constructor() {
     this.audio.preload = "auto";
@@ -48,22 +50,34 @@ export class Playback {
     return renderFrame(this.timeline, this.time, this.theme);
   }
 
+  settled(): Promise<void> {
+    return this.arrivals;
+  }
+
+  setHeader(header: LessonHeader): void {
+    this.arrive(async () => {
+      await prepareStepAssets(header.start_scene);
+      this.header = header;
+      this.timeline = new Timeline(header.start_scene);
+    });
+  }
+
   loadSource(source: LessonSource): void {
-    this.header = source.lesson;
-    source.steps.forEach((step) => this.timeline.addStep(step));
-    if (source.done) this.timeline.finish();
-    this.notify();
+    this.setHeader(source.lesson);
+    source.steps.forEach((step) => this.addStep(step));
+    if (source.done) this.finishLesson();
   }
 
   addStep(step: Step): void {
-    this.timeline.addStep(step);
-    if (this.state === "buffering" && this.wantsToPlay) this.state = "playing";
-    this.notify();
+    this.arrive(async () => {
+      await prepareStepAssets(step);
+      this.timeline.addStep(step);
+      if (this.state === "buffering" && this.wantsToPlay) this.state = "playing";
+    });
   }
 
   finishLesson(): void {
-    this.timeline.finish();
-    this.notify();
+    this.arrive(() => this.timeline.finish());
   }
 
   fail(message: string): void {
@@ -153,6 +167,15 @@ export class Playback {
     if (force || Math.abs(this.audio.currentTime - offset) > AUDIO_DRIFT_SECONDS) this.audio.currentTime = offset;
     if (this.state === "playing" && this.audio.paused) this.audio.play().catch(() => undefined);
     if (this.state !== "playing") this.audio.pause();
+  }
+
+  private arrive(work: () => Promise<void> | void): void {
+    this.arrivals = this.arrivals
+      .then(work)
+      .catch((failure: Error) => {
+        this.error = failure.message;
+      })
+      .finally(() => this.notify());
   }
 
   private notify(): void {

@@ -1,4 +1,4 @@
-import { type AnyLabDef, fail, LabError, type LabDef } from "./lab";
+import { type AnyLabDef, fail, LabError } from "./lab";
 import type { ObjectSpec } from "./format";
 
 export interface LabModule {
@@ -49,5 +49,3 @@ export function definitionKeyForSpec(objectId: string, spec: ObjectSpec): string
   }
   return fail(`${objectId} needs "lab" (one of ${known("lab:")}) or "kind" (one of ${known("primitive:")})`);
 }
-
-export type { LabDef };

@@ -1,4 +1,4 @@
-import { type Drawable, fail, type Link, type LabDef, type Role, roleField, stringField } from "../lab";
+import { type Drawable, fail, type Link, type LabDef, labelDrawable, type Point, type Role, roleField, segmentDrawable, stringField } from "../lab";
 
 interface EdgeState {
   from: string;
@@ -10,7 +10,7 @@ interface EdgeState {
 
 const GAP = 10;
 
-function borderPoint(link: Link, toward: { x: number; y: number }): { x: number; y: number } {
+function borderPoint(link: Link, toward: Point): Point {
   const center = { x: link.x + link.w / 2, y: link.y + link.h / 2 };
   const dx = toward.x - center.x;
   const dy = toward.y - center.y;
@@ -52,12 +52,8 @@ export const primitive: LabDef<Record<string, unknown>, EdgeState> = {
     if (!from || !to) return [];
     const start = borderPoint(from, { x: to.x + to.w / 2, y: to.y + to.h / 2 });
     const end = borderPoint(to, { x: from.x + from.w / 2, y: from.y + from.h / 2 });
-    const out: Drawable[] = [
-      { id: "line", kind: state.directed ? "arrow" : "line", x: start.x, y: start.y, x2: end.x, y2: end.y, stroke: state.role, strokeWidth: 1.8, z: -2 },
-    ];
-    if (state.label) {
-      out.push({ id: "label", kind: "text", x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 22, text: state.label, size: 24, font: "read", fill: "muted", z: -1 });
-    }
+    const out: Drawable[] = [{ ...segmentDrawable(state.directed ? "arrow" : "line", start, end, state.role, 1.8, -2), id: "line" }];
+    if (state.label) out.push(labelDrawable(state.label, { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 22 }, 24, "read", "muted", -1));
     return out;
   },
 };

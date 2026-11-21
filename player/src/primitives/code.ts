@@ -1,5 +1,6 @@
 import { type Drawable, fail, indexPart, type LabDef, type LabOp, numberField, stringField, type Span } from "../lab";
 import { CODE_LANGUAGES, tokenizeCode } from "../highlight";
+import { textWidth } from "../text-metrics";
 
 interface CodeState {
   objectId: string;
@@ -33,8 +34,16 @@ function lineHeight(state: CodeState): number {
   return state.size * 1.7;
 }
 
+const NUMBER_SCALE = 0.72;
+const NUMBER_GAP = 22;
+
 function gutterWidth(state: CodeState): number {
-  return String(state.lines.length).length * state.size * 0.62 + 34;
+  return textWidth(String(state.lines.length), state.size * NUMBER_SCALE, "code") + NUMBER_GAP;
+}
+
+function sizeOf(state: CodeState) {
+  const widest = Math.max(...state.lines.map((line) => textWidth(line.map((span) => span.text).join(""), state.size, "code")), 0);
+  return { w: PAD * 2 + gutterWidth(state) + widest, h: PAD * 2 + state.lines.length * lineHeight(state) };
 }
 
 export const primitive: LabDef<Record<string, unknown>, CodeState> = {
@@ -62,12 +71,9 @@ export const primitive: LabDef<Record<string, unknown>, CodeState> = {
     if (op.name !== "focus") fail(`code has no op "${op.name}"`);
     return { ...state, focus: focusFrom(state, op.parts.length > 0 ? op.parts : op.args.lines) };
   },
-  size(state) {
-    const widest = Math.max(...state.lines.map((line) => line.reduce((sum, span) => sum + span.text.length, 0)), 8);
-    return { w: PAD * 2 + gutterWidth(state) + widest * state.size * 0.6, h: PAD * 2 + state.lines.length * lineHeight(state) };
-  },
+  size: sizeOf,
   draw(state) {
-    const { w, h } = this.size(state);
+    const { w, h } = sizeOf(state);
     const height = lineHeight(state);
     const hasFocus = state.focus.length > 0;
     const first = hasFocus ? Math.min(...state.focus) : 1;
@@ -83,7 +89,7 @@ export const primitive: LabDef<Record<string, unknown>, CodeState> = {
       const y = PAD + (index + 0.5) * height;
       const opacity = !hasFocus || state.focus.includes(index + 1) ? 1 : DIMMED;
       out.push(
-        { id: `number-${index + 1}`, kind: "text", x: PAD + gutterWidth(state) - 22, y, text: String(index + 1), size: state.size * 0.72, font: "code", anchor: "end", fill: "muted", opacity, z: 2 },
+        { id: `number-${index + 1}`, kind: "text", x: PAD, y, text: String(index + 1), size: state.size * NUMBER_SCALE, font: "code", anchor: "start", fill: "muted", opacity, z: 2 },
         { id: `line-${index + 1}`, kind: "code", x: PAD + gutterWidth(state), y, spans: spans.length ? spans : [{ text: " ", role: "ink" }], size: state.size, font: "code", anchor: "start", opacity, z: 2 },
       );
     });

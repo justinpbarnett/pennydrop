@@ -1,4 +1,5 @@
 import { fail } from "./lab";
+import type { SceneState } from "./scene";
 
 export interface Voice {
   url: string;
@@ -46,6 +47,7 @@ export interface LessonHeader {
   title: string;
   goal?: string;
   labs?: string[];
+  start_scene?: SceneState;
 }
 
 export interface LessonSource {

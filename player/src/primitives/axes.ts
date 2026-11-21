@@ -41,7 +41,7 @@ function niceTick(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-const axesDef: LabDef<Record<string, unknown>, AxesState> = {
+export const primitive: LabDef<Record<string, unknown>, AxesState> = {
   id: "axes",
   title: "Axes",
   catalog: {
@@ -55,7 +55,7 @@ const axesDef: LabDef<Record<string, unknown>, AxesState> = {
       w: "px, default 760",
       h: "px, default 460",
     },
-    ops: { plot: '{"points": [[x, y], ...], "role"?: "accent", "label"?: text} adds a series; draws on with trace' },
+    ops: { series: '{"points": [[x, y], ...], "role"?: "accent", "label"?: text} adds a series; draws on with trace' },
     example: ['{"scene":{"ax":{"kind":"axes","x":[0,10],"y":[0,100],"series":[{"points":[[0,0],[10,100]]}]}}}'],
   },
   init(spec, objectId) {
@@ -70,7 +70,7 @@ const axesDef: LabDef<Record<string, unknown>, AxesState> = {
     };
   },
   apply(state, op) {
-    if (op.name !== "plot") return fail(`axes has no op "${op.name}"`);
+    if (op.name !== "series") return fail(`axes has no op "${op.name}"`);
     return { ...state, series: [...state.series, ...readSeries([op.args], "axes", state.series.length)] };
   },
   size: (state) => ({ w: state.w, h: state.h }),
@@ -108,5 +108,3 @@ const axesDef: LabDef<Record<string, unknown>, AxesState> = {
   },
   duration: () => 1.2,
 };
-
-export const primitives = [axesDef, { ...axesDef, id: "plot", title: "Plot" }];

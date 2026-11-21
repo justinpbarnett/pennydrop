@@ -1,7 +1,7 @@
-import katex from "katex";
 import type { Frame, Painted } from "./frame";
 import { STAGE } from "./layout";
 import { cssRgba, parseHex, type Theme, type ThemeId } from "./theme";
+import { typeset } from "./typeset";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const GRAIN_FRAMES_PER_SECOND = 12;
@@ -216,7 +216,7 @@ export class StageRenderer {
         const holder = element.firstElementChild as HTMLElement;
         if (live.signature !== item.latex) {
           live.signature = item.latex ?? "";
-          holder.innerHTML = katex.renderToString(item.latex ?? "", { throwOnError: false, output: "html" });
+          holder.innerHTML = typeset(item.latex ?? "");
         }
         holder.style.fontSize = `${item.size}px`;
         holder.style.color = paintCss(item.fill);

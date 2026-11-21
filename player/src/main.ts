@@ -12,8 +12,24 @@ const query = new URLSearchParams(location.search);
 const PROFILE_ID = Number(query.get("profile") ?? 1);
 const THEME_KEY = "pennydrop.theme";
 
+function storedTheme(): string | null {
+  try {
+    return localStorage.getItem(THEME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeTheme(id: ThemeId): void {
+  try {
+    localStorage.setItem(THEME_KEY, id);
+  } catch {
+    return;
+  }
+}
+
 function remembered(): ThemeId {
-  const wanted = query.get("theme") ?? (() => { try { return localStorage.getItem(THEME_KEY); } catch { return null; } })();
+  const wanted = query.get("theme") ?? storedTheme();
   return isThemeId(wanted) ? wanted : "pattern";
 }
 
@@ -27,6 +43,13 @@ const caption = $("#caption");
 const ticks = $("#ticks");
 const overlay = $("#overlay");
 const status = $("#status");
+
+const STAGE_ASPECT = 16 / 9;
+const stageArea = $(".stage-area");
+new ResizeObserver(() => {
+  const width = Math.min(stageArea.clientWidth, stageArea.clientHeight * STAGE_ASPECT);
+  document.documentElement.style.setProperty("--stage-width", `${Math.floor(width)}px`);
+}).observe(stageArea);
 
 let playback = new Playback();
 let lessonId = "";
@@ -54,7 +77,7 @@ function applyTheme(id: ThemeId): void {
   root.style.setProperty("--mark-case", theme.capitalMarks ? "uppercase" : "none");
   root.style.setProperty("--stroke", `${theme.stroke}px`);
   playback.setTheme(id);
-  try { localStorage.setItem(THEME_KEY, id); } catch { /* storage may be blocked */ }
+  storeTheme(id);
   document.querySelectorAll<HTMLButtonElement>(".swatch").forEach((swatch) => swatch.setAttribute("aria-checked", String(swatch.dataset.theme === id)));
 }
 
@@ -163,7 +186,7 @@ async function open(id: string): Promise<void> {
   const live = query.has("live");
   const current = playback;
   await loadLesson(id, {
-    header: (header) => { current.header = header; document.title = `${header.title} - Pennydrop`; },
+    header: (header) => { current.setHeader(header); document.title = `${header.title} - Pennydrop`; },
     step: (step) => current.addStep(step),
     done: () => current.finishLesson(),
     error: (message) => current.fail(message),

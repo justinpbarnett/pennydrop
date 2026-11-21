@@ -47,6 +47,11 @@ export interface Drawable {
   part?: string;
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
 export interface Size {
   w: number;
   h: number;
@@ -99,6 +104,14 @@ export class LabError extends Error {
   override name = "LabError";
 }
 
+export function segmentDrawable(kind: "line" | "arrow", from: Point, to: Point, stroke: Paint, strokeWidth: number, z = 0): Drawable {
+  return { id: "body", kind, x: from.x, y: from.y, x2: to.x, y2: to.y, stroke, strokeWidth, z };
+}
+
+export function labelDrawable(text: string, at: Point, size: number, font: FontRole, fill: Paint, z: number): Drawable {
+  return { id: "label", kind: "text", x: at.x, y: at.y, text, size, font, fill, z };
+}
+
 export function fail(message: string): never {
   throw new LabError(message);
 }
@@ -108,10 +121,6 @@ export function indexPart(part: string, count: number, objectId: string, unit = 
   if (!Number.isInteger(index)) fail(`${objectId}[${part}] is not an index: use ${objectId}[0] to ${objectId}[${count - 1}]`);
   if (index < 0 || index >= count) fail(`${objectId}[${index}] is out of range: ${objectId} has ${count} ${unit}`);
   return index;
-}
-
-export function textWidth(text: string, size: number, em = 0.58): number {
-  return text.length * size * em;
 }
 
 export function lerp(a: number, b: number, t: number): number {

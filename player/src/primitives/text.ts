@@ -1,10 +1,16 @@
-import { fail, lerp, type LabDef, numberArg, numberField, type Role, roleField, stringArg, stringField, textWidth } from "../lab";
+import { fail, lerp, type LabDef, numberArg, numberField, type Role, roleField, stringArg, stringField } from "../lab";
+import { textWidth } from "../text-metrics";
 
 interface TextState {
   text: string;
   size: number;
   font: "mark" | "read";
   role: Role;
+}
+
+function sizeOf(state: TextState) {
+  const lines = state.text.split("\n");
+  return { w: Math.max(state.size, ...lines.map((line) => textWidth(line, state.size, state.font))), h: lines.length * state.size * 1.35 };
 }
 
 const FORMAT_DECIMALS = (value: number) => (String(value).split(".")[1] ?? "").length;
@@ -31,14 +37,11 @@ export const primitive: LabDef<Record<string, unknown>, TextState> = {
     if (op.name === "count") return { ...state, text: String(numberArg(op.args, "to", "count")) };
     return fail(`text has no op "${op.name}"`);
   },
-  size(state) {
-    const lines = state.text.split("\n");
-    return { w: Math.max(state.size, ...lines.map((line) => textWidth(line, state.size))), h: lines.length * state.size * 1.35 };
-  },
+  size: sizeOf,
   draw(state) {
     const lines = state.text.split("\n");
     return lines.map((line, index) => ({
-      id: `line-${index}`, kind: "text" as const, x: this.size(state).w / 2, y: (index + 0.5) * state.size * 1.35,
+      id: `line-${index}`, kind: "text" as const, x: sizeOf(state).w / 2, y: (index + 0.5) * state.size * 1.35,
       text: line, size: state.size, font: state.font, fill: state.role,
     }));
   },
@@ -52,6 +55,6 @@ export const primitive: LabDef<Record<string, unknown>, TextState> = {
           const decimals = Math.max(FORMAT_DECIMALS(from), FORMAT_DECIMALS(to));
           return Number.isNaN(from) ? after.text : lerp(from, to, progress).toFixed(decimals);
         })();
-    return [{ id: "line-0", kind: "text", x: this.size(after).w / 2, y: after.size * 0.675, text: shown, size: after.size, font: after.font, fill: after.role }];
+    return [{ id: "line-0", kind: "text", x: sizeOf(after).w / 2, y: after.size * 0.675, text: shown, size: after.size, font: after.font, fill: after.role }];
   },
 };

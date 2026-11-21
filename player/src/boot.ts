@@ -1,4 +1,3 @@
-import "katex/dist/katex.min.css";
 import "./fonts.css";
 import { registerModules } from "./registry";
 import { THEMES } from "./theme";

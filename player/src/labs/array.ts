@@ -1,4 +1,5 @@
 import { type Drawable, fail, indexPart, type LabDef, type LabOp, lerp, numberArg, type Role, stringArg } from "../lab";
+import { textWidth } from "../text-metrics";
 
 interface Cell {
   id: string;
@@ -136,19 +137,25 @@ function cellDrawables(state: ArrayState, cell: Cell, slot: number, at: { x: num
   ];
 }
 
-function counterLayout(state: ArrayState): { counter: Counter; x: number }[] {
+const COUNTER_LABEL_SIZE = 24;
+const COUNTER_VALUE_SIZE = 38;
+const COUNTER_LABEL_GAP = 22;
+const COUNTER_SPACING = 70;
+
+function counterLayout(state: ArrayState, values: Map<string, string>): { counter: Counter; labelEnd: number; valueText: string }[] {
   let x = 0;
   return state.counters.map((counter) => {
-    const entry = { counter, x };
-    x += counter.name.length * 14 + String(counter.value).length * 22 + 70;
-    return entry;
+    const valueText = values.get(counter.name) ?? String(counter.value);
+    const labelEnd = x + textWidth(counter.name, COUNTER_LABEL_SIZE, "read");
+    x = labelEnd + COUNTER_LABEL_GAP + textWidth(valueText, COUNTER_VALUE_SIZE, "read") + COUNTER_SPACING;
+    return { counter, labelEnd, valueText };
   });
 }
 
 function counterDrawables(state: ArrayState, values: Map<string, string>): Drawable[] {
-  return counterLayout(state).flatMap(({ counter, x }) => [
-    { id: `counter-${counter.name}-label`, kind: "text" as const, x, y: COUNTER_Y, text: counter.name, size: 24, font: "read" as const, anchor: "start" as const, fill: "muted" as const },
-    { id: `counter-${counter.name}-value`, kind: "text" as const, x: x + counter.name.length * 14 + 22, y: COUNTER_Y, text: values.get(counter.name) ?? String(counter.value), size: 38, font: "read" as const, anchor: "start" as const, fill: "ink" as const },
+  return counterLayout(state, values).flatMap(({ counter, labelEnd, valueText }) => [
+    { id: `counter-${counter.name}-label`, kind: "text" as const, x: labelEnd, y: COUNTER_Y, text: counter.name, size: COUNTER_LABEL_SIZE, font: "read" as const, anchor: "end" as const, fill: "muted" as const },
+    { id: `counter-${counter.name}-value`, kind: "text" as const, x: labelEnd + COUNTER_LABEL_GAP, y: COUNTER_Y, text: valueText, size: COUNTER_VALUE_SIZE, font: "read" as const, anchor: "start" as const, fill: "ink" as const },
   ]);
 }
 

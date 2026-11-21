@@ -80,7 +80,15 @@ export class Timeline {
   readonly steps: StepSpan[] = [];
   readonly segments: Segment[] = [];
   done = false;
-  private scene: SceneState = EMPTY_SCENE;
+  private scene: SceneState;
+
+  constructor(readonly startScene: SceneState = EMPTY_SCENE) {
+    this.scene = startScene;
+  }
+
+  get finalScene(): SceneState {
+    return this.scene;
+  }
 
   get duration(): number {
     return this.steps.at(-1)?.end ?? 0;
@@ -135,7 +143,7 @@ export class Timeline {
 
   locate(time: number, motionScale: number): Located {
     const first = this.segments[0];
-    if (!first || time < first.start) return { before: first?.before ?? EMPTY_SCENE, after: first?.before ?? EMPTY_SCENE, progress: 1, touches: [] };
+    if (!first || time < first.start) return { before: first?.before ?? this.scene, after: first?.before ?? this.scene, progress: 1, touches: [] };
     let low = 0;
     let high = this.segments.length - 1;
     while (low < high) {
