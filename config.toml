@@ -26,6 +26,7 @@ provider = "kokoro"
 voice = "af_heart"
 language = "a"
 speed = 1.0
+workers = 2
 
 [tts.elevenlabs]
 voice = "JBFqnCBsd6RMkjVDRZzb"

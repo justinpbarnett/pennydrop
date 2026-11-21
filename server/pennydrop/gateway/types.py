@@ -43,6 +43,8 @@ class Request:
     permission_mode: str | None = None
     sandbox: str | None = None
     timeout: float = 120.0
+    lesson_id: str | None = None
+    effort: str | None = None
 
 
 @dataclass(frozen=True)

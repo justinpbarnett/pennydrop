@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
-import threading
+import queue
 import warnings
 
 import soundfile
@@ -18,30 +18,35 @@ class KokoroProvider(Provider):
 
     def __init__(self, settings, section):
         super().__init__(settings, section)
-        self._pipeline = None
-        self._lock = threading.Lock()
+        self._pipelines: queue.Queue = queue.Queue()
+        for _ in range(section["workers"]):
+            self._pipelines.put(None)
 
     def warm(self) -> None:
-        with self._lock:
-            self._load_pipeline()
+        self._pipelines.put(self._borrow())
 
     async def synthesize(self, text: str, voice: str) -> Synthesis:
         return await asyncio.to_thread(self._synthesize_blocking, text, voice)
 
-    def _load_pipeline(self):
-        if self._pipeline is None:
+    def _borrow(self):
+        pipeline = self._pipelines.get()
+        if pipeline is not None:
+            return pipeline
+        try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 from kokoro import KPipeline
 
-                self._pipeline = KPipeline(lang_code=self.section["language"], repo_id="hexgrad/Kokoro-82M")
-        return self._pipeline
+                return KPipeline(lang_code=self.section["language"], repo_id="hexgrad/Kokoro-82M")
+        except BaseException:
+            self._pipelines.put(None)
+            raise
 
     def _synthesize_blocking(self, text: str, voice: str) -> Synthesis:
         import numpy
 
-        with self._lock:
-            pipeline = self._load_pipeline()
+        pipeline = self._borrow()
+        try:
             chunks = []
             words: list[WordTiming] = []
             offset_seconds = 0.0
@@ -49,6 +54,8 @@ class KokoroProvider(Provider):
                 chunks.append(result.audio.numpy())
                 words += _words_from(result.tokens, offset_seconds)
                 offset_seconds += len(result.audio) / SAMPLE_RATE
+        finally:
+            self._pipelines.put(pipeline)
         if not chunks:
             raise TtsError("kokoro produced no audio for the text")
         buffer = io.BytesIO()

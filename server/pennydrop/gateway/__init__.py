@@ -33,6 +33,8 @@ class RequestOptions(TypedDict, total=False):
     permission_mode: str
     sandbox: str
     timeout: float
+    lesson_id: str
+    effort: str
 
 
 @dataclass(frozen=True)
@@ -91,9 +93,9 @@ class Gateway:
                 failures.append(f"{route}: {error}")
         raise GatewayError(f"every route for job '{job}' failed:\n  " + "\n  ".join(failures))
 
-    async def classify(self, state: str, questions: dict[str, Question], timeout: float = 20.0) -> Classification:
+    async def classify(self, state: str, questions: dict[str, Question], timeout: float = 20.0, lesson_id: str | None = None) -> Classification:
         route = self._settings.routes[Job.CLASSIFY][0]
-        return await self._classify_on(route, state, questions, timeout)
+        return await self._classify_on(route, state, questions, timeout, lesson_id)
 
     async def ping(self, job: Job) -> list[PingResult]:
         results = []
@@ -112,7 +114,7 @@ class Gateway:
 
     async def _ping_route(self, job: Job, route: RouteSpec) -> str:
         if route.kind is RouteKind.JEV:
-            result = await self._classify_on(route, "The sky is blue.", {"blue": YesNo("Is the sky blue?")}, 20.0)
+            result = await self._classify_on(route, "The sky is blue.", {"blue": YesNo("Is the sky blue?")}, 20.0, None)
             return f"answered {result.answers['blue']}"
         text = ""
         async for item in self._attempt(job, route, Request(PING_PROMPT, system=PING_SYSTEM, timeout=60.0)):
@@ -124,16 +126,16 @@ class Gateway:
         adapter = self._jev if route.kind is RouteKind.JEV else self._text_routes[route.kind]
         return adapter.unavailable_reason()
 
-    async def _classify_on(self, route: RouteSpec, state: str, questions: dict[str, Question], timeout: float) -> Classification:
+    async def _classify_on(self, route: RouteSpec, state: str, questions: dict[str, Question], timeout: float, lesson_id: str | None) -> Classification:
         if route.kind is not RouteKind.JEV:
             raise GatewayError(f"job 'classify' needs a jev route, found {route}")
         started = time.monotonic()
         try:
             answers, usage = await self._jev.classify(route.model, state, questions, timeout)
         except Exception as error:
-            self._log(Job.CLASSIFY, route, started, None, Usage(), error)
+            self._log(Job.CLASSIFY, route, started, None, Usage(), error, lesson_id)
             _reraise_as_gateway_error(route, error)
-        return Classification(answers, self._log(Job.CLASSIFY, route, started, None, usage, None))
+        return Classification(answers, self._log(Job.CLASSIFY, route, started, None, usage, None, lesson_id))
 
     async def _attempt(self, job: Job, route: RouteSpec, request: Request) -> AsyncIterator[str | CallStats]:
         started = time.monotonic()
@@ -149,14 +151,14 @@ class Gateway:
                         first_token_seconds = time.monotonic() - started
                     yield item
         except Exception as error:
-            self._log(job, route, started, first_token_seconds, usage, error)
+            self._log(job, route, started, first_token_seconds, usage, error, request.lesson_id)
             _reraise_as_gateway_error(route, error)
-        yield self._log(job, route, started, first_token_seconds, usage, None)
+        yield self._log(job, route, started, first_token_seconds, usage, None, request.lesson_id)
 
-    def _log(self, job: Job, route: RouteSpec, started: float, first_token_seconds: float | None, usage: Usage, error: Exception | None) -> CallStats:
+    def _log(self, job: Job, route: RouteSpec, started: float, first_token_seconds: float | None, usage: Usage, error: Exception | None, lesson_id: str | None) -> CallStats:
         stats = CallStats(
             job, str(route), time.monotonic() - started, first_token_seconds, usage.input_tokens, usage.cached_tokens,
-            usage.output_tokens, self._cost(route, usage), str(error) if error else None,
+            usage.output_tokens, self._cost(route, usage), str(error) if error else None, lesson_id,
         )
         self._store.log_model_call(stats)
         return stats

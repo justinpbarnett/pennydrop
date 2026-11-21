@@ -11,10 +11,10 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
+from .asks import AskRequest, FromStep
 from .intake import IntakeError
-from .lessons import LessonLibrary
 from .services import Services
 from .tts import MEDIA_PREFIX, TtsError
 
@@ -23,6 +23,14 @@ class SpeechRequest(BaseModel):
     text: str
     provider: str | None = None
     voice: str | None = None
+
+
+class AskFields(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    text: str | None = None
+    profile_id: int | None = None
+    from_step: FromStep | None = Field(default=None, alias="from")
 
 
 class AnswerSubmission(BaseModel):
@@ -35,13 +43,15 @@ class AnswerSubmission(BaseModel):
 
 
 def create_app(services: Services) -> FastAPI:
-    library = LessonLibrary(services.settings, services.store, services.speaker)
-
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        warming = asyncio.create_task(asyncio.to_thread(services.speaker.warm))
+        services.store.fail_unfinished_lessons()
+        warming = [asyncio.create_task(asyncio.to_thread(services.speaker.warm)), asyncio.create_task(services.transcriber.warm())]
         yield
-        warming.cancel()
+        for task in warming:
+            task.cancel()
+        await services.asks.close()
+        await services.transcriber.close()
 
     app = FastAPI(title="Pennydrop", lifespan=lifespan)
 
@@ -56,17 +66,31 @@ def create_app(services: Services) -> FastAPI:
 
     @app.get("/api/lessons")
     async def list_lessons():
-        return library.summaries()
+        return services.library.summaries()
 
     @app.get("/api/lessons/{lesson_id}")
     async def get_lesson(lesson_id: str):
-        document = await library.document(lesson_id)
-        return {"id": document.id, "lesson": document.lesson, "steps": document.steps, "done": {"steps": len(document.steps)}}
+        document = await services.library.document(lesson_id)
+        return {"id": document.id, "lesson": document.lesson, "steps": document.steps, "done": document.done, "error": document.error}
 
     @app.get("/api/lessons/{lesson_id}/events")
     async def lesson_events(lesson_id: str):
-        header = library.header(lesson_id)
-        return StreamingResponse(_lesson_event_stream(library, lesson_id, header), media_type="text/event-stream")
+        return StreamingResponse(_server_sent(services.asks.events(lesson_id)), media_type="text/event-stream")
+
+    @app.post("/api/asks")
+    async def create_ask(request: Request):
+        received_at = time.monotonic()
+        fields, audio = await _read_ask(request)
+        transcription_seconds = None
+        text = fields.text
+        if audio is not None:
+            transcribing = time.monotonic()
+            text = await services.transcriber.transcribe(audio)
+            transcription_seconds = time.monotonic() - transcribing
+        if not text or not text.strip():
+            raise HTTPException(422, "an Ask needs `text`, or an `audio` file that holds speech")
+        lesson_id = await services.asks.start(AskRequest(text.strip(), fields.profile_id, fields.from_step, received_at, transcription_seconds))
+        return {"lesson_id": lesson_id, "transcript": text.strip()}
 
     @app.post("/api/tts")
     async def speak(body: SpeechRequest):
@@ -96,18 +120,21 @@ def create_app(services: Services) -> FastAPI:
     return app
 
 
-async def _lesson_event_stream(library: LessonLibrary, lesson_id: str, header: dict[str, Any]) -> AsyncIterator[str]:
-    started = time.monotonic()
-    yield _event("lesson", {"id": lesson_id, **header})
-    count = 0
+async def _read_ask(request: Request) -> tuple[AskFields, bytes | None]:
+    if not request.headers.get("content-type", "").startswith("multipart/"):
+        return AskFields.model_validate(await request.json()), None
+    form = await request.form()
+    raw = {key: json.loads(value) if key == "from" else value for key, value in form.items() if key != "audio" and value != ""}
+    audio = form.get("audio")
+    return AskFields.model_validate(raw), (await audio.read() if audio else None)
+
+
+async def _server_sent(events: AsyncIterator[tuple[str, dict[str, Any]]]) -> AsyncIterator[str]:
     try:
-        async for step in library.voiced_steps(lesson_id):
-            count += 1
-            yield _event("step", step)
+        async for name, data in events:
+            yield _event(name, data)
     except Exception as error:
         yield _event("error", {"message": str(error)})
-        return
-    yield _event("done", {"steps": count, "seconds": time.monotonic() - started})
 
 
 def _event(name: str, data: dict[str, Any]) -> str:

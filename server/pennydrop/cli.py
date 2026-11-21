@@ -3,11 +3,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import uvicorn
 
+from .ask_client import AskClient, AskClientError, Arrival, Outcome, breakdown, median_and_max
 from .gateway import Choice, GatewayError, Image, YesNo
 from .intake import IntakeError
 from .services import Services
@@ -16,7 +19,7 @@ from .store import ProfileKind
 from .tracer import ALGORITHMS, TraceError
 from .tts import TtsError
 
-EXPECTED_ERRORS = (GatewayError, IntakeError, TraceError, TtsError, LookupError)
+EXPECTED_ERRORS = (AskClientError, GatewayError, IntakeError, TraceError, TtsError, LookupError)
 
 
 def main() -> None:
@@ -33,6 +36,16 @@ def _parser() -> argparse.ArgumentParser:
 
     serve = commands.add_parser("serve", help="run the API and the built player")
     serve.set_defaults(handler=_serve)
+
+    ask = commands.add_parser("ask", help="run one Ask against the running server and print the Lesson as it arrives")
+    ask.add_argument("text", nargs="?")
+    ask.add_argument("--audio", type=Path, help="a speech file to send instead of text")
+    ask.add_argument("--profile", type=int, help="Profile id, default the first adult Profile if one exists")
+    ask.add_argument("--from", dest="from_step", metavar="LESSON:STEP", help="ask a follow up to a Lesson at a Step")
+    ask.set_defaults(handler=_ask)
+
+    bench = commands.add_parser("bench", help="run ten Asks, five typed and five spoken, and print one row per Lesson")
+    bench.set_defaults(handler=_bench)
 
     tts = commands.add_parser("tts", help="speak text and print its word timings")
     tts.add_argument("text")
@@ -84,6 +97,89 @@ def _serve(services: Services, _) -> None:
     from .app import create_app
 
     uvicorn.run(create_app(services), host=services.settings.host, port=services.settings.port)
+
+
+BENCH_ASKS = [
+    ("typed", "how does binary search work"),
+    ("typed", "why is quicksort fast in the average case"),
+    ("typed", "how do hash map collisions happen"),
+    ("typed", "what happens when a page fault occurs"),
+    ("typed", "explain the Pythagorean theorem with a 3 4 5 triangle"),
+    ("spoken", "how does a mutex prevent a race"),
+    ("spoken", "how does round robin scheduling work"),
+    ("spoken", "how does DNS resolve a name"),
+    ("spoken", "why is the sky blue"),
+    ("spoken", "how does compound interest grow"),
+]
+
+
+def _ask(services: Services, arguments) -> None:
+    if not arguments.text and not arguments.audio:
+        sys.exit("give the Ask as text, or --audio with a speech file")
+    client = AskClient(services.settings)
+    profile_id = arguments.profile if arguments.profile is not None else client.profile_id()
+    from_step = None
+    if arguments.from_step:
+        lesson_id, _, step = arguments.from_step.rpartition(":")
+        from_step = {"lesson_id": lesson_id, "step": int(step)}
+    outcome = client.ask(arguments.text, arguments.audio, profile_id, from_step, on_step=_print_arrival)
+    _print_outcome(outcome)
+
+
+def _print_arrival(arrival: Arrival) -> None:
+    step = arrival.step
+    voice = step.get("voice")
+    print(f"[{arrival.seconds:6.2f} s] step {step['step']}: {step['say']}  ({len(step.get('do', []))} ops{', challenge' if 'challenge' in step else ''}{', voiced' if voice else ', no voice'})", flush=True)
+
+
+def _print_outcome(outcome: Outcome) -> None:
+    print(f"lesson {outcome.lesson_id}: {outcome.header.get('title', '(no header)')}  [ask: {outcome.transcript}]")
+    if outcome.error:
+        sys.exit(f"pd: the Lesson failed: {outcome.error}")
+    done = outcome.done
+    print(f"done in {done['seconds']:.2f} s, first Step {done['first_step_seconds']:.2f} s, {done['steps']} Steps, tier {done['tier']}, Labs {', '.join(done['labs']) or 'none'}, cost ${done['cost_usd']:.5f}")
+    for name, seconds in breakdown(done):
+        print(f"  {name:38} {seconds:6.2f} s")
+    for repair in done["repairs"]:
+        print(f"  step {repair['step']} check {repair['attempt']}: {' | '.join(repair['errors'])} -> {repair['outcome']}")
+
+
+def _bench(services: Services, _) -> None:
+    client = AskClient(services.settings)
+    profile_id = client.profile_id()
+    outcomes: list[tuple[str, Outcome]] = []
+    with tempfile.TemporaryDirectory(prefix="pennydrop-bench-") as directory:
+        for index, (how, text) in enumerate(BENCH_ASKS):
+            audio = None
+            if how == "spoken":
+                audio = Path(directory) / f"ask{index}.aiff"
+                subprocess.run(["say", "-o", str(audio), text], check=True)
+            outcomes.append((how, client.ask(None if audio else text, audio, profile_id, None)))
+            _print_bench_row(*outcomes[-1])
+    finished = [outcome for _, outcome in outcomes if outcome.done]
+    if finished:
+        for label, values in (
+            ("first Step s", [o.done["first_step_seconds"] for o in finished]),
+            ("done s", [o.done["seconds"] for o in finished]),
+            ("cost $", [o.done["cost_usd"] for o in finished]),
+        ):
+            median, highest = median_and_max(values)
+            print(f"{label:14} p50 {median:8.3f}   max {highest:8.3f}")
+    failed = len(outcomes) - len(finished)
+    if failed:
+        sys.exit(f"pd: {failed} of {len(outcomes)} Lessons failed")
+
+
+def _print_bench_row(how: str, outcome: Outcome) -> None:
+    if outcome.done is None:
+        print(f"{how:6} {outcome.transcript[:46]:46} FAILED: {outcome.error}", flush=True)
+        return
+    done = outcome.done
+    print(
+        f"{how:6} {outcome.transcript[:46]:46} {done['tier']:6} {','.join(done['labs']) or '-':12} "
+        f"first {done['first_step_seconds']:5.2f}  done {done['seconds']:5.2f}  ${done['cost_usd']:.5f}"
+        f"{'  repairs ' + str(len(done['repairs'])) if done['repairs'] else ''}", flush=True,
+    )
 
 
 def _tts(services: Services, arguments) -> None:

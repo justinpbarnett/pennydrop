@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .asks import Asks
 from .gateway import Gateway
 from .intake import Transcriber
+from .lessons import LessonLibrary
 from .settings import Settings, load_settings
 from .store import Store
 from .tracer import Tracer
@@ -18,10 +20,16 @@ class Services:
     speaker: Speaker
     transcriber: Transcriber
     tracer: Tracer
+    library: LessonLibrary
+    asks: Asks
 
     @classmethod
     def open(cls) -> Services:
         settings = load_settings()
         store = Store(settings.database_path)
         transcriber = Transcriber(settings)
-        return cls(settings, store, Gateway(settings, store), Speaker(settings, transcriber), transcriber, Tracer(settings))
+        gateway = Gateway(settings, store)
+        speaker = Speaker(settings, transcriber)
+        tracer = Tracer(settings)
+        library = LessonLibrary(settings, store, speaker)
+        return cls(settings, store, gateway, speaker, transcriber, tracer, library, Asks(settings, store, library, gateway, speaker, tracer))

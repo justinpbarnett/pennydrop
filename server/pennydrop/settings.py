@@ -85,6 +85,10 @@ class Settings:
         return self.data_dir / "pennydrop.db"
 
     @property
+    def player_dir(self) -> Path:
+        return self.repo_root / "player"
+
+    @property
     def tts_cache_dir(self) -> Path:
         return self.data_dir / "tts"
 

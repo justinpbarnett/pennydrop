@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -122,6 +122,16 @@ SCHEMA = [
         error text
     );
     """,
+    """
+    alter table lessons add column tier text;
+    alter table lessons add column header text not null default '{}';
+    alter table lessons add column transcription_seconds real;
+    alter table lessons add column timings text not null default '{}';
+    alter table lessons add column error text;
+    alter table lessons add column repairs text not null default '[]';
+    alter table model_calls add column lesson_id text;
+    create index model_calls_lesson on model_calls (lesson_id);
+    """,
 ]
 
 
@@ -158,6 +168,12 @@ class LessonRecord:
     first_step_seconds: float | None = None
     done_seconds: float | None = None
     cost_usd: float = 0.0
+    tier: str | None = None
+    header: dict[str, Any] = field(default_factory=dict)
+    transcription_seconds: float | None = None
+    timings: dict[str, float] = field(default_factory=dict)
+    error: str | None = None
+    repairs: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -182,6 +198,7 @@ class CallStats:
     output_tokens: int
     cost_usd: float
     error: str | None = None
+    lesson_id: str | None = None
 
 
 def _now() -> datetime:
@@ -230,15 +247,19 @@ class Store:
     def save_lesson(self, lesson: LessonRecord) -> None:
         self._connection.execute(
             """
-            insert into lessons (id, ask, title, labs, source, status, first_step_seconds, done_seconds, cost_usd, created_at)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            insert into lessons (id, ask, title, labs, source, status, first_step_seconds, done_seconds, cost_usd, created_at,
+                tier, header, transcription_seconds, timings, error, repairs)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(id) do update set ask = excluded.ask, title = excluded.title, labs = excluded.labs,
                 status = excluded.status, first_step_seconds = excluded.first_step_seconds,
-                done_seconds = excluded.done_seconds, cost_usd = excluded.cost_usd
+                done_seconds = excluded.done_seconds, cost_usd = excluded.cost_usd, tier = excluded.tier,
+                header = excluded.header, transcription_seconds = excluded.transcription_seconds,
+                timings = excluded.timings, error = excluded.error, repairs = excluded.repairs
             """,
             (
                 lesson.id, lesson.ask, lesson.title, json.dumps(lesson.labs), lesson.source.value, lesson.status,
                 lesson.first_step_seconds, lesson.done_seconds, lesson.cost_usd, _iso(_now()),
+                lesson.tier, json.dumps(lesson.header), lesson.transcription_seconds, json.dumps(lesson.timings), lesson.error, json.dumps(lesson.repairs),
             ),
         )
 
@@ -255,9 +276,16 @@ class Store:
         row = self._connection.execute("select * from lessons where id = ?", (lesson_id,)).fetchone()
         return _lesson_from(row) if row else None
 
+    def fail_unfinished_lessons(self) -> None:
+        self._connection.execute("update lessons set status = 'failed', error = 'the server stopped while this Lesson was being written' where status = 'writing'")
+
     def steps(self, lesson_id: str) -> list[dict[str, Any]]:
-        rows = self._connection.execute("select json from steps where lesson_id = ? order by n", (lesson_id,))
-        return [json.loads(row["json"]) for row in rows]
+        rows = self._connection.execute("select json, voice_json from steps where lesson_id = ? order by n", (lesson_id,))
+        return [{**json.loads(row["json"]), **({"voice": json.loads(row["voice_json"])} if row["voice_json"] else {})} for row in rows]
+
+    def lesson_cost(self, lesson_id: str) -> float:
+        row = self._connection.execute("select coalesce(sum(cost_usd), 0) as total from model_calls where lesson_id = ?", (lesson_id,)).fetchone()
+        return row["total"]
 
     def record_answer(self, profile_id: int, lesson_id: str, step_n: int, prompt: dict[str, Any], answer: Any, correct: bool) -> ReviewItem:
         self.profile(profile_id)
@@ -299,12 +327,12 @@ class Store:
     def log_model_call(self, call: CallStats) -> None:
         self._connection.execute(
             """
-            insert into model_calls (at, job, route, seconds, first_token_seconds, input_tokens, cached_tokens, output_tokens, cost_usd, error)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            insert into model_calls (at, job, route, seconds, first_token_seconds, input_tokens, cached_tokens, output_tokens, cost_usd, error, lesson_id)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _iso(_now()), str(call.job), call.route, call.seconds, call.first_token_seconds,
-                call.input_tokens, call.cached_tokens, call.output_tokens, call.cost_usd, call.error,
+                call.input_tokens, call.cached_tokens, call.output_tokens, call.cost_usd, call.error, call.lesson_id,
             ),
         )
 
@@ -316,7 +344,8 @@ def _profile_from(row: sqlite3.Row) -> Profile:
 def _lesson_from(row: sqlite3.Row) -> LessonRecord:
     return LessonRecord(
         row["id"], row["ask"], row["title"], json.loads(row["labs"]), LessonSource(row["source"]), row["status"],
-        row["first_step_seconds"], row["done_seconds"], row["cost_usd"],
+        row["first_step_seconds"], row["done_seconds"], row["cost_usd"], row["tier"], json.loads(row["header"]),
+        row["transcription_seconds"], json.loads(row["timings"]), row["error"], json.loads(row["repairs"]),
     )
 
 
