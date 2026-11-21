@@ -7,6 +7,7 @@ function uses(value: unknown, names: Set<string>): boolean {
   if (typeof value !== "object" || value === null) return false;
   const entry = value as Record<string, unknown>;
   if ((typeof entry.kind === "string" && names.has(entry.kind)) || (typeof entry.defKey === "string" && names.has(entry.defKey))) return true;
+  if (typeof entry.lab === "string" && names.has(entry.lab)) return true;
   return Object.values(entry).some((child) => uses(child, names));
 }
 
