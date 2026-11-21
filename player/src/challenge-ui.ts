@@ -1,5 +1,5 @@
 import type { Challenge } from "./format";
-import { describeAnswer, type Given, isCorrect } from "./challenge";
+import { defaultPrompt, describeAnswer, type Given, isCorrect } from "./challenge";
 import { h } from "./dom";
 
 export interface ChallengeHost {
@@ -12,18 +12,88 @@ export interface ChallengeView {
   acceptPart(part: string): void;
 }
 
-const DEFAULT_PROMPTS: Record<Challenge["type"], string> = {
-  number: "What number do you predict?",
-  choice: "Pick one.",
-  click: "Click the place on the stage.",
-  order: "Put these in order: tap them one at a time.",
-  match: "Match each pair.",
+type ChallengeOf<T extends Challenge["type"]> = Extract<Challenge, { type: T }>;
+
+interface Controls {
+  body: HTMLElement;
+  settle(given: Given): void;
+}
+
+type Builder<C extends Challenge> = (challenge: C, controls: Controls) => ((part: string) => void) | void;
+
+function buildNumber(_challenge: ChallengeOf<"number">, { body, settle }: Controls): void {
+  const input = h("input", { type: "number", inputmode: "decimal", "aria-label": "Your prediction" });
+  const submit = () => input.value !== "" && settle(Number(input.value));
+  input.addEventListener("keydown", (event) => event.key === "Enter" && submit());
+  body.append(input, h("button", { class: "primary", onclick: submit }, "Lock in"));
+}
+
+function buildChoice(challenge: ChallengeOf<"choice">, { body, settle }: Controls): void {
+  body.append(...challenge.choices.map((choice) => h("button", { class: "choice", onclick: () => settle(choice) }, choice)));
+}
+
+function buildClick(_challenge: ChallengeOf<"click">, { body, settle }: Controls): (part: string) => void {
+  body.append(h("p", { class: "challenge-hint" }, "Tap it on the stage."));
+  return (part) => settle(part);
+}
+
+function buildOrder(challenge: ChallengeOf<"order">, { body, settle }: Controls): void {
+  const picked: string[] = [];
+  const line = h("p", { class: "challenge-hint" }, "Nothing picked yet.");
+  body.append(line, ...challenge.choices.map((choice) => {
+    const button = h("button", { class: "choice" }, choice);
+    button.addEventListener("click", () => {
+      picked.push(choice);
+      button.disabled = true;
+      line.textContent = picked.join("  >  ");
+      if (picked.length === challenge.choices.length) settle(picked);
+    });
+    return button;
+  }));
+}
+
+function buildMatch(challenge: ChallengeOf<"match">, { body, settle }: Controls): void {
+  const found: [string, string][] = [];
+  let left: string | null = null;
+  const line = h("p", { class: "challenge-hint" }, "Pick a left item, then its match.");
+  const lefts = challenge.pairs.map(([name]) => name);
+  const rights = challenge.pairs.map(([, name]) => name).sort();
+  const used = new Set<string>();
+  const choose = (name: string, side: "left" | "right", button: HTMLButtonElement) => {
+    if (side === "left") {
+      left = name;
+      line.textContent = `${name} goes with...`;
+      return;
+    }
+    if (!left) return;
+    found.push([left, name]);
+    used.add(left);
+    button.disabled = true;
+    body.querySelectorAll<HTMLButtonElement>("[data-side=left]").forEach((candidate) => (candidate.disabled = used.has(candidate.textContent ?? "")));
+    line.textContent = found.map(([a, b]) => `${a} - ${b}`).join(", ");
+    left = null;
+    if (found.length === lefts.length) settle(found);
+  };
+  const column = (names: string[], side: "left" | "right") => h("div", { class: "match-column" }, ...names.map((name) => {
+    const button = h("button", { class: "choice", "data-side": side }, name);
+    button.addEventListener("click", () => choose(name, side, button));
+    return button;
+  }));
+  body.append(line, h("div", { class: "match" }, column(lefts, "left"), column(rights, "right")));
+}
+
+const BUILDERS: { [T in Challenge["type"]]: Builder<ChallengeOf<T>> } = {
+  number: buildNumber,
+  choice: buildChoice,
+  click: buildClick,
+  order: buildOrder,
+  match: buildMatch,
 };
 
 export function buildChallenge(challenge: Challenge, host: ChallengeHost): ChallengeView {
   const body = h("div", { class: "challenge-body" });
   const feedback = h("p", { class: "challenge-feedback", role: "status" });
-  const panel = h("section", { class: "challenge-card" }, h("p", { class: "challenge-kicker" }, "Predict"), h("p", { class: "challenge-prompt" }, challenge.prompt ?? DEFAULT_PROMPTS[challenge.type]), body, feedback);
+  const panel = h("section", { class: "challenge-card" }, h("p", { class: "challenge-kicker" }, "Predict"), h("p", { class: "challenge-prompt" }, challenge.prompt ?? defaultPrompt(challenge)), body, feedback);
   let settled = false;
 
   const settle = (given: Given) => {
@@ -37,58 +107,6 @@ export function buildChallenge(challenge: Challenge, host: ChallengeHost): Chall
     panel.append(h("button", { class: "primary", onclick: () => host.onContinue() }, "Continue"));
   };
 
-  let acceptPart = (_part: string) => {};
-  if (challenge.type === "number") {
-    const input = h("input", { type: "number", inputmode: "decimal", "aria-label": "Your prediction" });
-    const submit = () => input.value !== "" && settle(Number(input.value));
-    input.addEventListener("keydown", (event) => event.key === "Enter" && submit());
-    body.append(input, h("button", { class: "primary", onclick: submit }, "Lock in"));
-  } else if (challenge.type === "choice") {
-    body.append(...challenge.choices.map((choice) => h("button", { class: "choice", onclick: () => settle(choice) }, choice)));
-  } else if (challenge.type === "click") {
-    body.append(h("p", { class: "challenge-hint" }, "Tap it on the stage."));
-    acceptPart = (part) => settle(part);
-  } else if (challenge.type === "order") {
-    const picked: string[] = [];
-    const line = h("p", { class: "challenge-hint" }, "Nothing picked yet.");
-    body.append(line, ...challenge.choices.map((choice) => {
-      const button = h("button", { class: "choice" }, choice);
-      button.addEventListener("click", () => {
-        picked.push(choice);
-        button.disabled = true;
-        line.textContent = picked.join("  >  ");
-        if (picked.length === challenge.choices.length) settle(picked);
-      });
-      return button;
-    }));
-  } else {
-    const found: [string, string][] = [];
-    let left: string | null = null;
-    const line = h("p", { class: "challenge-hint" }, "Pick a left item, then its match.");
-    const lefts = challenge.pairs.map(([name]) => name);
-    const rights = challenge.pairs.map(([, name]) => name).sort();
-    const used = new Set<string>();
-    const choose = (name: string, side: "left" | "right", button: HTMLButtonElement) => {
-      if (side === "left") {
-        left = name;
-        line.textContent = `${name} goes with...`;
-        return;
-      }
-      if (!left) return;
-      found.push([left, name]);
-      used.add(left);
-      button.disabled = true;
-      body.querySelectorAll<HTMLButtonElement>("[data-side=left]").forEach((candidate) => (candidate.disabled = used.has(candidate.textContent ?? "")));
-      line.textContent = found.map(([a, b]) => `${a} - ${b}`).join(", ");
-      left = null;
-      if (found.length === lefts.length) settle(found);
-    };
-    const column = (names: string[], side: "left" | "right") => h("div", { class: "match-column" }, ...names.map((name) => {
-      const button = h("button", { class: "choice", "data-side": side }, name);
-      button.addEventListener("click", () => choose(name, side, button));
-      return button;
-    }));
-    body.append(line, h("div", { class: "match" }, column(lefts, "left"), column(rights, "right")));
-  }
-  return { element: panel, acceptPart: (part) => acceptPart(part) };
+  const acceptPart = (BUILDERS[challenge.type] as Builder<Challenge>)(challenge, { body, settle });
+  return { element: panel, acceptPart: (part) => acceptPart?.(part) };
 }
