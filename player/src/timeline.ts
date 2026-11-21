@@ -119,6 +119,12 @@ function opEvents(step: Step, start: number, narration: Narration, ops: PlannedO
   return events;
 }
 
+function sharedStart(touches: Touch[]): Touch[] {
+  const starts = new Map<string, Touch["before"]>();
+  for (const touch of touches) if (!starts.has(touch.objectId)) starts.set(touch.objectId, touch.before);
+  return touches.map((touch) => (touch.action.type === "lab" ? { ...touch, before: starts.get(touch.objectId) ?? null } : touch));
+}
+
 export class Timeline {
   readonly steps: StepSpan[] = [];
   readonly segments: Segment[] = [];
@@ -168,7 +174,7 @@ export class Timeline {
       const time = Math.max(group.time, this.trueEnd + naturalLead, previousStart);
       const lead = Math.min(naturalLead, time - previousStart);
       if (previous) previous.cutAt = time - lead;
-      this.segments.push({ start: time, lead, exits, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches: group.ops.flatMap((planned) => planned.touches), replaced });
+      this.segments.push({ start: time, lead, exits, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches: sharedStart(group.ops.flatMap((planned) => planned.touches)), replaced });
       cursor = after;
       if (trueSeconds > 0) this.trueEnd = Math.max(this.trueEnd, time + trueSeconds);
       lastSegmentEnd = Math.max(lastSegmentEnd, time + Math.max(baseDuration, trueSeconds));

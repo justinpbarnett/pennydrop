@@ -96,7 +96,7 @@ const MIN_ZOOM = 0.04;
 const LOG_ZOOM_FLOOR = 0.05;
 
 const OUTLINE_LAYERS = [{ id: "line", paint: "accent", width: 5, opacity: 1, z: 3 }] as const;
-const PULSE_GROWTH = 8;
+const PULSE_REACH = 12;
 
 const PRESENT_FROM = 0.5;
 const PRESENT_TO = 0.9;
@@ -122,6 +122,7 @@ const JUDGED_STEPS = [0.25, 0.5, 0.75];
 const JUDGED_PRESENCE = 0.5;
 
 const PULSE_SECONDS = 1.4;
+const DROPS_POINTER = new Set(["zoom", "label"]);
 
 function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value));
@@ -301,7 +302,9 @@ function viewport(state: PictureState): Rect {
 }
 
 function outlineDrawables(prefix: string, state: PictureState, view: View, mark: Weighted, growth: number): Drawable[] {
-  const segments = outlineSegments(inFrame(state, view, mark.part.box));
+  const box = inFrame(state, view, mark.part.box);
+  const reach = growth * PULSE_REACH;
+  const segments = outlineSegments({ x: box.x - reach, y: box.y - reach, w: box.w + 2 * reach, h: box.h + 2 * reach });
   return OUTLINE_LAYERS.flatMap((layer) =>
     segments.map((segment): Drawable => ({
       id: `${prefix}-${layer.id}-${segment.id}`,
@@ -311,7 +314,7 @@ function outlineDrawables(prefix: string, state: PictureState, view: View, mark:
       x2: segment.x2,
       y2: segment.y2,
       stroke: layer.paint,
-      strokeWidth: layer.width + growth * PULSE_GROWTH,
+      strokeWidth: layer.width,
       opacity: layer.opacity * mark.weight,
       clip: viewport(state),
       z: layer.z,
@@ -553,7 +556,7 @@ function crossfade(before: Weighted[], after: Weighted[], progress: number): Wei
   return [...parts.values()].map((part) => {
     const was = before.some((mark) => mark.part === part) ? 1 : 0;
     const will = after.some((mark) => mark.part === part) ? 1 : 0;
-    return { part, weight: lerp(was, will, progress) };
+    return { part, weight: clamp(lerp(was, will, progress), 0, 1) };
   });
 }
 
@@ -567,7 +570,7 @@ function during(before: PictureState, after: PictureState, op: LabOp, progress: 
   return compose({ ...after, history: placing }, {
     shown: lerp(before.shown ? 1 : 0, after.shown ? 1 : 0, progress),
     view: mixView(before.view, after.view, progress),
-    pointing: crossfade(weigh(before, before.pointing === null ? [] : [before.pointing]), weigh(after, after.pointing === null ? [] : [after.pointing]), progress),
+    pointing: crossfade(DROPS_POINTER.has(op.name) && before.pointing !== after.pointing ? [] : weigh(before, before.pointing === null ? [] : [before.pointing]), weigh(after, after.pointing === null ? [] : [after.pointing]), progress),
     labels: crossfade(weigh(before, before.labels), weigh(after, after.labels), progress),
     pulse: pulsing ? { part: partOf(after, op), weight: Math.abs(Math.sin(2 * Math.PI * progress)) } : null,
   });
