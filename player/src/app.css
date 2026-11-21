@@ -1,0 +1,81 @@
+:root {
+  --ground: #0B0C0E; --ink: #E7E5DF; --muted: #9C9A93; --rule: #2B2C31; --accent: #FFD60A;
+  --fill: #141519; --fill2: #202127; --done: #22C55E; --fault: #E5484D;
+  --font-mark: "Routed Gothic", sans-serif; --font-read: "JetBrains Mono", monospace;
+  --weight-mark: 400; --tracking-mark: 0.06em; --corner: 0px; --mark-case: uppercase; --stroke: 1.5px;
+  color-scheme: dark;
+}
+:root[data-theme="kids"], :root[data-theme="plain"] { color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-read); transition: background 0.4s, color 0.4s; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+#app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; height: 100dvh; max-width: 1900px; margin: 0 auto; padding: 0 16px; }
+
+.top { display: flex; align-items: center; gap: 20px; padding: 14px 0 12px; flex-wrap: wrap; }
+.mark { margin: 0; font: var(--weight-mark) 22px/1 var(--font-mark); letter-spacing: var(--tracking-mark); text-transform: var(--mark-case); display: flex; align-items: center; gap: 10px; }
+.mark::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+.picker select { font: 15px var(--font-read); color: var(--ink); background: var(--fill); border: 1px solid var(--rule); border-radius: min(var(--corner), 10px); padding: 8px 32px 8px 12px; min-width: 220px; max-width: 46vw; cursor: pointer; }
+.themes { margin-left: auto; display: flex; gap: 8px; }
+.swatch { display: flex; align-items: center; gap: 8px; background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: min(var(--corner), 12px); padding: 5px 10px 5px 6px; font: 14px var(--font-read); cursor: pointer; }
+.swatch:hover { color: var(--ink); border-color: var(--rule); }
+.swatch[aria-checked="true"] { color: var(--ink); border-color: var(--accent); }
+.swatch .chip { width: 22px; height: 22px; border: 1px solid; border-radius: 50%; display: grid; place-items: center; }
+.swatch .chip i { width: 9px; height: 9px; border-radius: 50%; }
+
+.stage-area { container-type: size; display: grid; place-items: center; min-height: 0; }
+.stage-frame { position: relative; width: min(100cqw, 177.78cqh); aspect-ratio: 16 / 9; border: 1px solid var(--rule); border-radius: min(var(--corner), 20px); overflow: hidden; background: var(--ground); }
+#stage { display: block; width: 100%; height: 100%; }
+.overlay { position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--ground) 62%, transparent); backdrop-filter: blur(3px); padding: 24px; }
+.overlay[hidden], .status[hidden] { display: none; }
+.status { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: var(--fill2); color: var(--ink); border: 1px solid var(--rule); border-radius: min(var(--corner), 20px); padding: 8px 16px; font-size: 14px; }
+.status.error { border-color: var(--fault); color: var(--fault); }
+
+.challenge-card { width: min(560px, 100%); background: var(--fill); border: 1px solid var(--accent); border-radius: min(var(--corner), 20px); padding: 22px 26px 24px; display: grid; gap: 14px; }
+.challenge-kicker { margin: 0; color: var(--accent); font: var(--weight-mark) 14px var(--font-mark); letter-spacing: 0.14em; text-transform: uppercase; }
+.challenge-prompt { margin: 0; font: var(--weight-mark) 22px/1.35 var(--font-mark); letter-spacing: 0.01em; }
+.challenge-body { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.challenge-hint { margin: 0; color: var(--muted); font-size: 14px; flex-basis: 100%; }
+.challenge-feedback { margin: 0; font-size: 16px; }
+.challenge-feedback:empty { display: none; }
+.challenge-card input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+.challenge-card input::-webkit-outer-spin-button, .challenge-card input::-webkit-inner-spin-button { appearance: none; margin: 0; }
+.challenge-feedback.right { color: var(--done); }
+.challenge-feedback.wrong { color: var(--fault); }
+.challenge-card input { flex: 1; min-width: 120px; font: 28px var(--font-mark); color: var(--ink); background: var(--ground); border: 1px solid var(--rule); border-radius: min(var(--corner), 14px); padding: 8px 14px; }
+.challenge-card input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+.match { display: flex; gap: 18px; flex-basis: 100%; }
+.match-column { display: grid; gap: 8px; flex: 1; }
+button.primary, button.choice { font: 15px var(--font-read); border-radius: min(var(--corner), 14px); padding: 10px 18px; cursor: pointer; border: 1px solid var(--rule); color: var(--ink); background: var(--fill2); }
+button.primary { background: var(--accent); color: var(--ground); border-color: var(--accent); font-weight: 700; }
+button.choice:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.45; cursor: default; }
+button:focus-visible, select:focus-visible, input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.transport { padding: 12px 0 16px; display: grid; gap: 10px; }
+.caption { margin: 0; min-height: 3.2em; max-width: 1100px; font: 500 20px/1.55 var(--font-read); color: var(--muted); }
+.caption .spoken { color: var(--ink); }
+.caption .now { color: var(--ground); background: var(--accent); border-radius: min(var(--corner), 4px); padding: 0 3px; margin: 0 -3px; }
+.controls { display: flex; align-items: center; gap: 16px; }
+.play { width: 46px; height: 46px; flex: none; border-radius: 50%; border: 1px solid var(--accent); background: var(--accent); color: var(--ground); cursor: pointer; display: grid; place-items: center; }
+.play::before { content: ""; width: 0; height: 0; border-left: 14px solid currentColor; border-top: 9px solid transparent; border-bottom: 9px solid transparent; margin-left: 4px; }
+.play[data-state="pause"]::before { width: 14px; height: 16px; border: 0; margin: 0; background: linear-gradient(90deg, currentColor 0 36%, transparent 36% 64%, currentColor 64%); }
+.scrub { position: relative; flex: 1; height: 30px; display: grid; align-items: center; }
+.ticks { position: absolute; inset: 0 8px; pointer-events: none; z-index: 1; }
+.tick { position: absolute; top: 0; width: 12px; height: 12px; margin-left: -6px; pointer-events: auto; cursor: pointer; }
+.tick::before { content: ""; position: absolute; left: 5px; top: 3px; width: 2px; height: 8px; background: var(--rule); border-radius: 1px; }
+.tick.challenge::before { background: var(--accent); top: 0; height: 12px; }
+.tick:hover::before { background: var(--ink); }
+#scrub { width: 100%; margin: 0; appearance: none; background: transparent; height: 22px; cursor: pointer; position: relative; top: 4px; }
+#scrub::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background: linear-gradient(90deg, var(--accent) var(--fraction, 0%), var(--rule) var(--fraction, 0%)); }
+#scrub::-moz-range-track { height: 5px; border-radius: 3px; background: var(--rule); }
+#scrub::-moz-range-progress { height: 5px; border-radius: 3px; background: var(--accent); }
+#scrub::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; margin-top: -5.5px; border-radius: 50%; background: var(--ink); border: 3px solid var(--accent); }
+#scrub::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--ink); border: 3px solid var(--accent); }
+.clock { flex: none; min-width: 108px; text-align: right; font: 15px var(--font-read); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 720px) {
+  .themes { margin-left: 0; width: 100%; }
+  .swatch .label { display: none; }
+  .caption { font-size: 17px; }
+}

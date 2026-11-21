@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pennydrop</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='%23FFD60A'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="top">
+        <h1 class="mark">Pennydrop</h1>
+        <label class="picker"><span class="sr">Lesson</span><select id="lesson"></select></label>
+        <div id="themes" class="themes" role="radiogroup" aria-label="Theme"></div>
+      </header>
+      <main class="stage-area">
+        <div class="stage-frame">
+          <svg id="stage" role="img" aria-label="Lesson stage"></svg>
+          <div id="overlay" class="overlay" hidden></div>
+          <div id="status" class="status" role="status" hidden></div>
+        </div>
+      </main>
+      <footer class="transport">
+        <p id="caption" class="caption" aria-live="off"></p>
+        <div class="controls">
+          <button id="play" class="play" type="button" aria-label="Play"></button>
+          <div class="scrub">
+            <div id="ticks" class="ticks"></div>
+            <input id="scrub" type="range" min="0" max="0" step="0.01" value="0" aria-label="Seek" />
+          </div>
+          <output id="clock" class="clock">0:00 / 0:00</output>
+        </div>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
