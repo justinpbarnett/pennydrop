@@ -32,6 +32,7 @@ export interface SegmentProgress {
 export interface StepSpan {
   step: Step;
   start: number;
+  narration: Narration;
   narrationEnd: number;
   end: number;
   errors: string[];
@@ -146,8 +147,8 @@ export class Timeline {
 
   addStep(step: Step): StepSpan {
     const start = this.duration;
-    const narration = narrate(step.say, step.voice);
-    const plan = planStep(this.scene, step);
+    const narration = narrate(typeof step.say === "string" ? step.say : "", step.voice);
+    const plan = planStep(this.scene, step, narration);
     const events = opEvents(step, start, narration, plan.ops);
     const sceneChanged = plan.afterSceneChange !== this.scene;
     const errors = [...plan.errors];
@@ -185,6 +186,7 @@ export class Timeline {
     const span: StepSpan = {
       step,
       start,
+      narration,
       narrationEnd,
       end: Math.max(narrationEnd + STEP_TAIL_SECONDS, lastSegmentEnd + STEP_SETTLE_SECONDS),
       errors,

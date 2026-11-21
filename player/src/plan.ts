@@ -1,8 +1,8 @@
 import { challengeProblems } from "./challenge";
 import type { Step, StepOp } from "./format";
-import { relationTargets } from "./relation";
+import { relationProblems } from "./relation";
 import { applyLabOp, hasOp, LabError, type LabOp, opIsTrueTime, opSeconds } from "./lab";
-import { narrate, resolveCues } from "./narration";
+import { type Narration, resolveCues } from "./narration";
 import { parseSelector } from "./selector";
 import {
   applySceneSpecs, definitionOf, findObject, requireObject, type SceneState, upsertObject,
@@ -26,8 +26,11 @@ export interface StepPlan {
 }
 
 export function parseOp(index: number, raw: StepOp): ParsedOp {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new LabError(`must be an object such as {"op": "pulse", "on": ["arr"]}`);
   const { cue, op, on, ...args } = raw;
-  if (typeof op !== "string" || !op) throw new LabError(`do[${index}] has no "op" name`);
+  if (typeof op !== "string" || !op) throw new LabError(`has no "op" name`);
+  if (cue !== undefined && typeof cue !== "string") throw new LabError(`"cue" must be a word or phrase from the narration`);
+  if (on !== undefined && !(Array.isArray(on) && on.every((entry) => typeof entry === "string"))) throw new LabError(`"on" must be a list of selectors such as ["arr"] or ["arr[2]"]`);
   const selectors = (on ?? []).map(parseSelector);
   return { index, cue, name: op, selectors, args };
 }
@@ -83,10 +86,11 @@ export function applyOp(scene: SceneState, op: ParsedOp): PlannedOp {
 }
 
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof LabError) return error.message;
+  throw error;
 }
 
-export function planStep(previous: SceneState, step: Step): StepPlan {
+export function planStep(previous: SceneState, step: Step, narration: Narration): StepPlan {
   const errors: string[] = [];
   const label = `step ${step.step}`;
   if (typeof step.say !== "string" || !step.say.trim()) errors.push(`${label}: "say" must be non-empty narration text`);
@@ -99,8 +103,9 @@ export function planStep(previous: SceneState, step: Step): StepPlan {
   }
   const afterSceneChange = scene;
 
-  const rawOps = step.do ?? [];
-  const cueMatches = resolveCues(narrate(step.say ?? ""), rawOps.map((raw) => raw.cue));
+  if (step.do !== undefined && !Array.isArray(step.do)) errors.push(`${label}: "do" must be a list of ops`);
+  const rawOps = Array.isArray(step.do) ? step.do : [];
+  const cueMatches = resolveCues(narration, rawOps.map((raw) => (typeof raw?.cue === "string" ? raw.cue : undefined)));
   const ops: PlannedOp[] = [];
   rawOps.forEach((raw, index) => {
     try {
@@ -110,15 +115,12 @@ export function planStep(previous: SceneState, step: Step): StepPlan {
       scene = planned.after;
       ops.push(planned);
     } catch (error) {
-      errors.push(`${label} do[${index}] ${raw.op}: ${describe(error)}`);
+      const named = typeof raw?.op === "string" ? ` ${raw.op}` : "";
+      errors.push(`${label} do[${index}]${named}: ${describe(error)}`);
     }
   });
 
-  for (const object of scene.objects) {
-    for (const target of relationTargets(object.at)) {
-      if (!findObject(scene, target)) errors.push(`${label}: ${object.id} is placed relative to "${target}", which is not in the Scene`);
-    }
-  }
+  errors.push(...relationProblems(scene.objects).map((problem) => `${label}: ${problem}`));
   if (step.challenge) errors.push(...challengeProblems(step.challenge).map((problem) => `${label}: ${problem}`));
   const replaced = Object.entries(step.scene ?? {}).filter(([id, spec]) => spec !== null && previous.objects.some((object) => object.id === id)).map(([id]) => id);
   return { afterSceneChange, ops, final: scene, replaced, errors };

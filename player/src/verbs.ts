@@ -49,7 +49,7 @@ function ids(op: ParsedOp): string[] {
 
 function roleArg(op: ParsedOp, fallback: string): string {
   const role = op.args.role ?? fallback;
-  if (role !== "none" && !isRole(role)) fail(`op "${op.name}" role "${String(role)}" is not a meaning role: use active, compare, swap, done, ok, warn, fault, accent, highlight or none`);
+  if (role !== "none" && !isRole(role)) fail(`op "${op.name}" role ${JSON.stringify(role)} is not a meaning role: use active, compare, swap, done, ok, warn, fault, accent, highlight or none`);
   return role as string;
 }
 

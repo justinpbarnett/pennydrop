@@ -110,6 +110,7 @@ export function parseRelation(id: string, value: unknown): Relation {
     if (keys.length === 1 && key !== undefined) {
       const entry = (value as Record<string, unknown>)[key];
       if (isSide(key)) {
+        if (entry === id) return fail(`${id}: "at" ${JSON.stringify(key)} names the object itself; name another object`);
         if (typeof entry === "string" && entry) return value as Relation;
         return fail(`${id}: "at" ${JSON.stringify(key)} needs the id of another object, as {"${key}": "id"}`);
       }
@@ -144,6 +145,35 @@ export function relationTargets(relation: Relation | undefined): string[] {
   const side = sideOf(relation);
   if (side) return [side.target];
   return groupOf(relation)?.ids ?? [];
+}
+
+export function relationProblems(placed: readonly { id: string; at?: Relation }[]): string[] {
+  const ids = new Set(placed.map((object) => object.id));
+  const anchors = new Map(placed.flatMap((object) => {
+    const side = sideOf(object.at);
+    return side ? [[object.id, side.target] as const] : [];
+  }));
+  const problems: string[] = [];
+  for (const object of placed) {
+    for (const target of relationTargets(object.at)) {
+      if (!ids.has(target)) problems.push(`${object.id} is placed relative to "${target}", which is not in the Scene`);
+    }
+  }
+  const cleared = new Set<string>();
+  for (const start of anchors.keys()) {
+    const trail: string[] = [];
+    for (let id: string | undefined = start; id !== undefined && !cleared.has(id); id = anchors.get(id)) {
+      const seen = trail.indexOf(id);
+      if (seen >= 0) {
+        const loop = trail.slice(seen);
+        if (loop.length > 1) problems.push(`placement loop between ${[...loop, id].join(" -> ")}: break the cycle in "at"`);
+        break;
+      }
+      trail.push(id);
+    }
+    trail.forEach((id) => cleared.add(id));
+  }
+  return problems;
 }
 
 export function sideSpot(side: Side, anchor: Rect, size: Size): Point {

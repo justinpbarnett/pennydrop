@@ -5,7 +5,6 @@ import { loadFonts } from "./boot";
 import { buildChallenge, type ChallengeView } from "./challenge-ui";
 import { h } from "./dom";
 import { loadMintedLabs } from "./minted";
-import { narrate } from "./narration";
 import { Playback } from "./playback";
 import { Recorder } from "./recorder";
 import { StageRenderer } from "./render";
@@ -66,7 +65,7 @@ function renderCaption(): void {
     captionStep = -1;
     return;
   }
-  const narration = narrate(span.step.say, span.step.voice);
+  const { narration } = span;
   const local = Math.min(playback.time, span.narrationEnd) - span.start;
   const word = narration.words.reduce((found, timing, position) => (timing.start <= local ? position : found), -1);
   if (captionStep !== index) {
