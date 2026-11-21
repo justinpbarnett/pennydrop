@@ -72,12 +72,18 @@ export class Playback {
     this.arrive(async () => {
       await prepareStepAssets(step);
       this.timeline.addStep(step);
-      if (this.state === "buffering" && this.wantsToPlay) this.state = "playing";
+      if (this.state === "buffering" && this.wantsToPlay) {
+        this.state = "playing";
+        this.lastTick = performance.now();
+      }
     });
   }
 
   finishLesson(): void {
-    this.arrive(() => this.timeline.finish());
+    this.arrive(() => {
+      this.timeline.finish();
+      if (this.state === "buffering" && this.time >= this.timeline.duration) this.state = "ended";
+    });
   }
 
   fail(message: string): void {

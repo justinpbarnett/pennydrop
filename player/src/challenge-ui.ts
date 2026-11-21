@@ -39,7 +39,7 @@ export function buildChallenge(challenge: Challenge, host: ChallengeHost): Chall
 
   let acceptPart = (_part: string) => {};
   if (challenge.type === "number") {
-    const input = h("input", { type: "number", inputmode: "decimal", "aria-label": "Your prediction", autofocus: true });
+    const input = h("input", { type: "number", inputmode: "decimal", "aria-label": "Your prediction" });
     const submit = () => input.value !== "" && settle(Number(input.value));
     input.addEventListener("keydown", (event) => event.key === "Enter" && submit());
     body.append(input, h("button", { class: "primary", onclick: submit }, "Lock in"));

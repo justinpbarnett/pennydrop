@@ -1,15 +1,18 @@
 import "./app.css";
+import { postAsk, type AskOrigin } from "./ask-client";
+import { buildAskBar } from "./ask-ui";
 import { loadFonts } from "./boot";
 import { buildChallenge, type ChallengeView } from "./challenge-ui";
 import { h } from "./dom";
 import { narrate } from "./narration";
 import { Playback } from "./playback";
+import { Recorder } from "./recorder";
 import { StageRenderer } from "./render";
-import { listLessons, loadLesson, postAnswer } from "./source";
+import { firstProfileId, listLessons, loadLesson, postAnswer } from "./source";
 import { isThemeId, THEME_IDS, THEMES, type ThemeId } from "./theme";
 
 const query = new URLSearchParams(location.search);
-const PROFILE_ID = Number(query.get("profile") ?? 1);
+const requestedProfile = query.has("profile") ? Number(query.get("profile")) : null;
 const THEME_KEY = "pennydrop.theme";
 
 function storedTheme(): string | null {
@@ -53,6 +56,8 @@ new ResizeObserver(() => {
 
 let playback = new Playback();
 let lessonId = "";
+let profileId: number | null = null;
+let loading = new AbortController();
 let themeId: ThemeId = remembered();
 let challengeView: ChallengeView | null = null;
 let shownChallenge = -1;
@@ -97,7 +102,7 @@ function renderCaption(): void {
   const index = pendingIndex >= 0 ? pendingIndex : playback.timeline.stepIndexAt(playback.time);
   const span = playback.timeline.steps[index];
   if (!span) {
-    caption.textContent = playback.state === "buffering" ? "Getting the lesson ready..." : "";
+    caption.textContent = "";
     captionStep = -1;
     return;
   }
@@ -143,7 +148,7 @@ function renderOverlay(): void {
   if (shownChallenge === pending.step) return;
   shownChallenge = pending.step;
   challengeView = buildChallenge(pending.challenge, {
-    onAnswer: (given, correct) => void postAnswer(lessonId, pending.step, pending.challenge, given, correct, PROFILE_ID),
+    onAnswer: (given, correct) => { if (profileId !== null) void postAnswer(lessonId, pending.step, pending.challenge, given, correct, profileId); },
     onContinue: () => playback.answer(),
   });
   overlay.replaceChildren(challengeView.element);
@@ -152,10 +157,12 @@ function renderOverlay(): void {
 }
 
 function renderStatus(): void {
-  const message = playback.error ?? (playback.state === "buffering" ? "Buffering - the next Step is on its way" : "");
+  const writing = playback.state === "buffering" ? "Writing the next Step..." : "";
+  const message = playback.error ?? writing;
   status.hidden = !message;
   status.textContent = message;
   status.classList.toggle("error", Boolean(playback.error));
+  status.classList.toggle("quiet", !playback.error);
 }
 
 function render(): void {
@@ -175,7 +182,10 @@ function render(): void {
   playButton.setAttribute("aria-label", playing ? "Pause" : "Play");
 }
 
-async function open(id: string): Promise<void> {
+async function open(id: string, live = query.has("live"), autoplay = false): Promise<void> {
+  playback.pause();
+  loading.abort();
+  loading = new AbortController();
   lessonId = id;
   playback = new Playback();
   tickCount = -1;
@@ -183,19 +193,68 @@ async function open(id: string): Promise<void> {
   shownChallenge = -1;
   playback.subscribe(render);
   applyTheme(themeId);
-  const live = query.has("live");
   const current = playback;
+  if (autoplay) current.play();
   await loadLesson(id, {
-    header: (header) => { current.setHeader(header); document.title = `${header.title} - Pennydrop`; },
+    header: (header) => { current.setHeader(header); document.title = `${header.title} - Pennydrop`; titlePickerOption(id, header.title); },
     step: (step) => current.addStep(step),
     done: () => current.finishLesson(),
     error: (message) => current.fail(message),
-  }, live).catch((failure: Error) => current.fail(failure.message));
+  }, live, loading.signal).catch((failure: Error) => current.fail(failure.message));
   history.replaceState(null, "", `?${new URLSearchParams({ ...Object.fromEntries(query), lesson: id })}`);
   render();
 }
 
+function titlePickerOption(id: string, title: string): void {
+  const option = Array.from(picker.options).find((candidate) => candidate.value === id);
+  if (option) option.textContent = title;
+}
+
+function addPickerOption(id: string, title: string): void {
+  if (!Array.from(picker.options).some((candidate) => candidate.value === id)) picker.prepend(h("option", { value: id }, title));
+  picker.value = id;
+}
+
+function onScreen(): AskOrigin | null {
+  const span = playback.timeline.steps[playback.timeline.stepIndexAt(playback.time)];
+  return lessonId && span ? { lesson_id: lessonId, step: span.step.step } : null;
+}
+
+const askBar = buildAskBar({ onText: (text) => void ask({ text }), onMicTap: () => void toggleRecording() });
+const recorder = new Recorder((level) => askBar.setLevel(level));
+
+async function ask(input: { text?: string; audio?: Blob }): Promise<void> {
+  const from = onScreen();
+  askBar.setBusy(true);
+  askBar.say(input.audio ? "Listening to what you said..." : "Asking...", "working");
+  try {
+    const reply = await postAsk({ ...input, profileId, from });
+    askBar.say(`You asked: ${reply.transcript}`, "heard");
+    addPickerOption(reply.lesson_id, reply.transcript);
+    void open(reply.lesson_id, true, true);
+  } catch (failure) {
+    askBar.say((failure as Error).message, "error");
+  } finally {
+    askBar.setBusy(false);
+  }
+}
+
+async function toggleRecording(): Promise<void> {
+  if (!recorder.recording) {
+    try {
+      await recorder.start();
+      askBar.setRecording(true);
+    } catch (failure) {
+      askBar.say((failure as Error).message, "error");
+    }
+    return;
+  }
+  askBar.setRecording(false);
+  await ask({ audio: await recorder.stop() });
+}
+
 function wireControls(): void {
+  $(".top").insertBefore(askBar.element, $("#themes"));
   playButton.addEventListener("click", () => playback.toggle());
   scrub.addEventListener("input", () => { scrubbing = true; playback.seek(Number(scrub.value)); });
   scrub.addEventListener("change", () => { scrubbing = false; });
@@ -226,6 +285,7 @@ buildSwatches();
 wireControls();
 applyTheme(remembered());
 requestAnimationFrame(loop);
+profileId = await firstProfileId(requestedProfile);
 const lessons = await listLessons();
 picker.replaceChildren(...lessons.map((lesson) => h("option", { value: lesson.id }, lesson.title)));
 const first = query.get("lesson") ?? lessons[0]?.id;

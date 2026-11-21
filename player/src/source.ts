@@ -1,3 +1,4 @@
+import { headerOf, streamLesson } from "./ask-client";
 import { type Challenge, type LessonHeader, parseJsonl, type Step } from "./format";
 
 export interface LessonListing {
@@ -13,11 +14,6 @@ export interface LessonSink {
 }
 
 type Raw = Record<string, unknown>;
-
-function headerOf(raw: Raw | undefined): LessonHeader {
-  const inner = (raw?.lesson ?? raw ?? {}) as Partial<LessonHeader>;
-  return { ...inner, title: inner.title ?? "Lesson" };
-}
 
 async function getJson(url: string): Promise<unknown> {
   const response = await fetch(url);
@@ -46,38 +42,12 @@ async function loadStatic(id: string, sink: LessonSink): Promise<void> {
   sink.done();
 }
 
-function stream(id: string, sink: LessonSink, received: () => number): Promise<void> {
-  return new Promise((resolve) => {
-    const events = new EventSource(`/api/lessons/${id}/events`);
-    const listen = (name: string, handle: (data: Raw) => void) =>
-      events.addEventListener(name, (event) => handle(JSON.parse((event as MessageEvent<string>).data) as Raw));
-    listen("lesson", (data) => sink.header(headerOf(data)));
-    listen("step", (data) => sink.step(data as unknown as Step));
-    listen("done", () => {
-      events.close();
-      sink.done();
-      resolve();
-    });
-    listen("error", (data) => {
-      events.close();
-      sink.error(String(data.message ?? "the lesson stream failed"));
-      resolve();
-    });
-    events.onerror = () => {
-      if (events.readyState === EventSource.CLOSED) {
-        sink.error(`the connection to /api/lessons/${id}/events closed${received() ? " before the lesson finished" : ""}`);
-        resolve();
-      }
-    };
-  });
-}
-
-export async function loadLesson(id: string, sink: LessonSink, live: boolean): Promise<void> {
+export async function loadLesson(id: string, sink: LessonSink, live: boolean, signal?: AbortSignal): Promise<void> {
   let count = 0;
   const counting: LessonSink = { ...sink, step: (step) => { count += 1; sink.step(step); } };
   try {
     if (live) {
-      await stream(id, counting, () => count);
+      await streamLesson(id, counting, () => count, signal);
       return;
     }
     const document = (await getJson(`/api/lessons/${id}`)) as Raw;
@@ -87,6 +57,16 @@ export async function loadLesson(id: string, sink: LessonSink, live: boolean): P
   } catch (apiFailure) {
     if (count > 0) throw apiFailure;
     await loadStatic(id, sink);
+  }
+}
+
+export async function firstProfileId(preferred: number | null): Promise<number | null> {
+  try {
+    const profiles = (await getJson("/api/profiles")) as { id: number }[];
+    if (preferred !== null && profiles.some((profile) => profile.id === preferred)) return preferred;
+    return profiles[0]?.id ?? null;
+  } catch {
+    return null;
   }
 }
 

@@ -4,7 +4,7 @@ import { openSync } from "fontkit";
 const ROOT = resolve(import.meta.dir, "..");
 const FONTS_CSS = resolve(ROOT, "src/fonts.css");
 const OUTPUT = resolve(ROOT, "src/font-metrics.json");
-const EXTRA_CHARACTERS = "²³·×÷−–—…≤≥≠≈→←⇒'";
+const EXTRA_CHARACTERS = "²³·×÷−–\u2014…≤≥≠≈→←⇒'";
 
 const characters = [...Array.from({ length: 95 }, (_, index) => String.fromCharCode(32 + index)), ...EXTRA_CHARACTERS];
 
@@ -29,5 +29,6 @@ for (const { family, weight, file } of fontFaces(await Bun.file(FONTS_CSS).text(
   metrics[`${family}|${weight}`] = advances;
 }
 
-await Bun.write(OUTPUT, `${JSON.stringify(metrics)}\n`);
+const escaped = JSON.stringify(metrics).replace(/[^\x00-\x7f]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+await Bun.write(OUTPUT, `${escaped}\n`);
 console.log(`wrote ${Object.keys(metrics).length} fonts to ${OUTPUT}`);

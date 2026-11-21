@@ -6,6 +6,10 @@
   color-scheme: dark;
 }
 :root[data-theme="kids"], :root[data-theme="plain"] { color-scheme: light; }
+:root[data-theme="pattern"] { --mark: color-mix(in srgb, var(--accent) 55%, transparent); }
+:root[data-theme="film"] { --mark: color-mix(in srgb, var(--accent) 55%, transparent); }
+:root[data-theme="kids"] { --mark: color-mix(in srgb, var(--accent) 50%, transparent); }
+:root[data-theme="plain"] { --mark: color-mix(in srgb, var(--accent) 40%, transparent); }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { background: var(--ground); color: var(--ink); font-family: var(--font-read); transition: background 0.4s, color 0.4s; }
@@ -13,10 +17,10 @@ body { background: var(--ground); color: var(--ink); font-family: var(--font-rea
 #app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; height: 100dvh; padding: 0 16px; }
 .top, .transport { width: var(--stage-width, 100%); margin-inline: auto; }
 
-.top { display: flex; align-items: center; gap: 20px; padding: 14px 0 12px; flex-wrap: wrap; }
+.top { display: flex; align-items: center; gap: 16px; padding: 14px 0 12px; flex-wrap: wrap; }
 .mark { margin: 0; font: var(--weight-mark) 22px/1 var(--font-mark); letter-spacing: var(--tracking-mark); text-transform: var(--mark-case); display: flex; align-items: center; gap: 10px; }
 .mark::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
-.picker select { font: 15px var(--font-read); color: var(--ink); background: var(--fill); border: 1px solid var(--rule); border-radius: min(var(--corner), 10px); padding: 8px 32px 8px 12px; min-width: 220px; max-width: 46vw; cursor: pointer; }
+.picker select { font: 15px var(--font-read); color: var(--ink); background: var(--fill); border: 1px solid var(--rule); border-radius: min(var(--corner), 10px); padding: 8px 32px 8px 12px; width: 210px; max-width: 30vw; cursor: pointer; }
 .themes { margin-left: auto; display: flex; gap: 8px; }
 .swatch { display: flex; align-items: center; gap: 8px; background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: min(var(--corner), 12px); padding: 5px 10px 5px 6px; font: 14px var(--font-read); cursor: pointer; }
 .swatch:hover { color: var(--ink); border-color: var(--rule); }
@@ -56,7 +60,7 @@ button:focus-visible, select:focus-visible, input[type="range"]:focus-visible { 
 .transport { padding: 12px 0 16px; display: grid; gap: 10px; }
 .caption { margin: 0; min-height: 3.2em; font: 500 20px/1.55 var(--font-read); color: var(--muted); }
 .caption .spoken { color: var(--ink); }
-.caption .now { color: var(--ground); background: var(--accent); border-radius: min(var(--corner), 4px); padding: 0 3px; margin: 0 -3px; }
+.caption .now { color: var(--ink); background: linear-gradient(to top, var(--mark) 0 45%, transparent 45%); }
 .controls { display: flex; align-items: center; gap: 16px; }
 .play { width: 46px; height: 46px; flex: none; border-radius: 50%; border: 1px solid var(--accent); background: var(--accent); color: var(--ground); cursor: pointer; display: grid; place-items: center; }
 .play::before { content: ""; width: 0; height: 0; border-left: 14px solid currentColor; border-top: 9px solid transparent; border-bottom: 9px solid transparent; margin-left: 4px; }
@@ -73,10 +77,29 @@ button:focus-visible, select:focus-visible, input[type="range"]:focus-visible { 
 #scrub::-moz-range-progress { height: 5px; border-radius: 3px; background: var(--accent); }
 #scrub::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; margin-top: -5.5px; border-radius: 50%; background: var(--ink); border: 3px solid var(--accent); }
 #scrub::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--ink); border: 3px solid var(--accent); }
-.clock { flex: none; min-width: 108px; text-align: right; font: 15px var(--font-read); color: var(--muted); font-variant-numeric: tabular-nums; }
+.clock { flex: none; min-width: 108px; text-align: right; font: 15px var(--font-read); color: var(--muted); font-variant-numeric: lining-nums tabular-nums; }
 
 @media (max-width: 720px) {
   .themes { margin-left: 0; width: 100%; }
   .swatch .label { display: none; }
   .caption { font-size: 17px; }
 }
+
+.ask { position: relative; flex: 1 1 200px; min-width: 200px; display: flex; align-items: center; gap: 8px; }
+.ask input { flex: 1; min-width: 0; font: 15px var(--font-read); color: var(--ink); background: var(--fill); border: 1px solid var(--rule); border-radius: min(var(--corner), 20px); padding: 9px 16px; }
+.ask input::placeholder { color: var(--muted); }
+.ask input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+.mic { position: relative; width: 38px; height: 38px; flex: none; border-radius: 50%; border: 1px solid var(--rule); background: var(--fill); color: var(--ink); cursor: pointer; display: grid; place-items: center; }
+.mic::before { content: ""; width: 8px; height: 14px; border: 2px solid currentColor; border-radius: 6px; }
+.mic::after { content: ""; position: absolute; bottom: 8px; width: 14px; height: 6px; border: 2px solid currentColor; border-top: 0; border-radius: 0 0 8px 8px; }
+.mic:hover:not(:disabled) { border-color: var(--accent); }
+.mic:disabled, .ask input:disabled { opacity: 0.5; cursor: default; }
+.mic .meter { position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--fault); opacity: 0; transform: scale(calc(0.9 + var(--level, 0) * 0.35)); transition: transform 0.06s linear; }
+.ask.recording .mic { border-color: var(--fault); background: color-mix(in srgb, var(--fault) 22%, var(--fill)); color: var(--fault); animation: recording 1.2s ease-in-out infinite; }
+.ask.recording .mic .meter { opacity: 0.85; }
+@keyframes recording { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--fault) 25%, transparent); } }
+.ask-note { position: absolute; top: calc(100% + 6px); left: 0; right: 0; margin: 0; z-index: 2; font: 14px/1.4 var(--font-read); color: var(--muted); background: var(--fill2); border: 1px solid var(--rule); border-radius: min(var(--corner), 12px); padding: 6px 12px; }
+.ask-note[hidden] { display: none; }
+.ask-note.heard { color: var(--ink); }
+.ask-note.error { color: var(--fault); border-color: var(--fault); }
+.status.quiet { background: transparent; border-color: transparent; color: var(--muted); }
