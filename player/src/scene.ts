@@ -1,6 +1,7 @@
 import { definitionByKey, definitionIfRegistered, definitionKeyForSpec, specText, wordlessKeys } from "./registry";
 import type { LessonHeader, ObjectSpec } from "./format";
 import { type AnyLabDef, fail, isRole, type Role } from "./lab";
+import { shareRadius } from "./primitives/node";
 import { parseRelation, type Relation } from "./relation";
 
 export interface SceneObject {
@@ -93,7 +94,7 @@ export function upsertObject(scene: SceneState, object: SceneObject): SceneState
   const objects = exists
     ? scene.objects.map((entry) => (entry.id === object.id ? object : entry))
     : [...scene.objects, object];
-  return { ...scene, objects };
+  return { ...scene, objects: shareRadius(objects) };
 }
 
 export function removeObject(scene: SceneState, id: string): SceneState {

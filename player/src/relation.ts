@@ -22,8 +22,8 @@ interface RegionEntry {
 
 interface SideEntry {
   doc: string;
-  spot(anchor: Rect, size: Size): Point;
-  clear(spot: Point, occupant: Rect, size: Size): Point;
+  spot(anchor: Rect, size: Size, gap: number): Point;
+  clear(spot: Point, occupant: Rect, size: Size, gap: number): Point;
 }
 
 interface GroupEntry {
@@ -46,28 +46,28 @@ const centered = (anchor: Rect, size: Size): Point => ({ x: anchor.x + anchor.w 
 const SIDE_ENTRIES: Record<Side, SideEntry> = {
   below: {
     doc: "centered under the named object",
-    spot: (anchor, size) => ({ x: centered(anchor, size).x, y: anchor.y + anchor.h + RELATION_GAP }),
-    clear: (spot, occupant) => ({ x: spot.x, y: occupant.y + occupant.h + RELATION_GAP }),
+    spot: (anchor, size, gap) => ({ x: centered(anchor, size).x, y: anchor.y + anchor.h + gap }),
+    clear: (spot, occupant, _size, gap) => ({ x: spot.x, y: occupant.y + occupant.h + gap }),
   },
   above: {
     doc: "centered over the named object",
-    spot: (anchor, size) => ({ x: centered(anchor, size).x, y: anchor.y - size.h - RELATION_GAP }),
-    clear: (spot, occupant, size) => ({ x: spot.x, y: occupant.y - size.h - RELATION_GAP }),
+    spot: (anchor, size, gap) => ({ x: centered(anchor, size).x, y: anchor.y - size.h - gap }),
+    clear: (spot, occupant, size, gap) => ({ x: spot.x, y: occupant.y - size.h - gap }),
   },
   "left of": {
     doc: "vertically centered, to the left of the named object",
-    spot: (anchor, size) => ({ x: anchor.x - size.w - RELATION_GAP, y: centered(anchor, size).y }),
-    clear: (spot, occupant, size) => ({ x: occupant.x - size.w - RELATION_GAP, y: spot.y }),
+    spot: (anchor, size, gap) => ({ x: anchor.x - size.w - gap, y: centered(anchor, size).y }),
+    clear: (spot, occupant, size, gap) => ({ x: occupant.x - size.w - gap, y: spot.y }),
   },
   "right of": {
     doc: "vertically centered, to the right of the named object",
-    spot: (anchor, size) => ({ x: anchor.x + anchor.w + RELATION_GAP, y: centered(anchor, size).y }),
-    clear: (spot, occupant) => ({ x: occupant.x + occupant.w + RELATION_GAP, y: spot.y }),
+    spot: (anchor, size, gap) => ({ x: anchor.x + anchor.w + gap, y: centered(anchor, size).y }),
+    clear: (spot, occupant, _size, gap) => ({ x: occupant.x + occupant.w + gap, y: spot.y }),
   },
   "next to": {
     doc: "the same as right of",
-    spot: (anchor, size) => ({ x: anchor.x + anchor.w + RELATION_GAP, y: centered(anchor, size).y }),
-    clear: (spot, occupant) => ({ x: occupant.x + occupant.w + RELATION_GAP, y: spot.y }),
+    spot: (anchor, size, gap) => ({ x: anchor.x + anchor.w + gap, y: centered(anchor, size).y }),
+    clear: (spot, occupant, _size, gap) => ({ x: occupant.x + occupant.w + gap, y: spot.y }),
   },
 };
 
@@ -176,12 +176,12 @@ export function relationProblems(placed: readonly { id: string; at?: Relation }[
   return problems;
 }
 
-export function sideSpot(side: Side, anchor: Rect, size: Size): Point {
-  return SIDE_ENTRIES[side].spot(anchor, size);
+export function sideSpot(side: Side, anchor: Rect, size: Size, gap = RELATION_GAP): Point {
+  return SIDE_ENTRIES[side].spot(anchor, size, gap);
 }
 
-export function sideClear(side: Side, spot: Point, occupant: Rect, size: Size): Point {
-  return SIDE_ENTRIES[side].clear(spot, occupant, size);
+export function sideClear(side: Side, spot: Point, occupant: Rect, size: Size, gap = RELATION_GAP): Point {
+  return SIDE_ENTRIES[side].clear(spot, occupant, size, gap);
 }
 
 export function relationDocs(): string[] {

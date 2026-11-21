@@ -1,11 +1,12 @@
-import { fail, type Rect, type Size } from "./lab";
+import { fail, type Rect, type Size, STAGE, STAGE_MARGIN } from "./lab";
 import { NO_REACH, type Reach, reachOf } from "./ink";
+import { EDGE_SPAN } from "./primitives/edge";
 import { groupOf, type GroupKind, type Region, type Relation, RELATION_GAP, regionOf, sideClear, sideOf, sideSpot } from "./relation";
 import { definitionOf, type SceneObject, type SceneState } from "./scene";
 import type { Theme } from "./theme";
 
-export const STAGE: Size = { w: 1600, h: 900 };
-const MARGIN = 60;
+export { STAGE };
+const MARGIN = STAGE_MARGIN;
 const CHILD_SCALE_CAP = 2.5;
 const FLOW_GAP = 44;
 const GROUP_GAP = 44;
@@ -36,8 +37,22 @@ interface Cluster {
   h: number;
 }
 
-function arrange(kind: GroupKind, at: Relation, sizes: Size[], ids: string[]): Rect[] {
-  const gap = kind === "timeline" ? GROUP_GAP * 2 : GROUP_GAP;
+type Joined = (a: string, b: string) => boolean;
+
+function joinedBy(scene: SceneState): Joined {
+  const pairs = new Set<string>();
+  for (const object of scene.objects) {
+    if (definitionOf(object).id !== "edge") continue;
+    const { from, to } = object.state as { from: string; to: string };
+    pairs.add(`${from}\n${to}`);
+    pairs.add(`${to}\n${from}`);
+  }
+  return (a, b) => pairs.has(`${a}\n${b}`);
+}
+
+function arrange(kind: GroupKind, at: Relation, sizes: Size[], ids: string[], joined: Joined): Rect[] {
+  const linked = ids.some((id) => ids.some((other) => joined(id, other)));
+  const gap = Math.max(kind === "timeline" ? GROUP_GAP * 2 : GROUP_GAP, linked ? EDGE_SPAN : 0);
   if (kind === "row" || kind === "timeline") {
     let x = 0;
     const height = Math.max(...sizes.map((size) => size.h));
@@ -78,7 +93,7 @@ function arrange(kind: GroupKind, at: Relation, sizes: Size[], ids: string[]): R
   const childIds = new Set(Object.values(tree).flat());
   const roots = ids.filter((id) => !childIds.has(id));
   const cellW = Math.max(...sizes.map((size) => size.w)) + gap;
-  const cellH = Math.max(...sizes.map((size) => size.h)) + GROUP_GAP * 1.6;
+  const cellH = Math.max(...sizes.map((size) => size.h)) + Math.max(GROUP_GAP * 1.6, linked ? EDGE_SPAN : 0);
   const centers = new Map<string, { x: number; y: number }>();
   let nextLeaf = 0;
   const place = (id: string, depth: number): number => {
@@ -94,7 +109,7 @@ function arrange(kind: GroupKind, at: Relation, sizes: Size[], ids: string[]): R
   });
 }
 
-function buildNodes(scene: SceneState, reaches: ReadonlyMap<string, Reach>): Node[] {
+function buildNodes(scene: SceneState, reaches: ReadonlyMap<string, Reach>, joined: Joined): Node[] {
   const sizes = new Map<string, Size>();
   for (const object of scene.objects) {
     const def = definitionOf(object);
@@ -111,7 +126,7 @@ function buildNodes(scene: SceneState, reaches: ReadonlyMap<string, Reach>): Nod
     const ids = (group.ids.includes(object.id) ? group.ids : [object.id, ...group.ids]).filter((id) => sizes.has(id) && !claimed.has(id));
     if (ids.length === 0) continue;
     ids.forEach((id) => claimed.add(id));
-    const rects = arrange(group.kind, object.at!, ids.map((id) => sizes.get(id)!), ids);
+    const rects = arrange(group.kind, object.at!, ids.map((id) => sizes.get(id)!), ids, joined);
     const minX = Math.min(...rects.map((rect) => rect.x));
     const minY = Math.min(...rects.map((rect) => rect.y));
     const members = rects.map((rect, index) => ({ ...rect, id: ids[index]!, x: rect.x - minX, y: rect.y - minY }));
@@ -131,7 +146,7 @@ function buildNodes(scene: SceneState, reaches: ReadonlyMap<string, Reach>): Nod
   return nodes;
 }
 
-function buildClusters(nodes: Node[]): Cluster[] {
+function buildClusters(nodes: Node[], joined: Joined): Cluster[] {
   const nodeOf = new Map<string, Node>();
   nodes.forEach((node) => node.members.forEach((member) => nodeOf.set(member.id, node)));
   const placements = new Map<string, { x: number; y: number }>();
@@ -157,8 +172,9 @@ function buildClusters(nodes: Node[]): Cluster[] {
       root = resolve(target, [...trail, node.key]);
       const anchor = placements.get(target.key) ?? { x: 0, y: 0 };
       const member = target.members.find((candidate) => candidate.id === relative.target)!;
-      let spot = sideSpot(relative.side, { x: anchor.x + member.x, y: anchor.y + member.y, w: member.w, h: member.h }, node);
-      for (let blocker = blockerFor(node, root, spot); blocker; blocker = blockerFor(node, root, spot)) spot = sideClear(relative.side, spot, blocker, node);
+      const gap = node.members.some((placed) => joined(placed.id, relative.target)) ? EDGE_SPAN : RELATION_GAP;
+      let spot = sideSpot(relative.side, { x: anchor.x + member.x, y: anchor.y + member.y, w: member.w, h: member.h }, node, gap);
+      for (let blocker = blockerFor(node, root, spot); blocker; blocker = blockerFor(node, root, spot)) spot = sideClear(relative.side, spot, blocker, node, gap);
       placements.set(node.key, spot);
     } else {
       placements.set(node.key, { x: 0, y: 0 });
@@ -279,7 +295,8 @@ function reachFor(object: SceneObject, theme: Theme): Reach {
 
 export function layoutScene(scene: SceneState, theme?: Theme): Layout {
   const reachOfId = new Map<string, Reach>(scene.objects.map((object) => [object.id, theme ? reachFor(object, theme) : NO_REACH]));
-  const clusters = buildClusters(buildNodes(scene, reachOfId));
+  const joined = joinedBy(scene);
+  const clusters = buildClusters(buildNodes(scene, reachOfId, joined), joined);
   const fitted = fitToStage(placeClusters(clusters), scene.reading === false ? CHILD_SCALE_CAP : 1);
   return new Map(
     [...fitted].map(([id, box]) => {

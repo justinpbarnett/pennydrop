@@ -81,7 +81,7 @@ interface Connector {
 }
 
 const BASE_WIDTH = 1480;
-const COLUMN_WIDTH = 290;
+const COLUMN_WIDTH = 316;
 const COLUMN_GAP = 84;
 const LANE_GAP = 24;
 const DIGIT_PITCH = 52;
@@ -92,6 +92,7 @@ const VIRTUAL_Y = 60;
 const FIELD_ARROW_Y = 182;
 const PANEL_TOP = 232;
 const HEADER_HEIGHT = 84;
+const BADGE_SIZE = 24;
 const MAX_ENTRIES_PER_TABLE = 6;
 const MAX_TLB_SLOTS = 8;
 const MAX_BITS = 48;
@@ -367,7 +368,7 @@ function header(state: AddressState, id: string, column: number, title: string, 
     textDrawable(`${id}-title`, title, { x: x + 18, y: PANEL_TOP + 24 }, { size: 28, anchor: "start", fill: titleRole, z: 1 }),
     textDrawable(`${id}-sub`, sub, { x: x + 18, y: PANEL_TOP + 62 }, { size: 22, anchor: "start", fill: "muted", z: 1 }),
   ];
-  if (badge) out.push(textDrawable(`${id}-badge`, badge.text, { x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 24 }, { size: 28, font: "mark", anchor: "end", fill: badge.role, z: 1 }));
+  if (badge) out.push(textDrawable(`${id}-badge`, badge.text, { x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 24 }, { size: BADGE_SIZE, font: "mark", anchor: "end", fill: badge.role, z: 1 }));
   return out;
 }
 

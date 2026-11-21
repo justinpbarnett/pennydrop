@@ -37,6 +37,7 @@ export interface Frame {
 const PATH_KINDS: DrawableKind[] = ["line", "arrow", "path"];
 const WORD_KINDS: DrawableKind[] = ["text", "code", "math"];
 const ENTER_RISE = 18;
+const RELAYOUT_FADE_START = 0.6;
 
 const easings = new Map<string, (progress: number) => number>();
 export function easeFor(theme: Theme): (progress: number) => number {
@@ -189,6 +190,12 @@ function lerpBox(before: Box | undefined, after: Box | undefined, progress: numb
   return { ...lerpRect(from, to, progress), scale: lerp(from.scale, to.scale, progress) };
 }
 
+function boxChanges(before: Stage, after: Stage, objectId: string): boolean {
+  const from = boxOf(before, objectId);
+  const to = boxOf(after, objectId);
+  return from !== undefined && to !== undefined && (["x", "y", "w", "h", "scale"] as const).some((key) => Math.abs(from[key] - to[key]) > 0.5);
+}
+
 function boxOf(stage: Stage, objectId: string): Box | undefined {
   return stage.objects.find((object: PlacedObject) => object.id === objectId)?.box;
 }
@@ -239,8 +246,10 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
       } else if (previous) {
         blend(previous, item, progress.eased).forEach((blended) => items.set(blended.id, blended));
       } else {
-        const rise = oldObjects.has(objectOf(id)) ? 0 : ENTER_RISE * (1 - clamped);
-        items.set(id, { ...item, y: item.y + rise, opacity: item.opacity * clamped });
+        const owner = objectOf(id);
+        const rise = oldObjects.has(owner) ? 0 : ENTER_RISE * (1 - clamped);
+        const fadeFrom = oldObjects.has(owner) && boxChanges(before, after, owner) ? RELAYOUT_FADE_START : 0;
+        items.set(id, { ...item, y: item.y + rise, opacity: item.opacity * clamp01((clamped - fadeFrom) / (1 - fadeFrom)) });
       }
     });
     beforeItems.forEach((item, id) => {

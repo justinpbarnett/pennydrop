@@ -1,4 +1,5 @@
 import type { Point, Size } from "./lab";
+import { EDGE_SPAN } from "./primitives/edge";
 
 export type Side = "left" | "right";
 export type LayoutKind = "tree" | "layers" | "ring";
@@ -16,6 +17,7 @@ export interface LayoutRequest {
   directed: boolean;
   root: string | null;
   radius: number;
+  room: Size;
 }
 
 export interface GraphLayout extends Size {
@@ -23,15 +25,12 @@ export interface GraphLayout extends Size {
 }
 
 const TREE_PITCH_GAP = 30;
-const TREE_LEVEL_GAP = 66;
-const LAYER_COLUMN_MIN = 230;
-const LAYER_COLUMN_MAX = 340;
-const LAYER_SPAN = 1250;
-const LAYER_ROW_MAX = 190;
-const LAYER_ROW_SPAN = 600;
+const TREE_STRETCH_X = 2;
+const TREE_STRETCH_Y = 1.6;
+const LAYER_COLUMN_MAX = 560;
+const LAYER_ROW_MAX = 260;
 const LAYER_ROW_GAP = 104;
 const RING_MIN_RADIUS = 300;
-const RING_ARC_GAP = 48;
 const EDGE_CLEARANCE = 8;
 const CROSSING_COST = 1;
 const NODE_HIT_COST = 4;
@@ -69,7 +68,7 @@ function placeSubtree(id: string, childrenOf: Map<string, LayoutEdge[]>, pitch: 
 
 function treePositions(request: LayoutRequest): Map<string, Point> {
   const pitch = request.radius * 2 + TREE_PITCH_GAP;
-  const levelHeight = request.radius * 2 + TREE_LEVEL_GAP;
+  const levelHeight = request.radius * 2 + EDGE_SPAN;
   const childrenOf = new Map<string, LayoutEdge[]>();
   request.edges.forEach((edge) => childrenOf.set(edge.from, [...(childrenOf.get(edge.from) ?? []), edge]));
   const hasParent = new Set(request.edges.map((edge) => edge.to));
@@ -83,7 +82,16 @@ function treePositions(request: LayoutRequest): Map<string, Point> {
     subtree.offsets.forEach((offset, node) => positions.set(node, { x: center + offset.x, y: offset.y }));
     cursor += subtree.hi - subtree.lo;
   }
-  return positions;
+  return stretched(positions, request.room, TREE_STRETCH_X, TREE_STRETCH_Y);
+}
+
+function stretched(positions: Map<string, Point>, room: Size, limitX: number, limitY: number): Map<string, Point> {
+  const points = [...positions.values()];
+  const spanX = Math.max(...points.map((point) => point.x)) - Math.min(...points.map((point) => point.x));
+  const spanY = Math.max(...points.map((point) => point.y)) - Math.min(...points.map((point) => point.y));
+  const scaleX = spanX === 0 ? 1 : Math.min(limitX, Math.max(1, room.w / spanX));
+  const scaleY = spanY === 0 ? 1 : Math.min(limitY, Math.max(1, room.h / spanY));
+  return new Map([...positions].map(([id, point]): [string, Point] => [id, { x: point.x * scaleX, y: point.y * scaleY }]));
 }
 
 function breadthFirstLayers(request: LayoutRequest): string[][] {
@@ -145,9 +153,9 @@ function drawingCost(positions: Map<string, Point>, edges: LayoutEdge[], radius:
 }
 
 function layerPositions(request: LayoutRequest, layers: string[][]): Map<string, Point> {
-  const columnPitch = layers.length < 2 ? 0 : Math.min(LAYER_COLUMN_MAX, Math.max(LAYER_COLUMN_MIN, LAYER_SPAN / (layers.length - 1)));
+  const columnPitch = layers.length < 2 ? 0 : Math.min(LAYER_COLUMN_MAX, Math.max(request.radius * 2 + EDGE_SPAN, request.room.w / (layers.length - 1)));
   const tallest = Math.max(...layers.map((layer) => layer.length));
-  const rowPitch = tallest < 2 ? 0 : Math.max(request.radius * 2 + LAYER_ROW_GAP, Math.min(LAYER_ROW_MAX, LAYER_ROW_SPAN / (tallest - 1)));
+  const rowPitch = tallest < 2 ? 0 : Math.max(request.radius * 2 + LAYER_ROW_GAP, Math.min(LAYER_ROW_MAX, request.room.h / (tallest - 1)));
   const positionsOf = (order: string[][]) => new Map<string, Point>(order.flatMap((layer, column) => layer.map((id, row): [string, Point] => [id, { x: column * columnPitch, y: (row - (layer.length - 1) / 2) * rowPitch }])));
 
   let order = layers.map((layer) => [...layer]);
@@ -172,7 +180,7 @@ function layerPositions(request: LayoutRequest, layers: string[][]): Map<string,
 
 function ringPositions(request: LayoutRequest): Map<string, Point> {
   const count = request.ids.length;
-  const ringRadius = count < 2 ? 0 : Math.max(RING_MIN_RADIUS, (count * (request.radius * 2 + RING_ARC_GAP)) / (2 * Math.PI));
+  const ringRadius = count < 2 ? 0 : Math.max(RING_MIN_RADIUS, Math.min(request.room.w, request.room.h) / 2, (count * (request.radius * 2 + EDGE_SPAN)) / (2 * Math.PI));
   return new Map(request.ids.map((id, index) => {
     const angle = -Math.PI / 2 + (index / count) * 2 * Math.PI;
     return [id, { x: ringRadius * Math.cos(angle), y: ringRadius * Math.sin(angle) }];

@@ -1,6 +1,6 @@
 import { borderPoint } from "../primitives/edge";
-import { nodeDrawables, type NodeLook } from "../primitives/node";
-import { type Drawable, fail, type LabDef, type LabOp, labelDrawable, lerp, type OpDef, type Paint, type Point, type Role, readsWords, segmentDrawable, type Size } from "../lab";
+import { nodeDrawables, type NodeLook, radiusForLabels } from "../primitives/node";
+import { boxDrawable, type Drawable, fail, type LabDef, type LabOp, labelDrawable, lerp, NODE_LABEL_SIZE, type OpDef, type Paint, type Point, type Role, readsWords, segmentDrawable, type Size, STAGE, STAGE_MARGIN, textDrawable } from "../lab";
 import { layoutGraph, type LayoutKind, type Side } from "../graph-layout";
 import { textWidth } from "../text-metrics";
 
@@ -76,8 +76,8 @@ const OUT_END_TAG: Record<FrontierKind, string> = { queue: "front", stack: "top"
 
 const TREE_RADIUS = 42;
 const CURRENT_SCALE = 1.12;
-const SIDE_MARGIN = 64;
-const VERTICAL_MARGIN = 62;
+const SIDE_MARGIN = 24;
+const VERTICAL_MARGIN = 40;
 const DISTANCE_GAP = 22;
 const DISTANCE_DIRECTIONS = [90, 270, 45, 135, 315, 225, 0, 180, 67.5, 112.5, 247.5, 292.5, 22.5, 157.5, 337.5, 202.5];
 const DISTANCE_REACHES = [0, 10, 20];
@@ -99,12 +99,15 @@ const CHIP_SIZE = 24;
 const CHIP_SPOTS = [0.5, 0.36, 0.64, 0.26, 0.74, 0.18, 0.82];
 
 const SLOT_WIDTH = 76;
+const SLOT_LABEL_PADDING = 24;
 const SLOT_HEIGHT = 68;
 const SLOT_GAP = 10;
 const TRACK_PADDING = 12;
 const MIN_TRACK_SLOTS = 8;
-const STRIP_GAP = 34;
-const TAG_ROOM = 30;
+const STRIP_HEIGHT = SLOT_HEIGHT + 2 * TRACK_PADDING;
+const STRIP_GAP = 10;
+const TAG_ROOM = 48;
+const TAG_SIZE = 20;
 const CAPTION_SIZE = 24;
 const CAPTION_GAP = 22;
 
@@ -233,9 +236,13 @@ function checkTree(nodes: GraphNode[], edges: GraphEdge[], root: string | null, 
   if (stranded) fail(`${objectId}: node "${stranded.id}" sits on a cycle; a tree has no cycles, so use "layout": "layers" for a general graph`);
 }
 
-function radiusFor(layout: LayoutKind, count: number): number {
-  if (layout === "tree") return TREE_RADIUS;
-  return count <= 8 ? 46 : count <= 12 ? 40 : 34;
+function radiusFor(layout: LayoutKind, nodes: GraphNode[]): number {
+  const base = layout === "tree" ? TREE_RADIUS : nodes.length <= 8 ? 46 : nodes.length <= 12 ? 40 : 34;
+  return radiusForLabels(nodes.map((node) => node.label), base);
+}
+
+function slotWidth(state: GraphState): number {
+  return Math.max(SLOT_WIDTH, ...state.nodes.map((node) => Math.ceil(textWidth(node.label, NODE_LABEL_SIZE, "read")) + SLOT_LABEL_PADDING));
 }
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: string, objectId: string, fallback: T | null): T | null {
@@ -337,7 +344,8 @@ const ops: Record<string, OpDef<GraphState>> = {
       const node = args.node === undefined ? fail(`op "insert" needs "node", the new node id`) : String(args.node);
       if (state.nodes.some((existing) => existing.id === node)) fail(`op "insert": node "${node}" already exists; nodes: ${nodeList(state)}`);
       const label = args.label === undefined ? node : idText(args.label, 'op "insert" arg "label"', state.objectId);
-      const grown: GraphState = { ...state, nodes: [...state.nodes, { id: node, label }] };
+      const nodes = [...state.nodes, { id: node, label }];
+      const grown: GraphState = { ...state, nodes, radius: radiusFor(state.layout, nodes) };
       if (args.parent === undefined) {
         if (state.root) fail(`op "insert" needs "parent"; the tree already has root "${state.root}"`);
         return { ...grown, root: node };
@@ -419,11 +427,14 @@ const geometries = new WeakMap<GraphState, Geometry>();
 function geometryOf(state: GraphState): Geometry {
   const cached = geometries.get(state);
   if (cached) return cached;
-  const layout = layoutGraph({ kind: state.layout, ids: state.nodes.map((node) => node.id), edges: state.edges, directed: state.directed, root: state.root, radius: state.radius });
   const reach = state.radius * CURRENT_SCALE;
   const marginX = reach + SIDE_MARGIN;
+  const marginY = reach + VERTICAL_MARGIN;
+  const stripRoom = state.frontierKind ? STRIP_GAP + (state.reading ? TAG_ROOM : 0) + STRIP_HEIGHT + VERTICAL_MARGIN : 0;
+  const room = { w: STAGE.w - 2 * STAGE_MARGIN - 2 * marginX, h: STAGE.h - 2 * STAGE_MARGIN - 2 * marginY - stripRoom };
+  const layout = layoutGraph({ kind: state.layout, ids: state.nodes.map((node) => node.id), edges: state.edges, directed: state.directed, root: state.root, radius: state.radius, room });
   const graphWidth = layout.w + 2 * marginX;
-  const graphHeight = layout.h + 2 * (reach + VERTICAL_MARGIN);
+  const graphHeight = layout.h + 2 * marginY;
 
   let strip: Strip | null = null;
   let width = Math.max(graphWidth, MIN_WIDTH);
@@ -433,14 +444,14 @@ function geometryOf(state: GraphState): Geometry {
     const captionGap = state.reading ? CAPTION_GAP : 0;
     const tagRoom = state.reading ? TAG_ROOM : 0;
     const slots = Math.max(MIN_TRACK_SLOTS, state.frontier.length);
-    const trackWidth = 2 * TRACK_PADDING + slots * (SLOT_WIDTH + SLOT_GAP) - SLOT_GAP;
+    const trackWidth = 2 * TRACK_PADDING + slots * (slotWidth(state) + SLOT_GAP) - SLOT_GAP;
     const stripWidth = captionWidth + captionGap + trackWidth;
     width = Math.max(width, stripWidth + 2 * SIDE_MARGIN);
     const captionX = (width - stripWidth) / 2;
     strip = { top: height + STRIP_GAP + tagRoom, captionX, trackLeft: captionX + captionWidth + captionGap, trackWidth };
-    height = strip.top + SLOT_HEIGHT + 2 * TRACK_PADDING;
+    height = strip.top + STRIP_HEIGHT + VERTICAL_MARGIN;
   }
-  const positions = new Map([...layout.positions].map(([id, point]): [string, Point] => [id, { x: (width - layout.w) / 2 + point.x, y: reach + VERTICAL_MARGIN + point.y }]));
+  const positions = new Map([...layout.positions].map(([id, point]): [string, Point] => [id, { x: (width - layout.w) / 2 + point.x, y: marginY + point.y }]));
   const geometry = { positions, strip, size: { w: width, h: height } };
   geometries.set(state, geometry);
   return geometry;
@@ -461,25 +472,20 @@ function distanceText(value: number | null): string {
   return value === null ? "∞" : String(value);
 }
 
-interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+type CenteredBox = Point & Size;
 
-function gapToBox(point: Point, box: Box): number {
+function gapToBox(point: Point, box: CenteredBox): number {
   return Math.hypot(Math.max(0, Math.abs(point.x - box.x) - box.w / 2), Math.max(0, Math.abs(point.y - box.y) - box.h / 2));
 }
 
-function segmentGapToBox(from: Point, to: Point, box: Box): number {
+function segmentGapToBox(from: Point, to: Point, box: CenteredBox): number {
   const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / SAMPLE_STEP));
   let nearest = Infinity;
   for (let step = 0; step <= steps; step++) nearest = Math.min(nearest, gapToBox({ x: lerp(from.x, to.x, step / steps), y: lerp(from.y, to.y, step / steps) }, box));
   return nearest;
 }
 
-function boxGap(a: Box, b: Box): number {
+function boxGap(a: CenteredBox, b: CenteredBox): number {
   return Math.hypot(Math.max(0, Math.abs(a.x - b.x) - (a.w + b.w) / 2), Math.max(0, Math.abs(a.y - b.y) - (a.h + b.h) / 2));
 }
 
@@ -490,7 +496,7 @@ function edgeSegments(state: GraphState, positions: Map<string, Point>): { key: 
   });
 }
 
-function chipBoxes(state: GraphState, spots: Map<string, Point>): Box[] {
+function chipBoxes(state: GraphState, spots: Map<string, Point>): CenteredBox[] {
   return state.edges.flatMap((edge) => {
     const spot = spots.get(keyOf(state, edge));
     return edge.weight === null || !spot ? [] : [{ x: spot.x, y: spot.y, w: textWidth(String(edge.weight), CHIP_SIZE, "read") + CHIP_PADDING, h: CHIP_HEIGHT }];
@@ -499,7 +505,7 @@ function chipBoxes(state: GraphState, spots: Map<string, Point>): Box[] {
 
 function distanceSlots(state: GraphState, positions: Map<string, Point>, spots: Map<string, Point>): Map<string, Point> {
   const segments = edgeSegments(state, positions);
-  const obstacles: Box[] = chipBoxes(state, spots);
+  const obstacles: CenteredBox[] = chipBoxes(state, spots);
   const slots = new Map<string, Point>();
   for (const node of state.nodes) {
     const center = positions.get(node.id)!;
@@ -513,7 +519,7 @@ function distanceSlots(state: GraphState, positions: Map<string, Point>, spots: 
         return { x: center.x + Math.cos(direction) * (run + Math.abs(Math.cos(direction)) * (w / 2)), y: center.y + Math.sin(direction) * run, w, h };
       }),
     );
-    const trouble = (box: Box) =>
+    const trouble = (box: CenteredBox) =>
       state.nodes.filter((other) => gapToBox(positions.get(other.id)!, box) < nodeRadius(state, other.id) + DISTANCE_MARGIN).length +
       segments.filter((segment) => segmentGapToBox(segment.from, segment.to, box) < DISTANCE_MARGIN).length +
       obstacles.filter((other) => boxGap(box, other) < DISTANCE_MARGIN).length;
@@ -583,7 +589,7 @@ function edgeParts(state: GraphState, edge: GraphEdge, positions: Map<string, Po
     const text = String(edge.weight);
     const w = textWidth(text, CHIP_SIZE, "read") + CHIP_PADDING;
     parts.push(
-      { id: `chip-${key}`, kind: "rect", x: spot.x, y: spot.y, w, h: CHIP_HEIGHT, fill: "ground", stroke: "none", radius: 1, z: CHIP_Z },
+      boxDrawable(`chip-${key}`, { x: spot.x - w / 2, y: spot.y - CHIP_HEIGHT / 2, w, h: CHIP_HEIGHT }, { fill: "ground", stroke: "none", radius: 1, z: CHIP_Z }),
       { ...labelDrawable(text, spot, CHIP_SIZE, "read", look.weightFill, CHIP_Z + 0.1), id: `weight-${key}` },
     );
   }
@@ -593,24 +599,25 @@ function edgeParts(state: GraphState, edge: GraphEdge, positions: Map<string, Po
 function stripParts(state: GraphState, strip: Strip): Drawable[] {
   const kind = state.frontierKind!;
   const shown = displayedFrontier(state);
+  const width = slotWidth(state);
   const centerY = strip.top + TRACK_PADDING + SLOT_HEIGHT / 2;
-  const slotX = (index: number) => strip.trackLeft + TRACK_PADDING + index * (SLOT_WIDTH + SLOT_GAP) + SLOT_WIDTH / 2;
+  const slotX = (index: number) => strip.trackLeft + TRACK_PADDING + index * (width + SLOT_GAP) + width / 2;
   const parts: Drawable[] = [
-    ...(state.reading ? [{ id: "strip-caption", kind: "text" as const, x: strip.captionX, y: centerY, text: kind, size: CAPTION_SIZE, font: "read" as const, anchor: "start" as const, fill: "muted" as const, z: STRIP_Z }] : []),
-    { id: "strip-track", kind: "rect", x: strip.trackLeft + strip.trackWidth / 2, y: centerY, w: strip.trackWidth, h: SLOT_HEIGHT + 2 * TRACK_PADDING, fill: "none", stroke: "rule", strokeWidth: 1.6, radius: 1, z: STRIP_Z },
+    ...(state.reading ? [textDrawable("strip-caption", kind, { x: strip.captionX, y: centerY }, { size: CAPTION_SIZE, anchor: "start", fill: "muted", z: STRIP_Z })] : []),
+    boxDrawable("strip-track", { x: strip.trackLeft, y: strip.top, w: strip.trackWidth, h: STRIP_HEIGHT }, { fill: "none", stroke: "rule", strokeWidth: 1.6, radius: 1, z: STRIP_Z }),
   ];
   shown.forEach((entry, index) => {
     const label = state.nodes.find((node) => node.id === entry.node)!.label;
     const keyed = entry.key !== null;
-    parts.push({ id: `entry-${entry.seq}`, kind: "rect", x: slotX(index), y: centerY, w: SLOT_WIDTH, h: SLOT_HEIGHT, fill: "fill2", stroke: "compare", strokeWidth: 2, radius: 1, z: STRIP_Z + 1 });
+    parts.push(boxDrawable(`entry-${entry.seq}`, { x: slotX(index) - width / 2, y: centerY - SLOT_HEIGHT / 2, w: width, h: SLOT_HEIGHT }, { fill: "fill2", stroke: "compare", strokeWidth: 2, radius: 1, z: STRIP_Z + 1 }));
     if (!state.reading) return;
-    parts.push({ ...labelDrawable(label, { x: slotX(index), y: centerY + (keyed ? -11 : 0) }, 28, "mark", "ink", STRIP_Z + 2), id: `entry-${entry.seq}-label` });
-    if (keyed) parts.push({ ...labelDrawable(String(entry.key), { x: slotX(index), y: centerY + 19 }, 20, "read", "muted", STRIP_Z + 2), id: `entry-${entry.seq}-key` });
+    parts.push(textDrawable(`entry-${entry.seq}-label`, label, { x: slotX(index), y: centerY + (keyed ? -11 : 0) }, { size: NODE_LABEL_SIZE, z: STRIP_Z + 2 }));
+    if (keyed) parts.push(textDrawable(`entry-${entry.seq}-key`, String(entry.key), { x: slotX(index), y: centerY + 19 }, { size: 20, fill: "muted", z: STRIP_Z + 2 }));
   });
   const front = outEnd(state);
   if (front && state.reading) {
     const index = shown.indexOf(front);
-    parts.push({ id: "strip-tag", kind: "text", x: slotX(index), y: strip.top - TAG_ROOM / 2, text: OUT_END_TAG[kind], size: 20, font: "read", fill: "muted", z: STRIP_Z });
+    parts.push(textDrawable("strip-tag", OUT_END_TAG[kind], { x: slotX(index), y: strip.top - TAG_ROOM / 2 }, { size: TAG_SIZE, fill: "muted", z: STRIP_Z }));
   }
   return parts;
 }
@@ -700,7 +707,7 @@ export const lab: LabDef<GraphSpec, GraphState> = {
       reading: readsWords(spec),
       frontierKind,
       showDistances: spec.distances === true,
-      radius: radiusFor(layout, nodes.length),
+      radius: radiusFor(layout, nodes),
       nodes,
       edges: layout === "tree" ? withSides(rawEdges, objectId) : rawEdges,
       root,

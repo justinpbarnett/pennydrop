@@ -1,4 +1,4 @@
-import { type Drawable, fail, indexPart, type LabDef, type LabOp, lerp, numberArg, type Role, stringArg, textDrawable } from "../lab";
+import { type Drawable, fail, indexPart, type LabDef, type LabOp, lerp, numberArg, type Role, stringArg, STAGE, STAGE_MARGIN, textDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
 interface Cell {
@@ -46,17 +46,31 @@ const POINTER_LABEL = 51;
 const POINTER_REACH = 67;
 const POINTER_LEVEL = 80;
 const MAX_ARC = 64;
+const TEXT_LABEL_SHARE = 0.3;
+const CELL_TEXT_PADDING = 16;
+
+function textFit(state: ArrayState, cell: number, gap: number): { cellWidth: number; labelSize: number | null } {
+  const texts = state.cells.map((entry) => entry.value);
+  if (texts.every((value) => typeof value === "number")) return { cellWidth: cell, labelSize: null };
+  const widest = Math.max(...texts.map((value) => textWidth(String(value), 100, "read"))) / 100;
+  const preferred = cell * TEXT_LABEL_SHARE;
+  const stageRow = STAGE.w - STAGE_MARGIN * 2;
+  const room = Math.max(cell, (stageRow + gap) / state.cells.length - gap);
+  const cellWidth = Math.min(room, Math.max(cell, widest * preferred + CELL_TEXT_PADDING * 2));
+  return { cellWidth, labelSize: Math.min(preferred, (cellWidth - CELL_TEXT_PADDING * 2) / widest) };
+}
 
 function metrics(state: ArrayState) {
   const count = state.cells.length;
   const cell = count <= 6 ? 140 : count <= 8 ? 110 : Math.max(44, Math.floor(1000 / count) - 10);
   const gap = Math.round(cell * 0.13);
-  const rowWidth = count * (cell + gap) - gap;
+  const { cellWidth, labelSize } = textFit(state, cell, gap);
+  const rowWidth = count * (cellWidth + gap) - gap;
   const width = Math.max(rowWidth, MIN_WIDTH);
   const top = Math.max(MIN_TOP, (state.counters.length > 0 ? COUNTER_BAND : 0) + (state.window ? WINDOW_BAND : 0));
   const levels = state.pointers.length === 0 ? 0 : Math.max(...state.pointers.map((pointer) => pointerLevel(state, pointer)));
   const below = (state.pointers.length === 0 ? INDEX_BOTTOM : POINTER_TIP + POINTER_REACH + levels * POINTER_LEVEL) + BOTTOM_MARGIN;
-  return { cell, gap, width, offset: (width - rowWidth) / 2, top, height: top + cell + below };
+  return { cell, cellWidth, labelSize, gap, width, offset: (width - rowWidth) / 2, top, height: top + cell + below };
 }
 
 function pointerLevel(state: ArrayState, pointer: Pointer): number {
@@ -64,8 +78,8 @@ function pointerLevel(state: ArrayState, pointer: Pointer): number {
 }
 
 function slotCenterX(state: ArrayState, slot: number): number {
-  const { cell, gap, offset } = metrics(state);
-  return offset + slot * (cell + gap) + cell / 2;
+  const { cellWidth, gap, offset } = metrics(state);
+  return offset + slot * (cellWidth + gap) + cellWidth / 2;
 }
 
 function cellCenterY(state: ArrayState): number {
@@ -143,14 +157,14 @@ const SLOT_STYLE: Record<string, { stroke: Role; fill: Role }> = {
 };
 
 function cellDrawables(state: ArrayState, cell: Cell, slot: number, at: { x: number; y: number; scale?: number }): Drawable[] {
-  const { cell: size } = metrics(state);
+  const { cell: size, cellWidth, labelSize } = metrics(state);
   const role = state.slotRoles[slot] ?? "none";
   const style = SLOT_STYLE[role]!;
   const scale = at.scale ?? 1;
   const part = `${state.objectId}[${slot}]`;
   return [
-    { id: `cell-${cell.id}`, kind: "rect", x: at.x, y: at.y, w: size * scale, h: size * scale, fill: style.fill, stroke: style.stroke, strokeWidth: role === "none" ? 1 : 1.8, radius: 1, z: 1, part },
-    textDrawable(`value-${cell.id}`, String(cell.value), at, { size: size * (String(cell.value).length > 3 ? 0.3 : 0.42) * scale, fill: role === "done" ? "done" : "ink", z: 2, part }),
+    { id: `cell-${cell.id}`, kind: "rect", x: at.x, y: at.y, w: cellWidth * scale, h: size * scale, fill: style.fill, stroke: style.stroke, strokeWidth: role === "none" ? 1 : 1.8, radius: 1, z: 1, part },
+    textDrawable(`value-${cell.id}`, String(cell.value), at, { size: (labelSize ?? size * (String(cell.value).length > 3 ? 0.3 : 0.42)) * scale, fill: role === "done" ? "done" : "ink", z: 2, part }),
   ];
 }
 
@@ -191,9 +205,9 @@ function pointerDrawables(state: ArrayState): Drawable[] {
 
 function windowDrawable(state: ArrayState): Drawable[] {
   if (!state.window) return [];
-  const { top, cell } = metrics(state);
-  const left = slotCenterX(state, state.window[0]) - cell / 2;
-  const right = slotCenterX(state, state.window[1]) + cell / 2;
+  const { top, cellWidth } = metrics(state);
+  const left = slotCenterX(state, state.window[0]) - cellWidth / 2;
+  const right = slotCenterX(state, state.window[1]) + cellWidth / 2;
   const y = top - WINDOW_RISE;
   return [{ id: "window", kind: "path", x: left, y, points: [left, y + 14, left, y, right, y, right, y + 14], fill: "none", stroke: "accent", strokeWidth: 2.4, z: 3 }];
 }

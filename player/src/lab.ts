@@ -128,6 +128,10 @@ export function segmentDrawable(kind: "line" | "arrow", from: Point, to: Point, 
   return { id: "body", kind, x: from.x, y: from.y, x2: to.x, y2: to.y, stroke, strokeWidth, z };
 }
 
+export const STAGE: Size = { w: 1600, h: 900 };
+export const STAGE_MARGIN = 60;
+export const NODE_LABEL_SIZE = 26;
+
 export function labelDrawable(text: string, at: Point, size: number, font: FontRole, fill: Paint, z: number): Drawable {
   return { id: "label", kind: "text", x: at.x, y: at.y, text, size, font, fill, z };
 }

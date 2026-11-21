@@ -1,4 +1,4 @@
-import { clamp01, type Drawable, fail, type LabDef, type LabOp, lerp, type OpDef, type Paint, type Point, readsWords, type Role, type Size, textDrawable } from "../lab";
+import { clamp01, type Drawable, fail, type LabDef, type LabOp, lerp, type OpDef, type Paint, type Point, readsWords, type Role, segmentDrawable, type Size, textDrawable } from "../lab";
 import { type Body, bodyAt, endTime, integrate, type Leg, legStart, SIM_STEP, type System, timesBetween, type Trajectory } from "../physics-sim";
 import { textWidth } from "../text-metrics";
 
@@ -140,7 +140,7 @@ function onlyKeys(source: Args, allowed: string[], who: string, ignore: string[]
 }
 
 function line(id: string, from: Point, to: Point, stroke: Paint, strokeWidth: number, z: number, extra: Partial<Drawable> = {}): Drawable {
-  return { id, kind: "line", x: from.x, y: from.y, x2: to.x, y2: to.y, stroke, strokeWidth, z, ...extra };
+  return { ...segmentDrawable("line", from, to, stroke, strokeWidth, z), id, ...extra };
 }
 
 function circle(id: string, at: Point, r: number, fill: Paint, stroke: Paint, strokeWidth: number, z: number, extra: Partial<Drawable> = {}): Drawable {
@@ -228,7 +228,7 @@ function arrows(prefix: string, view: { reading: boolean; vectors: string[] }, a
     const span = Math.max(length, arrowFloor(name));
     const tip = { x: start.x + unit.x * span, y: start.y + unit.y * span };
     const role = VECTOR_ROLE[name]!;
-    const out: Drawable[] = [{ id: `${prefix}vec-${name}`, kind: "arrow", x: start.x, y: start.y, x2: tip.x, y2: tip.y, stroke: role, strokeWidth: name === "net" ? 7 : 5, z: 5 }];
+    const out: Drawable[] = [{ id: `${prefix}vec-${name}`, kind: "arrow", x: start.x, y: start.y, x2: tip.x, y2: tip.y, stroke: role, strokeWidth: name === "net" ? 6 : 3, z: 5 }];
     if (view.reading) {
       const reach = Math.max(offset + span, style.clear) + 26;
       const lift = style.lift?.[name] ?? { x: 0, y: 0 };
