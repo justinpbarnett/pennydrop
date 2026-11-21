@@ -16,7 +16,7 @@ const sharedPlugin: BunPlugin = {
   setup(build) {
     build.onResolve({ filter: SHARED_IMPORT }, (args) => ({ path: args.path.slice(3), namespace: "shared" }));
     build.onResolve({ filter: /^\.\.?\// }, (args) => {
-      if (OWN_ASSET_IMPORT.test(args.path)) return undefined;
+      if (args.importer.includes("/node_modules/") || OWN_ASSET_IMPORT.test(args.path)) return undefined;
       throw new Error(`${args.importer} imports "${args.path}": a minted Lab may import only ${Object.keys(SHARED_MODULES).map((name) => `"../${name}"`).join(" and ")} from the player, plus npm packages and the JSON files under "./assets/<id>/"`);
     });
     build.onLoad({ filter: /.*/, namespace: "shared" }, (args) => ({ contents: sharedModuleSource(args.path), loader: "js" }));
