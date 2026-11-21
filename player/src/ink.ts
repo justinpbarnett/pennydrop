@@ -1,5 +1,6 @@
 import type { Drawable, Size } from "./lab";
-import type { Theme } from "./theme";
+import { textInk } from "./text-metrics";
+import { shownText, type Theme } from "./theme";
 
 export const ARROW_HEAD_ANGLE = 0.46;
 
@@ -14,7 +15,7 @@ export interface Reach {
 
 export const NO_REACH: Reach = { left: 0, top: 0, right: 0, bottom: 0 };
 
-type Extent = [minX: number, minY: number, maxX: number, maxY: number];
+export type Extent = [minX: number, minY: number, maxX: number, maxY: number];
 
 function pointsOf(drawable: Drawable, strokeWidth: number): number[] {
   const { x, y } = drawable;
@@ -38,7 +39,7 @@ function pointsOf(drawable: Drawable, strokeWidth: number): number[] {
   return [];
 }
 
-function turned(drawable: Drawable, points: number[]): number[] {
+export function turned(drawable: Drawable, points: number[]): number[] {
   if (!drawable.rotation || drawable.kind === "circle") return points;
   const radians = (drawable.rotation * Math.PI) / 180;
   const [cos, sin] = [Math.cos(radians), Math.sin(radians)];
@@ -51,7 +52,17 @@ function turned(drawable: Drawable, points: number[]): number[] {
   return rotated;
 }
 
-function extentOf(drawable: Drawable, theme: Theme): Extent | null {
+function textExtent(drawable: Drawable, theme: Theme): Extent | null {
+  const text = shownText(drawable, theme);
+  if (!text) return null;
+  const font = theme.fonts[drawable.font ?? "read"];
+  const { width, left, right, above, below } = textInk(text, drawable.size ?? 28, font);
+  const origin = drawable.anchor === "start" ? drawable.x : drawable.anchor === "end" ? drawable.x - width : drawable.x - width / 2;
+  return [origin + left, drawable.y - above, origin + right, drawable.y + below];
+}
+
+export function extentOf(drawable: Drawable, theme: Theme): Extent | null {
+  if (drawable.kind === "text") return textExtent(drawable, theme);
   const strokeWidth = (drawable.strokeWidth ?? 0) * theme.stroke;
   const points = turned(drawable, pointsOf(drawable, strokeWidth));
   if (points.length === 0) return null;
@@ -66,15 +77,18 @@ function extentOf(drawable: Drawable, theme: Theme): Extent | null {
   return inside[0] < inside[2] && inside[1] < inside[3] ? inside : null;
 }
 
+const UNMEASURED_KINDS: Drawable["kind"][] = ["math", "code", "image"];
+
 export function reachOf(drawables: Drawable[], size: Size, theme: Theme): Reach {
-  const reach = { ...NO_REACH };
+  const unmeasured = drawables.some((drawable) => UNMEASURED_KINDS.includes(drawable.kind) || drawable.spans);
+  const reach: Reach = { ...NO_REACH };
+  let measured = false;
   for (const drawable of drawables) {
     const extent = extentOf(drawable, theme);
     if (!extent) continue;
-    reach.left = Math.max(reach.left, -extent[0]);
-    reach.top = Math.max(reach.top, -extent[1]);
-    reach.right = Math.max(reach.right, extent[2] - size.w);
-    reach.bottom = Math.max(reach.bottom, extent[3] - size.h);
+    const next: Reach = { left: -extent[0], top: -extent[1], right: extent[2] - size.w, bottom: extent[3] - size.h };
+    for (const side of Object.keys(next) as (keyof Reach)[]) reach[side] = measured || unmeasured ? Math.max(reach[side], next[side]) : next[side];
+    measured = true;
   }
   return reach;
 }

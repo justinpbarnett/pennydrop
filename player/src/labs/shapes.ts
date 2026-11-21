@@ -569,7 +569,7 @@ function drawSquare(state: TriangleState, frames: Record<Side, SquareFrame>, sid
   const count = state.reading && growth >= 1 ? squareCount(state, side, view) : null;
   if (count !== null) {
     const center = along(frame.origin, [[frame.across, (length * u) / 2], [frame.outward, (length * u) / 2]]);
-    const size = Math.min(72, Math.max(28, u * 1.1));
+    const size = Math.round(Math.min(72, Math.max(28, u * 1.1)));
     out.push(
       boxAt(`${side}-count-back`, center.x, center.y, size * (0.5 * count.length + 0.9), size * 1.25, { fill: "ground", opacity: 0.8, radius: 0.5, z: 5 }),
       textDrawable(`${side}-count`, count, center, { size, z: 6 }),
@@ -642,15 +642,15 @@ function triangleDrawables(state: TriangleState, view: TriangleView): Drawable[]
   return out;
 }
 
-const builtView = (): TriangleView => ({ growth: { a: 1, b: 1, c: 1 }, shown: { a: 0, b: 0, c: 0 }, combine: 0 });
-
-function triangleExtent(state: TriangleState) {
-  return extentOf(triangleDrawables(state, builtView()));
+function triangleExtent(state: TriangleState, view: TriangleView) {
+  return extentOf(triangleDrawables(state, view));
 }
 
-function drawTriangle(state: TriangleState, view: TriangleView): Drawable[] {
-  const { min } = triangleExtent(state);
-  return shifted(triangleDrawables(state, view), -min.x, -min.y);
+function drawTriangle(state: TriangleState, view: TriangleView, before: TriangleState = state, progress = 1): Drawable[] {
+  const from = triangleExtent(before, staticView(before)).min;
+  const to = triangleExtent(state, staticView(state)).min;
+  const origin = mix(from, to, progress);
+  return shifted(triangleDrawables(state, view), -origin.x, -origin.y);
 }
 
 function sidesOf(state: TriangleState, op: LabOp): Side[] {
@@ -715,7 +715,7 @@ const triangle: Figure<TriangleState> = {
       during(before, after, _op, progress) {
         const view = staticView(after);
         for (const side of SIDES) if (after.built[side] && !before.built[side]) view.growth[side] = progress;
-        return drawTriangle(after, view);
+        return drawTriangle(after, view, before, progress);
       },
     },
     fill: {
@@ -736,7 +736,7 @@ const triangle: Figure<TriangleState> = {
       during(before, after, _op, progress) {
         const view = staticView(after);
         for (const side of SIDES) view.shown[side] = lerp(before.filled[side], after.filled[side], progress);
-        return drawTriangle(after, view);
+        return drawTriangle(after, view, before, progress);
       },
     },
     combine: {
@@ -750,13 +750,13 @@ const triangle: Figure<TriangleState> = {
         if (state.combined) fail(`op "combine" on ${state.objectId}: the squares on a and b are already inside the square on c`);
         return { ...state, combined: true };
       },
-      during(_before, after, _op, progress) {
-        return drawTriangle(after, { ...staticView(after), combine: progress });
+      during(before, after, _op, progress) {
+        return drawTriangle(after, { ...staticView(after), combine: progress }, before, progress);
       },
     },
   },
   size(state) {
-    const { min, max } = triangleExtent(state);
+    const { min, max } = triangleExtent(state, staticView(state));
     return { w: max.x - min.x, h: max.y - min.y };
   },
   draw: (state) => drawTriangle(state, staticView(state)),

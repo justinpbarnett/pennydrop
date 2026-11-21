@@ -1,4 +1,4 @@
-import type { FontRole, Role } from "./lab";
+import type { Drawable, FontRole, Role } from "./lab";
 
 export const THEME_IDS = ["pattern", "film", "kids", "plain"] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
@@ -123,6 +123,10 @@ export const THEMES: Record<ThemeId, Theme> = {
     backdrop: { kind: "flat", vignette: 0, glow: 0 },
   },
 };
+
+export function shownText(drawable: Pick<Drawable, "text" | "font">, theme: Theme): string | undefined {
+  return drawable.font === "mark" && theme.capitalMarks ? drawable.text?.toUpperCase() : drawable.text;
+}
 
 export type Rgba = [number, number, number, number];
 

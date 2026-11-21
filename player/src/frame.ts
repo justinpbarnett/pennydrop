@@ -2,7 +2,7 @@ import { gsap } from "gsap";
 import { definitionOf, type SceneState } from "./scene";
 import { type Camera, buildStage, HOME_CAMERA, type PlacedObject, placeDrawables, type Stage } from "./stage";
 import { clamp01, type Drawable, type DrawableKind, duringLabOp, lerp, lerpRect, type Paint, type Rect } from "./lab";
-import { parseHex, type Rgba, type Theme } from "./theme";
+import { parseHex, type Rgba, shownText, type Theme } from "./theme";
 import { type SegmentProgress, type Timeline, trueProgress } from "./timeline";
 import { applyEffect, type Touch } from "./verbs";
 import type { Box } from "./layout";
@@ -55,7 +55,6 @@ function paintOf(paint: Paint | undefined, theme: Theme): Rgba | null {
 
 function paintDrawable(drawable: Drawable, theme: Theme): Painted {
   const font = theme.fonts[drawable.font ?? "read"];
-  const caps = drawable.font === "mark" && theme.capitalMarks;
   return {
     id: drawable.id,
     kind: drawable.kind,
@@ -68,7 +67,7 @@ function paintDrawable(drawable: Drawable, theme: Theme): Painted {
     y2: drawable.y2,
     points: drawable.points,
     closed: drawable.closed,
-    text: caps ? drawable.text?.toUpperCase() : drawable.text,
+    text: shownText(drawable, theme),
     spans: drawable.spans?.map((span) => ({ text: span.text, color: parseHex(theme.colors[span.role]) })),
     latex: drawable.latex,
     href: drawable.href,

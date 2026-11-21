@@ -30,7 +30,8 @@ const IDENTITY: Transform = { scaleX: 1, scaleY: 1, shiftX: 0, shiftY: 0 };
 
 function compose(outer: Transform, attribute: string): Transform {
   let inner = outer;
-  for (const [, name, values] of attribute.matchAll(/(translate|scale)\(([^)]*)\)/g)) {
+  for (const [, name, values] of attribute.matchAll(/([A-Za-z]+)\(([^)]*)\)/g)) {
+    if (name !== "translate" && name !== "scale") return fail(`math uses the unsupported transform "${name}"`);
     const [first = 0, second = name === "translate" ? 0 : first] = values!.trim().split(/[\s,]+/).map(Number);
     inner = name === "translate"
       ? { ...inner, shiftX: inner.shiftX + inner.scaleX * first, shiftY: inner.shiftY + inner.scaleY * second }
@@ -114,8 +115,8 @@ function includePath(ink: Ink, transform: Transform, data: string): void {
 function inkOf(markup: string): Ink {
   const ink: Ink = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
   const stack: Transform[] = [IDENTITY];
-  for (const [tag] of markup.matchAll(/<\/?(?:g|path|rect)\b[^>]*>/g)) {
-    if (tag.startsWith("</g")) {
+  for (const [tag] of markup.matchAll(/<\/g>|<(?:g|path|rect)\b[^>]*>/g)) {
+    if (tag === "</g>") {
       stack.pop();
       continue;
     }

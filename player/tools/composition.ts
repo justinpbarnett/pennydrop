@@ -3,7 +3,7 @@ import type { LessonSource } from "../src/format";
 import type { Drawable } from "../src/lab";
 import { layoutScene } from "../src/layout";
 import { definitionOf, startSceneOf } from "../src/scene";
-import { ARROW_HEAD_ANGLE, arrowHeadLength } from "../src/ink";
+import { ARROW_HEAD_ANGLE, arrowHeadLength, turned } from "../src/ink";
 import { textWidth } from "../src/text-metrics";
 import { THEMES } from "../src/theme";
 import { Timeline } from "../src/timeline";
@@ -14,6 +14,7 @@ const CLEARANCE = 12;
 const MAX_REPORTED = 3;
 const MIN_SHAFT_HEADS = 1.5;
 const MIN_TEXT_PX = 20;
+const ON_EDGE = 0.5;
 const WIDEST_STROKE = Math.max(...Object.values(THEMES).map((theme) => theme.stroke));
 
 export interface Finding {
@@ -61,6 +62,17 @@ export function boxOf(drawable: Drawable): Box | null {
       return { minX: left, maxX: left + width, minY: y - size / 2, maxY: y + size / 2 };
     }
   }
+}
+
+function turnedShape(drawable: Drawable): Drawable {
+  if (!drawable.rotation || drawable.kind === "circle" || drawable.kind === "text") return drawable;
+  if (drawable.kind === "line" || drawable.kind === "arrow") {
+    const [x2, y2] = turned(drawable, [drawable.x2 ?? drawable.x, drawable.y2 ?? drawable.y]);
+    return { ...drawable, x2, y2, rotation: 0 };
+  }
+  const box = boxOf({ ...drawable, rotation: 0 });
+  const unturned = drawable.kind === "rect" && box ? [box.minX, box.minY, box.maxX, box.minY, box.maxX, box.maxY, box.minX, box.maxY] : drawable.points ?? [];
+  return { ...drawable, kind: "path", closed: drawable.kind === "rect" || drawable.closed, points: turned(drawable, unturned), rotation: 0 };
 }
 
 function overlaps(a: Box, b: Box): boolean {
@@ -163,6 +175,16 @@ function clearance(text: Box, shape: Drawable): number | null {
   }
 }
 
+function encloses(outline: Drawable, inner: Drawable): boolean {
+  if (outline === inner) return false;
+  const [outer, within] = [boxOf(outline), boxOf(inner)];
+  if (!outer || !within) return false;
+  if (outline.kind === "rect") return inside(within, { minX: outer.minX - ON_EDGE, maxX: outer.maxX + ON_EDGE, minY: outer.minY - ON_EDGE, maxY: outer.maxY + ON_EDGE });
+  if (outline.kind !== "path" || !outline.closed) return false;
+  const polygon = pointsOf(outline);
+  return corners(within).every((corner) => insidePolygon(corner, polygon) || polygon.some((point, index) => pointToSegment(corner, point, polygon[(index + 1) % polygon.length]!) <= ON_EDGE));
+}
+
 function mergedGaps(spans: [number, number][]): { from: number; to: number }[] {
   const ordered = [...spans].sort((a, b) => a[0] - b[0]);
   const gaps: { from: number; to: number }[] = [];
@@ -195,7 +217,7 @@ export async function compositionFindings(lesson: LessonSource, wants: (defKey: 
     for (const object of timeline.finalScene.objects.filter((candidate) => wants(candidate.defKey))) {
       const definition = definitionOf(object);
       const size = definition.size(object.state);
-      const drawables = definition.draw(object.state, { objectId: object.id, links: {} }).filter((drawable) => drawable.opacity !== 0);
+      const drawables = definition.draw(object.state, { objectId: object.id, links: {} }).filter((drawable) => drawable.opacity !== 0).map(turnedShape);
       const boxes = drawables.map(boxOf).filter((box): box is Box => box !== null);
       if (boxes.length === 0) continue;
       const projections: [string, number, [number, number][]][] = [
@@ -226,8 +248,10 @@ export async function compositionFindings(lesson: LessonSource, wants: (defKey: 
           const gap = boxGap(box, boxOf(other)!);
           if (gap < CLEARANCE) crowded.push(`label ${describe(text)} is ${Math.round(gap)} px from label ${describe(other)} (need ${CLEARANCE}); move them apart`);
         }
+        const holders = drawables.filter((shape) => ["rect", "path"].includes(shape.kind) && clearance(box, shape) === null);
         for (const shape of drawables) {
           if (!["rect", "circle", "line", "arrow", "path"].includes(shape.kind)) continue;
+          if (shape.part !== undefined && holders.some((holder) => holder.part !== undefined && encloses(holder, shape))) continue;
           const gap = clearance(box, shape);
           if (gap !== null && gap < CLEARANCE) crowded.push(`label ${describe(text)} is ${Math.round(gap)} px from the edge of ${shape.kind} ${shape.id} that it does not sit inside (need ${CLEARANCE}); move the label or enlarge the shape around it`);
         }
