@@ -1,6 +1,8 @@
 import "./app.css";
 import "./log.css";
 import { h } from "./dom";
+import { lessonTitle } from "./format";
+import { pickProfile } from "./source";
 import { applyThemeVars } from "./theme-css";
 
 interface Profile {
@@ -11,9 +13,9 @@ interface Profile {
 
 interface Log {
   profile: Profile;
-  asks: { transcript: string; lesson_id: string; at: string }[];
-  lessons: { lesson_id: string; title: string | null; status: string | null; at: string; seconds: number | null; cost_usd: number | null }[];
-  answers: { lesson_id: string; step: number; answer: unknown; correct: boolean; at: string }[];
+  asks: { transcript: string; lesson_id: string; lesson_title: string | null; at: string }[];
+  lessons: { lesson_id: string; lesson_title: string | null; status: string | null; at: string; seconds: number | null; cost_usd: number | null }[];
+  answers: { lesson_id: string; lesson_title: string | null; step: number; answer: unknown; correct: boolean; at: string }[];
 }
 
 const root = document.querySelector<HTMLElement>("#log")!;
@@ -22,7 +24,7 @@ applyThemeVars("pattern");
 const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const seconds = (value: number | null) => (value === null ? "-" : `${value.toFixed(1)} s`);
 const dollars = (value: number | null) => (value === null ? "-" : `$${value.toFixed(4)}`);
-const lessonLink = (id: string, label: string) => h("a", { href: `/?lesson=${encodeURIComponent(id)}` }, label);
+const lessonLink = (id: string, title: string | null, label = lessonTitle(title)) => title === null ? label : h("a", { href: `/?lesson=${encodeURIComponent(id)}` }, label);
 
 function table(headings: string[], rows: (Node | string)[][], empty: string): HTMLElement {
   if (rows.length === 0) return h("p", { class: "none" }, empty);
@@ -37,20 +39,20 @@ function section(title: string, body: HTMLElement): HTMLElement {
 function show(log: Log): void {
   const answered = log.answers.filter((answer) => answer.correct).length;
   root.replaceChildren(
-    section("Asks", table(["When", "Transcript"], log.asks.map((ask) => [when(ask.at), lessonLink(ask.lesson_id, ask.transcript)]), "No Asks yet.")),
+    section("Asks", table(["When", "Transcript"], log.asks.map((ask) => [when(ask.at), lessonLink(ask.lesson_id, ask.lesson_title, ask.transcript)]), "No Asks yet.")),
     section("Lessons", table(["When", "Title", "Status", "Time to finish", "Cost"],
-      log.lessons.map((lesson) => [when(lesson.at), lessonLink(lesson.lesson_id, lesson.title ?? lesson.lesson_id), lesson.status ?? "-", seconds(lesson.seconds), dollars(lesson.cost_usd)]), "No Lessons yet.")),
+      log.lessons.map((lesson) => [when(lesson.at), lessonLink(lesson.lesson_id, lesson.lesson_title), lesson.status ?? "-", seconds(lesson.seconds), dollars(lesson.cost_usd)]), "No Lessons yet.")),
     section(`Challenge answers (${answered} of ${log.answers.length} right)`, table(["When", "Lesson", "Step", "Answer", "Result"],
-      log.answers.map((answer) => [when(answer.at), lessonLink(answer.lesson_id, answer.lesson_id), String(answer.step), JSON.stringify(answer.answer), answer.correct ? "right" : "wrong"]), "No answers yet.")),
+      log.answers.map((answer) => [when(answer.at), lessonLink(answer.lesson_id, answer.lesson_title), String(answer.step), JSON.stringify(answer.answer), answer.correct ? "right" : "wrong"]), "No answers yet.")),
   );
 }
 
 async function load(): Promise<void> {
   const profiles = (await (await fetch("/api/profiles")).json()) as Profile[];
-  const wanted = Number(new URLSearchParams(location.search).get("profile"));
-  const profile = profiles.find((candidate) => candidate.id === wanted) ?? profiles[0];
+  const requested = new URLSearchParams(location.search).get("profile");
+  const profile = pickProfile(profiles, requested === null ? null : Number(requested));
   if (!profile) {
-    root.replaceChildren(h("h1", {}, "Lesson log"), h("p", { class: "none" }, "There are no Profiles yet."));
+    root.replaceChildren(h("h1", {}, "Lesson log"), h("p", { class: "none" }, "There is no adult Profile yet. Add one with pd profile add --kind adult, or open a kid's log with ?profile=."));
     return;
   }
   const select = h("select", { "aria-label": "Profile" }, ...profiles.map((candidate) => h("option", { value: String(candidate.id), selected: candidate.id === profile.id }, `${candidate.name} (${candidate.kind})`)));

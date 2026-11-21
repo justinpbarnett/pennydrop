@@ -184,6 +184,23 @@ SCHEMA = [
     create unique index topics_code on topics (course_id, code) where code is not null;
     create unique index topics_position on topics (course_id, parent_id, position);
     """,
+    """
+    create table profiles_rebuilt (
+        id integer primary key,
+        name text not null unique,
+        kind text not null check (kind in ('adult', 'kid')),
+        born_year integer,
+        born_month integer,
+        level text not null default 'beginner',
+        theme text not null,
+        created_at text not null,
+        check ((kind = 'kid') = (born_year is not null and born_month is not null))
+    );
+    insert into profiles_rebuilt (id, name, kind, born_year, born_month, level, theme, created_at)
+        select id, name, kind, born_year, born_month, level, theme, created_at from profiles;
+    drop table profiles;
+    alter table profiles_rebuilt rename to profiles;
+    """,
 ]
 
 
@@ -204,8 +221,8 @@ class Profile:
     id: int
     name: str
     kind: ProfileKind
-    born_year: int
-    born_month: int
+    born_year: int | None
+    born_month: int | None
     level: str
     theme: str
 
@@ -318,7 +335,7 @@ class Store:
             self._connection.execute("commit")
         self._connection.execute("pragma foreign_keys = on")
 
-    def add_profile(self, name: str, kind: ProfileKind, born_year: int, born_month: int, theme: str, level: str = "beginner") -> Profile:
+    def add_profile(self, name: str, kind: ProfileKind, born_year: int | None, born_month: int | None, theme: str, level: str = "beginner") -> Profile:
         cursor = self._connection.execute(
             "insert into profiles (name, kind, born_year, born_month, level, theme, created_at) values (?, ?, ?, ?, ?, ?, ?)",
             (name, kind.value, born_year, born_month, level, theme, _iso(_now())),
@@ -524,7 +541,7 @@ class Store:
         profile = self.profile(profile_id)
         asks = self._connection.execute(
             """
-            select log.ask, log.lesson_id, log.content_check, log.created_at, lessons.title, lessons.status, lessons.done_seconds, lessons.cost_usd
+            select log.ask, log.lesson_id, log.content_check, log.created_at, lessons.status, lessons.done_seconds, lessons.cost_usd
             from lesson_log as log left join lessons on lessons.id = log.lesson_id
             where log.profile_id = ? order by log.created_at desc, log.id desc
             """,
@@ -538,7 +555,7 @@ class Store:
             "profile": {"id": profile.id, "name": profile.name, "kind": profile.kind.value},
             "asks": [{"transcript": row["ask"], "lesson_id": row["lesson_id"], "content_check": row["content_check"], "at": row["created_at"]} for row in asks],
             "lessons": [
-                {"lesson_id": row["lesson_id"], "title": row["title"], "status": row["status"], "at": row["created_at"], "seconds": row["done_seconds"], "cost_usd": row["cost_usd"]}
+                {"lesson_id": row["lesson_id"], "status": row["status"], "at": row["created_at"], "seconds": row["done_seconds"], "cost_usd": row["cost_usd"]}
                 for row in asks
             ],
             "answers": [

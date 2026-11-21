@@ -2,7 +2,7 @@ import "./app.css";
 import "./study.css";
 import { loadFonts } from "./boot";
 import { h } from "./dom";
-import { firstProfileId } from "./source";
+import { resolveProfileId } from "./source";
 import type { ThemeId } from "./theme";
 import { applyThemeVars } from "./theme-css";
 import { buildSwatches, markSwatches, rememberedTheme, rememberTheme } from "./theme-picker";
@@ -35,9 +35,9 @@ document.title = `${section === "review" ? "Review" : "Courses"} - Pennydrop`;
 
 try {
   if (section === "review") {
-    const profile = await firstProfileId(query.has("profile") ? Number(query.get("profile")) : null);
+    const profile = await resolveProfileId(query.has("profile") ? Number(query.get("profile")) : null);
     if (profile === null) {
-      view.replaceChildren(h("p", { class: "none" }, "There are no Profiles yet, so there is nothing to review."));
+      view.replaceChildren(h("p", { class: "none" }, "There is no adult Profile yet, so there is nothing to review. Add one with pd profile add --kind adult."));
     } else {
       review = buildReviewView(profile, themeId);
       view.replaceChildren(review.element);

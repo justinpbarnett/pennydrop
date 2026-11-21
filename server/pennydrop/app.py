@@ -54,11 +54,11 @@ class ReviewAnswer(BaseModel):
     correct: bool
 
 
-def _lesson_title(services: Services, lesson_id: str) -> str:
+def _lesson_title(services: Services, lesson_id: str) -> str | None:
     try:
-        return services.library.raw(lesson_id).header.get("title", lesson_id)
+        return services.library.raw(lesson_id).header.get("title") or None
     except LookupError:
-        return lesson_id
+        return None
 
 
 def _review_payload(services: Services, item: ReviewItem) -> dict[str, Any]:
@@ -176,7 +176,10 @@ def create_app(services: Services) -> FastAPI:
 
     @app.get("/api/profiles/{profile_id}/log")
     async def profile_log(profile_id: int):
-        return services.store.profile_log(profile_id)
+        log = services.store.profile_log(profile_id)
+        for row in (*log["asks"], *log["lessons"], *log["answers"]):
+            row["lesson_title"] = _lesson_title(services, row["lesson_id"])
+        return log
 
     @app.get("/kids/manifest.webmanifest", include_in_schema=False)
     async def kids_manifest(profile: int | None = None):

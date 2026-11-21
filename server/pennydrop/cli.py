@@ -101,7 +101,7 @@ def _parser() -> argparse.ArgumentParser:
     add = profile_commands.add_parser("add")
     add.add_argument("--name", required=True)
     add.add_argument("--kind", choices=[kind.value for kind in ProfileKind], required=True)
-    add.add_argument("--born", required=True, help="YYYY-MM")
+    add.add_argument("--born", help="YYYY-MM, for a kid only")
     add.add_argument("--theme", required=True)
     add.add_argument("--level", default="beginner")
     add.set_defaults(handler=_profile_add)
@@ -279,11 +279,17 @@ def _vision(services: Services, arguments) -> None:
 
 
 def _profile_add(services: Services, arguments) -> None:
-    year, month = arguments.born.split("-")
-    profile = services.store.add_profile(arguments.name, ProfileKind(arguments.kind), int(year), int(month), arguments.theme, arguments.level)
+    kind = ProfileKind(arguments.kind)
+    if kind is ProfileKind.KID and arguments.born is None:
+        raise SystemExit("a kid Profile needs --born YYYY-MM")
+    if kind is ProfileKind.ADULT and arguments.born is not None:
+        raise SystemExit("an adult Profile takes no --born")
+    year, month = (int(part) for part in arguments.born.split("-")) if arguments.born else (None, None)
+    profile = services.store.add_profile(arguments.name, kind, year, month, arguments.theme, arguments.level)
     print(f"added profile {profile.id}")
 
 
 def _profile_list(services: Services, _) -> None:
     for profile in services.store.profiles():
-        print(f"{profile.id}  {profile.name}  {profile.kind.value}  born {profile.born_year}-{profile.born_month:02d}  {profile.level}  {profile.theme}")
+        born = f"born {profile.born_year}-{profile.born_month:02d}" if profile.born_year is not None else "-"
+        print(f"{profile.id}  {profile.name}  {profile.kind.value}  {born}  {profile.level}  {profile.theme}")

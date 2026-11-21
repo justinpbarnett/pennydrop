@@ -60,11 +60,19 @@ export async function loadLesson(id: string, sink: LessonSink, live: boolean, si
   }
 }
 
-export async function firstProfileId(preferred: number | null): Promise<number | null> {
+export interface ProfileSummary {
+  id: number;
+  name: string;
+  kind: string;
+}
+
+export function pickProfile<T extends { id: number; kind: string }>(profiles: T[], preferred: number | null): T | null {
+  return profiles.find((profile) => profile.id === preferred) ?? profiles.find((profile) => profile.kind === "adult") ?? null;
+}
+
+export async function resolveProfileId(preferred: number | null): Promise<number | null> {
   try {
-    const profiles = (await getJson("/api/profiles")) as { id: number }[];
-    if (preferred !== null && profiles.some((profile) => profile.id === preferred)) return preferred;
-    return profiles[0]?.id ?? null;
+    return pickProfile((await getJson("/api/profiles")) as ProfileSummary[], preferred)?.id ?? null;
   } catch {
     return null;
   }

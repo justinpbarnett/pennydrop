@@ -1,7 +1,7 @@
 import { buildChallenge, type ChallengeView } from "../challenge-ui";
 import { h } from "../dom";
 import { headerOf } from "../ask-client";
-import type { Step } from "../format";
+import { lessonTitle, type Step } from "../format";
 import { Playback } from "../playback";
 import { StageRenderer } from "../render";
 import { THEMES, type ThemeId } from "../theme";
@@ -61,7 +61,7 @@ export function buildReviewView(profile: number, themeId: ThemeId): ReviewView {
     });
     challengeView = view;
     panel.replaceChildren(
-      h("p", { class: "from" }, h("span", {}, item.lesson_title), ` - Step ${item.step_n}`),
+      h("p", { class: "from" }, h("span", {}, lessonTitle(item.lesson_title)), ` - Step ${item.step_n}`),
       view.element,
       comes);
     panel.querySelector<HTMLInputElement>("input")?.focus();
@@ -72,7 +72,8 @@ export function buildReviewView(profile: number, themeId: ThemeId): ReviewView {
     if (!item) return;
     work.hidden = false;
     summary.textContent = `${items.length} due`;
-    await replay(item);
+    stage.hidden = item.lesson_title === null;
+    if (!stage.hidden) await replay(item);
     showCard(item, rest);
   }
 
@@ -97,7 +98,7 @@ export function buildReviewView(profile: number, themeId: ThemeId): ReviewView {
       items.length === 0 ? h("p", { class: "none" }, "No Challenges scheduled yet.") : h("table", {},
         h("thead", {}, h("tr", {}, ...["Lesson", "Step", "Kind", "Reviews", "Comes back"].map((heading) => h("th", {}, heading)))),
         h("tbody", {}, ...items.map((item) => h("tr", {},
-          h("td", {}, h("a", { href: `/?lesson=${encodeURIComponent(item.lesson_id)}` }, item.lesson_title)),
+          h("td", {}, item.lesson_title === null ? lessonTitle(null) : h("a", { href: `/?lesson=${encodeURIComponent(item.lesson_id)}` }, item.lesson_title)),
           h("td", {}, String(item.step_n)),
           h("td", {}, item.type),
           h("td", {}, String(item.schedule.reps)),

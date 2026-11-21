@@ -2,6 +2,8 @@ import { fail } from "./lab";
 import type { Relation } from "./relation";
 import type { SceneState } from "./scene";
 
+export const lessonTitle = (title: string | null): string => title ?? "a removed Lesson";
+
 export interface Voice {
   url: string;
   duration: number;

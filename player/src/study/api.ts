@@ -27,7 +27,7 @@ export interface ReviewItem {
   prompt: Challenge;
   schedule: { ease: number; interval_days: number; reps: number; lapses: number };
   due: string;
-  lesson_title: string;
+  lesson_title: string | null;
   kind: string | null;
   type: string;
   answer_shape: string;
