@@ -252,6 +252,8 @@ function option(name: string): string | undefined {
 
 export async function checkWorkspace(workspace: string, dist: string | undefined): Promise<Finding[]> {
   const id = basename(workspace);
+  const promoted = join(PLAYER_ROOT, "src/labs", `${id}.ts`);
+  if (existsSync(promoted)) return [{ stage: "files", message: `${promoted} exists, so this check would run the promoted Lab instead of this workspace; move the promoted file aside before minting '${id}' again` }];
   const sourcePath = join(workspace, "src/labs", `${id}.ts`);
   const lessonPath = join(workspace, "lesson.jsonl");
   const missing = [sourcePath, lessonPath].filter((path) => !existsSync(path));

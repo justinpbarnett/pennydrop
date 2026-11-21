@@ -34,6 +34,7 @@ class RequestOptions(TypedDict, total=False):
     tools: str
     cwd: Path
     permission_mode: str
+    allowed_tools: str
     sandbox: str
     timeout: float
     lesson_id: str

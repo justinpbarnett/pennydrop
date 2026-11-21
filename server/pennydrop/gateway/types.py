@@ -41,6 +41,7 @@ class Request:
     tools: str = ""
     cwd: Path | None = None
     permission_mode: str | None = None
+    allowed_tools: str | None = None
     sandbox: str | None = None
     timeout: float = 120.0
     lesson_id: str | None = None

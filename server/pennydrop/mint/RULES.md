@@ -53,6 +53,10 @@ Lessons place Labs in a Scene, and ops fire on spoken Cues, so a Lab is judged b
 - The stage is 1600 by 900.
   The layout shrinks a Lab to fit inside 1480 by 780 and never enlarges it, so a Lab that stands alone should be about 1000 to 1480 wide and 500 to 780 high.
   Make the Lab fill that space with a balanced composition at every state, including the empty first state.
+- An `arrow` Drawable is one straight segment from `x`,`y` to `x2`,`y2` with a head of length `arrowHeadLength(strokeWidth)` from `../ink`, which grows with the stroke width and is larger still in the Themes that thicken strokes.
+  Give every arrow a shaft of at least one and a half head lengths, and keep its head 12 or more clear of any text.
+  For a route with a bend, draw `line` Drawables for the bends and end it with one long enough `arrow`, never a short stub whose head is longer than its shaft.
+  The check fails an arrow whose shaft is under one and a half heads, and a head that comes within 12 of a label.
 - Text is at least 22 in size, and anything the learner must read is 28 or more.
   Measure text with `textWidth` from `../text-metrics`, and size boxes from the measured width so no text touches a line, an edge or a neighbour.
   Leave at least 12 of clear space between text and any line or shape edge, and between two texts, unless the text sits wholly inside the shape.
@@ -100,3 +104,37 @@ Lessons place Labs in a Scene, and ops fire on spoken Cues, so a Lab is judged b
 
 - Draw everything from Drawables.
   Do not add image, font or audio files.
+- When the task says a data file is provided, it is already at `src/labs/assets/<id>/<name>.json` and you import it as `import data from "./assets/<id>/<name>.json"`.
+  That is the only relative import besides `../lab` and `../text-metrics`.
+  Never edit or copy the provided file, and never fetch data from the network.
+
+## House style
+
+Write the Lab the way `array.ts` and `scheduler.ts` read: spaces after colons and commas and inside braces, one statement per line, object literals with more than a few fields broken one field per line, and named helpers instead of long inline literals.
+The Mint runs prettier over your file after each round, so do not fight it, but code that was written dense stays hard to read even after formatting.
+
+## Connectors and highlights
+
+A connector arrow starts on the edge of the shape or text it comes from and ends a few pixels short of the outline it points at, aimed at the middle of that side, so its head never lands on a thick highlight stroke.
+Draw a highlight inside the bounds of its shape, or leave a gap to the neighbouring shapes at least as wide as the stroke.
+Use one feedback colour for everything that marks the same answer: the arrow, the outline of the target and the outline of the source.
+Lay out repeated groups, such as letter tiles under syllables, centred under the item they belong to with equal gaps.
+
+## Size and use of the stage
+
+Every text Drawable is at least 20 px, in every Theme.
+Scale the drawing to the stage it is given: its bounding box fills at least 85 percent of the stage width and of the stage height at every step, and lanes, rows, cells, pills and labels grow with the room instead of keeping a fixed small size.
+A step that has little to show still spreads what it has over the stage, with no long empty lanes or thin strips; lifelines and rows start where the first item is.
+Tick labels and other text at the corner where two axes meet stay at least 12 px apart.
+
+## What a shape means
+
+A slot, bucket or cell that holds one item shows one item.
+When a second item is turned away, draw it outside the slot with a visible collision mark, then move it to where it goes next; never draw it inside the slot beside the first.
+An arrow that carries a whole block's value to the next step starts at the centre of that whole block, or at its bracket, and never at one inner cell.
+
+## Legibility of marks
+
+A connector, pointer or dot uses a Theme role that stays clearly visible on the panel behind it, with a stroke of at least 2, from the moment it appears until it is removed.
+Never fade a mark down to near the background.
+Content inside a panel is centred in it both ways, or the panel is sized to its content, so a panel never shows a blank band on one side of its content.

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .land import install_land
 from .paths import MintPaths
 from .runtime import MintError
 
@@ -12,6 +13,7 @@ RULES_FILE = Path(__file__).with_name("RULES.md")
 ROLES_FILE = Path(__file__).with_name("roles.md")
 REFERENCE_FILES = ("smell-guide.md", "workflow.md")
 SAMPLE_LESSON = "bubble-sort.jsonl"
+LABS_WITH_LAND = ("map",)
 
 CHECK_SCRIPT = """#!/bin/sh
 cd "$(dirname "$0")" || exit 1
@@ -60,6 +62,8 @@ def prepare(paths: MintPaths, lab_id: str, brief: str, ask: str | None) -> Path:
     (workspace / "reference" / "code-standard.md").write_text(_code_standard(paths))
     (workspace / "reference" / "catalog.md").write_text(_catalog(paths))
     (workspace / "tsconfig.json").write_text(json.dumps(_tsconfig(paths, workspace), indent=2))
+    if lab_id in LABS_WITH_LAND:
+        install_land(paths, workspace / "src" / "labs" / "assets" / lab_id)
     check = workspace / "check"
     check.write_text(CHECK_SCRIPT.format(tools=paths.tools))
     check.chmod(0o755)
@@ -71,7 +75,7 @@ def prepare(paths: MintPaths, lab_id: str, brief: str, ask: str | None) -> Path:
 def _tsconfig(paths: MintPaths, workspace: Path) -> dict:
     return {
         "extends": str(paths.player / "tsconfig.json"),
-        "compilerOptions": {"rootDirs": [str(workspace / "src"), str(paths.player / "src")], "types": [], "noEmit": True},
+        "compilerOptions": {"rootDirs": [str(workspace / "src"), str(paths.player / "src")], "types": [], "noEmit": True, "resolveJsonModule": True},
         "include": [str(workspace / "src")],
     }
 

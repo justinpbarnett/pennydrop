@@ -28,6 +28,8 @@ class ClaudeRoute:
             argv += ["--effort", request.effort]
         if request.permission_mode:
             argv += ["--permission-mode", request.permission_mode]
+        if request.allowed_tools:
+            argv += ["--allowedTools", request.allowed_tools]
         if request.images:
             argv += ["--input-format", "stream-json"]
         cwd = request.cwd or self._neutral_cwd

@@ -19,14 +19,14 @@ You are shown frames from one Lesson, taken at different times, all drawn in one
 List only concrete, visible defects, each one a thing a designer would send back:
 - overlap: marks, text or shapes covering each other when they should not
 - clipping: anything cut off by the stage edge or by its own box
-- text touching: text touching or crossing a line, border or neighbouring shape, or any text closer than about 12 px (on the 1600 by 900 stage) to a line or to another label
+- text touching: text touching or crossing a line, border or neighbouring shape
 - contrast: text or marks that are hard to read against what is behind them
-- empty band: a strip across the Lab's drawing area (the box the Lab draws in, not the whole stage) that is more than about 15 percent of that box wide or tall and has nothing drawn in it, whether at a side, the top, the bottom or in the middle
-- unbalanced space: the drawing's margin on one side is more than twice the margin on the opposite side (left against right, top against bottom) inside the Lab's drawing area, so the drawing sits off-centre
 - composition: the drawing is empty, tiny, lopsided, or crowded into one part of the stage when it could use the space; a panel or row where the marks sit in one corner and more than a third of its width is blank, items unevenly spaced from the label next to them, and a title or caption that is not aligned to anything are all defects
-Estimate these distances from the frame as carefully as you can, and report every frame that breaks one of the three measured rules (empty band, unbalanced space, labels within 12 px).
+Exact distances, margins and empty bands are measured by a separate geometry check, so do not estimate pixel distances or report a gap, margin or spacing unless it is plainly visible without measuring.
 - reading: placeholder, garbled or wrong looking labels
 A frame can be captured in the middle of an op, and the player crossfades text that changes, so two strings overlapping while one fades out is not a defect unless the final settled state also has the overlap.
+The layout places the whole Lab drawing in the middle of the stage, so blank stage around the outside of the drawing is never a defect.
+A connector arrow that crosses a panel border to reach a part in another panel is correct, and an arrowhead that ends on its target part is correct; report an arrow only when it runs along or on top of a border line, its head covers text, or it points at nothing.
 Do not report the shapes of the theme's typeface glyphs (such as a 1 resembling an I), theme colors the Lab cannot choose, taste, motion, or anything you cannot point to in a specific frame.
 Reply with JSON only: a list of at most %d objects {"frame": <number of the frame, starting at 1>, "defect": "<what is wrong and where, in one sentence>", "fix": "<what to change in the drawing code>"}.
 Reply with [] when the frames have no such defect.""" % MAX_DEFECTS_PER_THEME

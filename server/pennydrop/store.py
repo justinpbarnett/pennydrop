@@ -606,6 +606,14 @@ class Store:
     def mints(self) -> list[MintRecord]:
         return [_mint_from(row) for row in self._connection.execute("select * from minted_labs order by id")]
 
+    def lessons_using_lab(self, lab_id: str) -> list[LessonRecord]:
+        found = []
+        for row in self._connection.execute("select * from lessons where status = 'ready' and (labs like ? or id in (select lesson_id from steps where json like ?))", (f"%{lab_id}%", f"%{lab_id}%")):
+            lesson = _lesson_from(row)
+            if lab_id in lesson.labs or any(_uses_lab(step, lab_id) for step in self.steps(lesson.id)):
+                found.append(lesson)
+        return found
+
     def delete_lesson(self, lesson_id: str) -> None:
         self._connection.execute("delete from steps where lesson_id = ?", (lesson_id,))
         self._connection.execute("delete from lessons where id = ?", (lesson_id,))
@@ -625,6 +633,14 @@ class Store:
 
 def _profile_from(row: sqlite3.Row) -> Profile:
     return Profile(row["id"], row["name"], ProfileKind(row["kind"]), row["born_year"], row["born_month"], row["level"], row["theme"])
+
+
+def _uses_lab(value: Any, lab_id: str) -> bool:
+    if isinstance(value, dict):
+        return value.get("lab") == lab_id or any(_uses_lab(item, lab_id) for item in value.values())
+    if isinstance(value, list):
+        return any(_uses_lab(item, lab_id) for item in value)
+    return False
 
 
 def _lesson_from(row: sqlite3.Row) -> LessonRecord:

@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import type { BunPlugin } from "bun";
 import { SHARED_GLOBAL, SHARED_MODULES } from "../src/minted";
 
+const OWN_ASSET_IMPORT = /^\.\/assets\/[a-z0-9-]+\/[\w.-]+\.json$/;
 const SHARED_IMPORT = new RegExp(`^\\.\\./(${Object.keys(SHARED_MODULES).join("|")})$`);
 
 function sharedModuleSource(name: string): string {
@@ -15,7 +16,8 @@ const sharedPlugin: BunPlugin = {
   setup(build) {
     build.onResolve({ filter: SHARED_IMPORT }, (args) => ({ path: args.path.slice(3), namespace: "shared" }));
     build.onResolve({ filter: /^\.\.?\// }, (args) => {
-      throw new Error(`${args.importer} imports "${args.path}": a minted Lab may import only ${Object.keys(SHARED_MODULES).map((name) => `"../${name}"`).join(" and ")} from the player, plus npm packages`);
+      if (OWN_ASSET_IMPORT.test(args.path)) return undefined;
+      throw new Error(`${args.importer} imports "${args.path}": a minted Lab may import only ${Object.keys(SHARED_MODULES).map((name) => `"../${name}"`).join(" and ")} from the player, plus npm packages and the JSON files under "./assets/<id>/"`);
     });
     build.onLoad({ filter: /.*/, namespace: "shared" }, (args) => ({ contents: sharedModuleSource(args.path), loader: "js" }));
   },

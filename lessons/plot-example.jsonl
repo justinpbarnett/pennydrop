@@ -1,0 +1,5 @@
+{"lesson":{"title":"How a parabola grows","goal":"Connect the height of a parabola to its tangent slope and the area beneath it.","labs":["plot"]}}
+{"step":1,"say":"Graph the square of x. At two steps on either side of zero, the curve reaches a height of four.","scene":{"p":{"lab":"plot"}},"do":[{"cue":"Graph","op":"graph","on":["p"],"function":"square"}]}
+{"step":2,"say":"Slide the coefficient down to one half. Every height is now half what it was.","do":[{"cue":"Slide","op":"slide","on":["p"],"to":0.5}]}
+{"step":3,"say":"Draw the tangent at one. Its slope is one, so the line rises one unit for every unit to the right.","do":[{"cue":"Draw the tangent","op":"tangent","on":["p"],"x":1}]}
+{"step":4,"say":"Shade the area from zero to two. The heights across that whole interval contribute four thirds of a square unit.","do":[{"cue":"Shade","op":"shade","on":["p"],"from":0,"to":2}]}
