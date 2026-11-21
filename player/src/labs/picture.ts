@@ -95,11 +95,7 @@ const MAX_UPSCALE = 1.5;
 const MIN_ZOOM = 0.04;
 const LOG_ZOOM_FLOOR = 0.05;
 
-const OUTLINE_LAYERS = [
-  { id: "halo", paint: "accent", width: 18, opacity: 0.22, z: 3 },
-  { id: "casing", paint: "ground", width: 8, opacity: 0.55, z: 3.1 },
-  { id: "line", paint: "accent", width: 4, opacity: 1, z: 3.2 },
-] as const;
+const OUTLINE_LAYERS = [{ id: "line", paint: "accent", width: 5, opacity: 1, z: 3 }] as const;
 const PULSE_GROWTH = 8;
 
 const PRESENT_FROM = 0.5;
@@ -539,12 +535,12 @@ function compose(state: PictureState, marks: Marks): Drawable[] {
       out.push({ id: `credit-${index}`, kind: "text", x: 0, y: h + CREDIT_TOP + index * CREDIT_PITCH, text, size: state.creditText.size, font: "read", anchor: "start", fill: "muted", opacity: shown, z: 1 });
     });
   }
-  for (const mark of marks.pointing) {
-    const prefix = `point-${state.parts.indexOf(mark.part)}`;
-    out.push(...outlineDrawables(prefix, state, view, mark, 0), ...pointerDrawables(prefix, state, view, mark));
-  }
+  const outlines = new Map<Part, { weight: number; growth: number }>();
+  for (const mark of marks.pointing) outlines.set(mark.part, { weight: mark.weight, growth: 0 });
+  if (marks.pulse) outlines.set(marks.pulse.part, { weight: 1, growth: marks.pulse.weight });
+  for (const [part, { weight, growth }] of outlines) out.push(...outlineDrawables(`outline-${state.parts.indexOf(part)}`, state, view, { part, weight }, growth));
+  for (const mark of marks.pointing) out.push(...pointerDrawables(`point-${state.parts.indexOf(mark.part)}`, state, view, mark));
   for (const mark of marks.labels) out.push(...labelDrawables(`label-${state.parts.indexOf(mark.part)}`, state, view, mark));
-  if (marks.pulse) out.push(...outlineDrawables("pulse", state, view, { part: marks.pulse.part, weight: 1 }, marks.pulse.weight));
   return out;
 }
 

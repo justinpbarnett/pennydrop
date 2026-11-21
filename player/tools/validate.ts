@@ -4,6 +4,7 @@ import type { Step } from "../src/format";
 import { renderFrame } from "../src/frame";
 import { loadHighlighter } from "../src/highlight";
 import { LabError } from "../src/lab";
+import { crowdedSceneError } from "../src/layout";
 import { EMPTY_SCENE, type SceneState, startSceneOf } from "../src/scene";
 import { THEMES } from "../src/theme";
 import { Timeline } from "../src/timeline";
@@ -29,6 +30,9 @@ async function checkStep(timeline: Timeline, step: Step): Promise<StepResult> {
   if (errors.length === 0) {
     try {
       for (const fraction of [0.02, 0.5, 0.98]) renderFrame(timeline, span.start + (span.end - span.start) * fraction, THEMES.pattern);
+      const scenes = [...timeline.segments.filter((segment) => segment.start >= span.start && segment.start < span.end).map((segment) => segment.after), timeline.finalScene];
+      const crowded = scenes.map((scene) => crowdedSceneError(scene, THEMES.pattern)).find((message) => message !== null);
+      if (crowded) errors.push(`step ${step.step} draw: ${crowded}`);
     } catch (error) {
       if (!(error instanceof LabError)) throw error;
       errors.push(`step ${step.step} draw: ${error.message}`);

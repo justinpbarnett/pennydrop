@@ -9,6 +9,7 @@ const MARGIN = 60;
 const CHILD_SCALE_CAP = 2.5;
 const FLOW_GAP = 44;
 const GROUP_GAP = 44;
+const MIN_FIT_SCALE = 0.6;
 
 export interface Box extends Rect {
   scale: number;
@@ -183,35 +184,45 @@ function buildClusters(nodes: Node[]): Cluster[] {
 function placeClusters(clusters: Cluster[]): Map<string, Rect> {
   const origins = new Map<Cluster, { x: number; y: number }>();
   const inRegion = (region: Region | "flow") => clusters.filter((cluster) => regionOf(cluster.root.relation) === region);
-  let topEdge = MARGIN;
-  for (const cluster of inRegion("top")) {
-    origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: topEdge });
-    topEdge += cluster.h + FLOW_GAP / 2;
-  }
-  let bottomEdge = STAGE.h - MARGIN;
-  for (const cluster of inRegion("bottom")) {
-    bottomEdge -= cluster.h;
-    origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: bottomEdge });
-    bottomEdge -= FLOW_GAP / 2;
-  }
-  for (const cluster of inRegion("center")) origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: (STAGE.h - cluster.h) / 2 });
-
+  const tops = inRegion("top");
+  const bottoms = inRegion("bottom");
+  const centers = inRegion("center");
   const flow = inRegion("flow");
   const lefts = inRegion("left");
   const rights = inRegion("right");
+  const edgeHeight = (edge: Cluster[]) => edge.reduce((sum, cluster) => sum + cluster.h + FLOW_GAP, 0);
+  const flowHeight = flow.reduce((sum, cluster) => sum + cluster.h, 0) + FLOW_GAP * Math.max(0, flow.length - 1);
+  const bandHeight = Math.max(flowHeight, ...[...lefts, ...rights, ...centers].map((cluster) => cluster.h));
+  const stackHeight = edgeHeight(tops) + bandHeight + edgeHeight(bottoms);
+  const squeezed = stackHeight > STAGE.h - 2 * MARGIN;
+  const stackTop = squeezed ? (STAGE.h - stackHeight) / 2 : MARGIN;
+
+  let topEdge = stackTop;
+  for (const cluster of tops) {
+    origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: topEdge });
+    topEdge += cluster.h + FLOW_GAP;
+  }
+  let bottomEdge = squeezed ? stackTop + stackHeight : STAGE.h - MARGIN;
+  for (const cluster of bottoms) {
+    bottomEdge -= cluster.h;
+    origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: bottomEdge });
+    bottomEdge -= FLOW_GAP;
+  }
+  const areaTop = topEdge;
+  const areaBottom = bottomEdge;
+  const centeredY = (cluster: Cluster) => areaTop + (areaBottom - areaTop - cluster.h) / 2;
+  for (const cluster of centers) origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: centeredY(cluster) });
+
   const flowWidth = flow.length > 0 ? Math.max(...flow.map((cluster) => cluster.w)) : 0;
   const rowParts = [...lefts.map((cluster) => cluster.w), ...(flow.length > 0 ? [flowWidth] : []), ...rights.map((cluster) => cluster.w)];
   const rowWidth = rowParts.reduce((sum, width) => sum + width, 0) + FLOW_GAP * (rowParts.length - 1);
   let x = (STAGE.w - rowWidth) / 2;
   for (const cluster of lefts) {
-    origins.set(cluster, { x, y: (STAGE.h - cluster.h) / 2 });
+    origins.set(cluster, { x, y: centeredY(cluster) });
     x += cluster.w + FLOW_GAP;
   }
   if (flow.length > 0) {
-    const stackHeight = flow.reduce((sum, cluster) => sum + cluster.h, 0) + FLOW_GAP * (flow.length - 1);
-    const areaTop = inRegion("top").length ? topEdge : MARGIN;
-    const areaBottom = inRegion("bottom").length ? bottomEdge : STAGE.h - MARGIN;
-    let y = areaTop + (areaBottom - areaTop - stackHeight) / 2;
+    let y = areaTop + (areaBottom - areaTop - flowHeight) / 2;
     for (const cluster of flow) {
       origins.set(cluster, { x: x + (flowWidth - cluster.w) / 2, y });
       y += cluster.h + FLOW_GAP;
@@ -219,7 +230,7 @@ function placeClusters(clusters: Cluster[]): Map<string, Rect> {
     x += flowWidth + FLOW_GAP;
   }
   for (const cluster of rights) {
-    origins.set(cluster, { x, y: (STAGE.h - cluster.h) / 2 });
+    origins.set(cluster, { x, y: centeredY(cluster) });
     x += cluster.w + FLOW_GAP;
   }
 
@@ -277,4 +288,11 @@ export function layoutScene(scene: SceneState, theme?: Theme): Layout {
       return [id, { x: box.x + reach.left * s, y: box.y + reach.top * s, w: box.w - (reach.left + reach.right) * s, h: box.h - (reach.top + reach.bottom) * s, scale: s }];
     }),
   );
+}
+
+export function crowdedSceneError(scene: SceneState, theme: Theme): string | null {
+  const layout = layoutScene(scene, theme);
+  const scale = Math.min(...[...layout.values()].map((box) => box.scale));
+  if (scale >= MIN_FIT_SCALE) return null;
+  return `the Scene has too much on stage: ${[...layout.keys()].join(", ")} fit only at ${Math.round(scale * 100)}% size and would be too small to read; remove an object (op "remove") or use fewer, smaller ones`;
 }
