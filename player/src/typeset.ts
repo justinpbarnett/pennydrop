@@ -31,7 +31,7 @@ const IDENTITY: Transform = { scaleX: 1, scaleY: 1, shiftX: 0, shiftY: 0 };
 function compose(outer: Transform, attribute: string): Transform {
   let inner = outer;
   for (const [, name, values] of attribute.matchAll(/(translate|scale)\(([^)]*)\)/g)) {
-    const [first = 0, second = first] = values!.split(",").map(Number);
+    const [first = 0, second = name === "translate" ? 0 : first] = values!.trim().split(/[\s,]+/).map(Number);
     inner = name === "translate"
       ? { ...inner, shiftX: inner.shiftX + inner.scaleX * first, shiftY: inner.shiftY + inner.scaleY * second }
       : { ...inner, scaleX: inner.scaleX * first, scaleY: inner.scaleY * second };
