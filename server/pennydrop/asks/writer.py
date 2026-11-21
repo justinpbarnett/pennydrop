@@ -10,18 +10,20 @@ from ..settings import Job
 from ..store import Profile
 from .catalog import Catalog
 from .classify import Plan
-from .directives import directive_guides
+from .directives import directive_guides, directives_for_labs
 from .lesson_format import Header, Malformed, ParsedLine, parse_line
 from .stopwatch import Stopwatch
 
 FORMAT_RULES = """You write Pennydrop Lessons: short narrated animations that teach one idea.
 Your whole reply is JSON lines and nothing else: no prose, no code fences, no comments.
 
-Line 1 is the header: {"lesson": {"title": "short title", "goal": "one sentence on what the learner can do or see afterwards", "labs": ["ids of the Labs you use"]}}
+Line 1 is the header: {"lesson": {"title": "short title in sentence case: capitalize only the first word, proper nouns and acronyms", "goal": "one sentence on what the learner can do or see afterwards", "labs": ["ids of the Labs you use"]}}
 Every later line is one Step: {"step": 1, "say": "narration", "scene": {...}, "do": [...], "challenge": {...}}
 "scene", "do" and "challenge" are optional.
 
 Rules
+- The Ask may be a speech transcript, so it can hold misheard words. Fix an evident mishearing, such as "Mudex" for "mutex", in the title and in the narration, and never repeat the wrong word.
+- The title is in sentence case: only its first word and proper nouns start with a capital, as in "Bubble sort" and "A page table walk".
 - Write 6 to 10 Steps.
 - Step 1 is short: one or two sentences and at most one or two scene objects, so it can start playing at once.
 - "say" is spoken aloud: plain words, about 25 words at most, no markdown, no symbols that are hard to speak.
@@ -39,6 +41,7 @@ Rules
   {"kind": "predict", "type": "order", "prompt": "...", "choices": ["a", "b", "c"], "answer": ["b", "a", "c"]}
   {"kind": "predict", "type": "match", "prompt": "...", "pairs": [["left", "right"], ["left", "right"]]}
 - Every number that comes from running code or from arithmetic comes from a directive, never from you. A directive is a field of the Step that the server runs before the Step plays.
+- When a directive can play your example on a Lab (trace for the array, code and graph Labs, simulate for the scheduler, threads and address Labs), always use that directive for it, and never write by hand the operations it writes, even though the Lab's catalog entry shows them. The directive plays the whole run inside one Step, so give that Step enough narration for it, and put the intro of the run in Steps before it.
 - When "say" brings in a new example, number, list or object, that same Step's "scene" sets it, so the stage always shows what the narration talks about.
 - A Learner who is a kid gets words a young child knows, and a warm, playful voice. The kid rules below say more.
 - A Learner level of beginner, intermediate or advanced sets how much you assume.
@@ -51,9 +54,6 @@ These hold when the Learner is a kid, and nothing in a kid Lesson may need readi
 - Every Challenge is "kind": "predict" with "type": "click", where the child taps an object on the stage.
 - The narration asks the question out loud, because the child hears it and does not read it.
 - Do not write "reading" in the header.
-
-## Directives
-
 """
 
 REPAIR_INSTRUCTIONS = "Repair one Step of a Lesson. Reply with the corrected Step as exactly one JSON line and nothing else. Keep its step number and the meaning of its narration, and change only what the errors name."
@@ -73,6 +73,8 @@ class Brief:
             f"Labs that fit this Ask: {', '.join(self.plan.labs)}. Use them where they help, together with primitives."
             if self.plan.labs else "No Lab fits this Ask: build the explanation from primitives."
         )
+        for lab, directive in directives_for_labs(self.plan.labs).items():
+            lines.append(f"Play the {lab} Lab with the {directive} directive: write no operations for it yourself.")
         if self.plan.follow_up:
             lines.append(f"This is a follow up to the Lesson '{self.watching_title}'. Step 1 continues from the Scene below, so reuse its objects instead of recreating them. When Step 1 brings in a new example, its \"scene\" replaces the objects that still show the old one, so the stage matches the narration.")
             lines.append(f"Current Scene (JSON): {json.dumps(self.scene)}")
@@ -83,6 +85,7 @@ class Brief:
         return "\n".join(lines)
 
 WRITER_EFFORT = "low"
+WRITER_HEDGE_SECONDS = 2.5
 
 
 class Writer:
@@ -94,7 +97,7 @@ class Writer:
         system = await self._system()
         stopwatch.mark("writer_started")
         buffer = ""
-        async for item in self._gateway.stream(brief.plan.tier.job, brief.text(), system=system, lesson_id=lesson_id, effort=WRITER_EFFORT):
+        async for item in self._gateway.stream(brief.plan.tier.job, brief.text(), system=system, lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS):
             if isinstance(item, CallStats):
                 continue
             stopwatch.mark("writer_first_token")
@@ -126,4 +129,4 @@ class Writer:
         return Malformed(completion.text, "the reply held no Step line")
 
     async def _system(self) -> str:
-        return FORMAT_RULES + directive_guides() + "\n\n# Catalog\n\n" + (await self._catalog.current()).markdown
+        return FORMAT_RULES + "\n\n# Catalog\n\n" + (await self._catalog.current()).markdown + "\n\n# Directives, which replace the hand written operations above\n\n" + directive_guides()

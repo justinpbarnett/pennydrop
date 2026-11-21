@@ -45,6 +45,7 @@ class Request:
     timeout: float = 120.0
     lesson_id: str | None = None
     effort: str | None = None
+    hedge_after: float | None = None
 
 
 @dataclass(frozen=True)

@@ -36,6 +36,11 @@ class AskRequest:
     from_step: FromStep | None
     received_at: float
     transcription_seconds: float | None = None
+    bench: bool = False
+
+
+def _source_of(request: AskRequest) -> LessonSource:
+    return LessonSource.BENCH if request.bench else LessonSource.LIVE
 
 
 class Asks:
@@ -53,7 +58,8 @@ class Asks:
         viewing, earlier_steps = self._viewing(request.from_step)
         lesson_id = uuid.uuid4().hex[:12]
         record = LessonRecord(
-            lesson_id, request.text, "", [], LessonSource.LIVE, status="writing", transcription_seconds=request.transcription_seconds,
+            lesson_id, request.text, "", [], _source_of(request), status="writing",
+            transcription_seconds=request.transcription_seconds, profile_id=request.profile_id,
         )
         self._store.save_lesson(record)
         live = LiveLesson()

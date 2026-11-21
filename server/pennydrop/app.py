@@ -33,6 +33,7 @@ class AskFields(BaseModel):
     text: str | None = None
     profile_id: int | None = None
     from_step: FromStep | None = Field(default=None, alias="from")
+    bench: bool = False
 
 
 class AnswerSubmission(BaseModel):
@@ -68,8 +69,8 @@ def create_app(services: Services) -> FastAPI:
         return JSONResponse({"error": str(error)}, status_code=502)
 
     @app.get("/api/lessons")
-    async def list_lessons():
-        return services.library.summaries()
+    async def list_lessons(profile: int | None = None):
+        return services.library.summaries(profile)
 
     @app.get("/api/lessons/{lesson_id}")
     async def get_lesson(lesson_id: str):
@@ -92,7 +93,9 @@ def create_app(services: Services) -> FastAPI:
             transcription_seconds = time.monotonic() - transcribing
         if not text or not text.strip():
             raise HTTPException(422, "an Ask needs `text`, or an `audio` file that holds speech")
-        lesson_id = await services.asks.start(AskRequest(text.strip(), fields.profile_id, fields.from_step, received_at, transcription_seconds))
+        lesson_id = await services.asks.start(AskRequest(text.strip(), fields.profile_id, fields.from_step, received_at, transcription_seconds, fields.bench))
+        if fields.profile_id is not None:
+            services.store.log_ask(fields.profile_id, lesson_id, text.strip())
         return {"lesson_id": lesson_id, "transcript": text.strip()}
 
     @app.post("/api/tts")
@@ -116,6 +119,10 @@ def create_app(services: Services) -> FastAPI:
     @app.get("/api/profiles")
     async def list_profiles():
         return [asdict(profile) for profile in services.store.profiles()]
+
+    @app.get("/api/profiles/{profile_id}/log")
+    async def profile_log(profile_id: int):
+        return services.store.profile_log(profile_id)
 
     services.settings.tts_cache_dir.mkdir(parents=True, exist_ok=True)
     app.mount(MEDIA_PREFIX, StaticFiles(directory=services.settings.tts_cache_dir), name="tts-media")

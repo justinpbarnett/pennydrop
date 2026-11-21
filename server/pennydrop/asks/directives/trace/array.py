@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ....tracer import Trace
-from .._support import DirectiveError
+from .._support import DirectiveError, TracedRun
 
 PROBE_POINTER = "probe"
 COUNTED_EVENTS = ("comparisons", "swaps")
@@ -14,15 +14,15 @@ GUIDE = "\n".join([
 ])
 
 
-def apply(step: dict[str, Any], object_id: str, trace: Trace, traced_input: Any) -> dict[str, Any]:
+def apply(step: dict[str, Any], object_id: str, run: TracedRun) -> dict[str, Any]:
     array = step["scene"][object_id]
-    values = _traced_list(traced_input)
+    values = _traced_list(run.input)
     if values is None or array.get("values") != values:
         raise DirectiveError(f"trace directive: array '{object_id}' must have values equal to the traced list {values}, found {array.get('values')}")
     return {
         **step,
         "scene": {**step["scene"], object_id: _with_counters(array)},
-        "do": [*step.get("do", []), *_operations(trace, object_id)],
+        "do": [*step.get("do", []), *_operations(run.trace, object_id)],
     }
 
 

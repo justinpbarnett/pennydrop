@@ -11,6 +11,9 @@ class Algorithm:
     input_help: str
 
 
+TREE_INPUT = 'an object like {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [null, "I"], "A": [null, null], "D": [null, null], "I": [null, null]}, "root": "F"}: every node maps to [left child, right child], null for none'
+
+
 ALGORITHMS = {algorithm.name: algorithm for algorithm in [
     Algorithm("bubble_sort", "bubble_sort", '''
 def bubble_sort(a):
@@ -132,4 +135,104 @@ def max_window_sum(array, k):
             best = window
     return best
 ''', 'an object like {"array": [2, 1, 5, 1, 3], "k": 3}'),
+    Algorithm("breadth_first_search", "bfs", '''
+def bfs(graph, start):
+    seen = {start}
+    queue = [start]
+    push(start)
+    order = []
+    while queue:
+        node = queue.pop(0)
+        pop(node)
+        order.append(node)
+        for neighbor in graph[node]:
+            if neighbor not in seen:
+                seen.add(neighbor)
+                queue.append(neighbor)
+                push(neighbor)
+    return order
+
+
+def push(node):
+    return node
+
+
+def pop(node):
+    return node
+''', 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}: every node maps to the list of its neighbors, and an edge listed both ways is one undirected edge'),
+    Algorithm("depth_first_search", "dfs", '''
+def dfs(graph, start):
+    order = []
+    explore(graph, start, order)
+    return order
+
+
+def explore(graph, node, order):
+    visit(node)
+    order.append(node)
+    for neighbor in graph[node]:
+        if neighbor not in order:
+            explore(graph, neighbor, order)
+
+
+def visit(node):
+    return node
+''', 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}: every node maps to the list of its neighbors'),
+    Algorithm("tree_preorder", "preorder", '''
+def preorder(tree, root):
+    order = []
+    walk(tree, root, order)
+    return order
+
+
+def walk(tree, node, order):
+    if node is None:
+        return
+    visit(node)
+    order.append(node)
+    walk(tree, tree[node][0], order)
+    walk(tree, tree[node][1], order)
+
+
+def visit(node):
+    return node
+''', TREE_INPUT),
+    Algorithm("tree_inorder", "inorder", '''
+def inorder(tree, root):
+    order = []
+    walk(tree, root, order)
+    return order
+
+
+def walk(tree, node, order):
+    if node is None:
+        return
+    walk(tree, tree[node][0], order)
+    visit(node)
+    order.append(node)
+    walk(tree, tree[node][1], order)
+
+
+def visit(node):
+    return node
+''', TREE_INPUT),
+    Algorithm("tree_postorder", "postorder", '''
+def postorder(tree, root):
+    order = []
+    walk(tree, root, order)
+    return order
+
+
+def walk(tree, node, order):
+    if node is None:
+        return
+    walk(tree, tree[node][0], order)
+    walk(tree, tree[node][1], order)
+    visit(node)
+    order.append(node)
+
+
+def visit(node):
+    return node
+''', TREE_INPUT),
 ]}

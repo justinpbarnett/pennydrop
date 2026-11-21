@@ -21,6 +21,10 @@ class ValidatorError(RuntimeError):
     pass
 
 
+class PlayerCrash(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class Verdict:
     errors: tuple[str, ...]
@@ -45,6 +49,8 @@ class Validator:
         for attempt in (1, 2):
             try:
                 reply = await (await self._running()).ask({"scene": scene, "step": wire, **({} if reading else {"reading": False})})
+                if "crash" in reply:
+                    raise PlayerCrash(reply["crash"])
                 return Verdict(tuple(reply["errors"]), reply["scene"] if reply["ok"] else scene)
             except ValidatorError:
                 if attempt == 2:

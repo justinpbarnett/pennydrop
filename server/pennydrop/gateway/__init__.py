@@ -35,6 +35,7 @@ class RequestOptions(TypedDict, total=False):
     timeout: float
     lesson_id: str
     effort: str
+    hedge_after: float
 
 
 @dataclass(frozen=True)
@@ -83,7 +84,7 @@ class Gateway:
                 continue
             emitted_text = False
             try:
-                async for item in self._attempt(job, route, request):
+                async for item in self._hedged(job, route, request):
                     emitted_text = emitted_text or isinstance(item, str)
                     yield item
                 return
@@ -137,6 +138,63 @@ class Gateway:
             _reraise_as_gateway_error(route, error)
         return Classification(answers, self._log(Job.CLASSIFY, route, started, None, usage, None, lesson_id))
 
+    async def _hedged(self, job: Job, route: RouteSpec, request: Request) -> AsyncIterator[str | CallStats]:
+        if request.hedge_after is None:
+            async for item in self._attempt(job, route, request):
+                yield item
+            return
+        queue: asyncio.Queue[tuple[int, str | CallStats | GatewayError | None]] = asyncio.Queue()
+        starts: dict[int, float] = {}
+
+        def spawn(index: int) -> asyncio.Task[None]:
+            starts[index] = time.monotonic()
+            return asyncio.create_task(pump(index))
+
+        async def pump(index: int) -> None:
+            try:
+                async for item in self._attempt(job, route, request):
+                    await queue.put((index, item))
+                await queue.put((index, None))
+            except GatewayError as error:
+                await queue.put((index, error))
+
+        tasks = {0: spawn(0)}
+        winner: int | None = None
+        hedged = False
+        lost: list[int] = []
+        stats: CallStats | None = None
+        try:
+            while True:
+                hedge_due = request.hedge_after - (time.monotonic() - starts[0]) if winner is None and not hedged else None
+                try:
+                    index, item = await asyncio.wait_for(queue.get(), None if hedge_due is None else max(hedge_due, 0))
+                except TimeoutError:
+                    tasks[1] = spawn(1)
+                    hedged = True
+                    continue
+                if winner is None and isinstance(item, str):
+                    winner = index
+                    lost = [other for other, task in tasks.items() if other != winner and not task.done()]
+                    await _cancel(tasks[other] for other in lost)
+                if winner is not None and index != winner:
+                    continue
+                if isinstance(item, GatewayError):
+                    if winner is None and len(tasks) > 1:
+                        del tasks[index]
+                        continue
+                    raise item
+                if item is None:
+                    return
+                if isinstance(item, CallStats):
+                    stats = item
+                yield item
+                if stats:
+                    return
+        finally:
+            await _cancel(tasks.values())
+            for other in lost:
+                self._log_hedge_loser(job, route, request, starts[other], stats)
+
     async def _attempt(self, job: Job, route: RouteSpec, request: Request) -> AsyncIterator[str | CallStats]:
         started = time.monotonic()
         first_token_seconds = None
@@ -163,11 +221,22 @@ class Gateway:
         self._store.log_model_call(stats)
         return stats
 
+    def _log_hedge_loser(self, job: Job, route: RouteSpec, request: Request, started: float, winner: CallStats | None) -> None:
+        usage = Usage(input_tokens=winner.input_tokens, cached_tokens=winner.cached_tokens) if winner else Usage()
+        self._log(job, route, started, None, usage, GatewayError("hedge: the slower attempt was cancelled"), request.lesson_id)
+
     def _cost(self, route: RouteSpec, usage: Usage) -> float:
         if usage.cost_usd is not None:
             return usage.cost_usd
         price = self._settings.prices.get(route.model)
         return price.cost(usage.input_tokens, usage.cached_tokens, usage.output_tokens) if price else 0.0
+
+
+async def _cancel(tasks) -> None:
+    pending = [task for task in tasks if not task.done()]
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _reraise_as_gateway_error(route: RouteSpec, error: Exception) -> NoReturn:

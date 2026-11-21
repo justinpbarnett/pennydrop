@@ -10,7 +10,7 @@ from pathlib import Path
 
 import uvicorn
 
-from .ask_client import AskClient, AskClientError, Arrival, Outcome, breakdown, median_and_max
+from .ask_client import AskClient, AskClientError, Arrival, Outcome, breakdown, median_and_max, p90
 from .gateway import Choice, GatewayError, Image, YesNo
 from .intake import IntakeError
 from .loudness import TARGET_LUFS, TARGET_TRUE_PEAK
@@ -168,8 +168,8 @@ def _bench(services: Services, _) -> None:
             if how == "spoken":
                 audio = Path(directory) / f"ask{index}.aiff"
                 subprocess.run(["say", "-o", str(audio), text], check=True)
-            outcomes.append((how, client.ask(None if audio else text, audio, profile_id, None)))
-            _print_bench_row(*outcomes[-1])
+            outcomes.append((how, client.ask(None if audio else text, audio, profile_id, None, bench=True)))
+            _print_bench_row(services, *outcomes[-1])
     finished = [outcome for _, outcome in outcomes if outcome.done]
     if finished:
         for label, values in (
@@ -178,21 +178,24 @@ def _bench(services: Services, _) -> None:
             ("cost $", [o.done["cost_usd"] for o in finished]),
         ):
             median, highest = median_and_max(values)
-            print(f"{label:14} p50 {median:8.3f}   max {highest:8.3f}")
+            print(f"{label:14} p50 {median:8.3f}   p90 {p90(values):8.3f}   max {highest:8.3f}")
+        fired = [services.store.hedge_losses(outcome.lesson_id) for outcome in finished]
+        print(f"hedge fired    {sum(1 for count, _ in fired if count)} of {len(finished)} Lessons, extra cost ${sum(cost for _, cost in fired):.5f}")
     failed = len(outcomes) - len(finished)
     if failed:
         sys.exit(f"pd: {failed} of {len(outcomes)} Lessons failed")
 
 
-def _print_bench_row(how: str, outcome: Outcome) -> None:
+def _print_bench_row(services: Services, how: str, outcome: Outcome) -> None:
     if outcome.done is None:
         print(f"{how:6} {outcome.transcript[:46]:46} FAILED: {outcome.error}", flush=True)
         return
     done = outcome.done
+    hedges, _ = services.store.hedge_losses(outcome.lesson_id)
     print(
         f"{how:6} {outcome.transcript[:46]:46} {done['tier']:6} {','.join(done['labs']) or '-':12} "
         f"first {done['first_step_seconds']:5.2f}  done {done['seconds']:5.2f}  ${done['cost_usd']:.5f}"
-        f"{'  repairs ' + str(len(done['repairs'])) if done['repairs'] else ''}", flush=True,
+        f"{'  repairs ' + str(len(done['repairs'])) if done['repairs'] else ''}{'  hedged' if hedges else ''}", flush=True,
     )
 
 

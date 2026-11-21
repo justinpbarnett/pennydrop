@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import statistics
 import time
 from collections.abc import Callable
@@ -49,7 +50,7 @@ class AskClient:
 
     def ask(
         self, text: str | None, audio: Path | None, profile_id: int | None, from_step: dict[str, Any] | None,
-        on_step: Callable[[Arrival], None] | None = None,
+        on_step: Callable[[Arrival], None] | None = None, bench: bool = False,
     ) -> Outcome:
         started = time.monotonic()
         fields: dict[str, Any] = {}
@@ -57,6 +58,8 @@ class AskClient:
             fields["text"] = text
         if profile_id is not None:
             fields["profile_id"] = profile_id
+        if bench:
+            fields["bench"] = True
         with httpx.Client(base_url=self._base, timeout=httpx.Timeout(LESSON_SECONDS, connect=CONNECT_SECONDS)) as client:
             try:
                 if audio:
@@ -115,6 +118,11 @@ def breakdown(done: dict[str, Any]) -> list[tuple[str, float]]:
         ("Step 1 publish", marks["first_step_published"] - marks["first_step_voiced"]),
     ]
     return ([("transcribe", transcription)] if transcription else []) + stages
+
+
+def p90(values: list[float]) -> float:
+    ranked = sorted(values)
+    return ranked[math.ceil(0.9 * len(ranked)) - 1]
 
 
 def median_and_max(values: list[float]) -> tuple[float, float]:

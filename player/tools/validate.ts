@@ -30,7 +30,8 @@ async function checkStep(timeline: Timeline, step: Step): Promise<StepResult> {
     try {
       for (const fraction of [0.02, 0.5, 0.98]) renderFrame(timeline, span.start + (span.end - span.start) * fraction, THEMES.pattern);
     } catch (error) {
-      errors.push(`step ${step.step} draw: ${error instanceof LabError ? error.message : (error as Error).stack ?? String(error)}`);
+      if (!(error instanceof LabError)) throw error;
+      errors.push(`step ${step.step} draw: ${error.message}`);
     }
   }
   return { step: step.step, ok: errors.length === 0, errors };
@@ -63,14 +64,23 @@ async function answer(request: Request): Promise<object> {
   return { id, ...result, scene: result.ok ? timeline.finalScene : start };
 }
 
+function crashMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const location = error.stack?.split("\n").find((line) => line.trim().startsWith("at "));
+  return location ? `${error.message} ${location.trim()}` : error.message;
+}
+
 async function serve(): Promise<void> {
   for await (const line of createInterface({ input: process.stdin })) {
     if (!line.trim()) continue;
     let reply: object;
+    let id: string | undefined;
     try {
-      reply = await answer(JSON.parse(line) as Request);
+      const request = JSON.parse(line) as Request;
+      id = request.id;
+      reply = await answer(request);
     } catch (error) {
-      reply = { ok: false, errors: [`request could not be read: ${(error as Error).message}`], scene: null };
+      reply = { id, ok: false, crash: crashMessage(error) };
     }
     console.log(JSON.stringify(reply));
   }

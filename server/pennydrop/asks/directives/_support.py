@@ -8,8 +8,11 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from ...tracer import Tracer
+from ...tracer import Trace, Tracer
 from ..lesson_format import describe
+
+
+MAX_STEP_OPERATIONS = 40
 
 
 class DirectiveError(ValueError):
@@ -19,6 +22,27 @@ class DirectiveError(ValueError):
 @dataclass(frozen=True)
 class DirectiveTools:
     tracer: Tracer
+
+
+@dataclass(frozen=True)
+class TracedRun:
+    trace: Trace
+    input: Any
+    source: str
+
+
+@dataclass(frozen=True)
+class Simulation:
+    object_id: str
+    scene: dict[str, Any]
+    operations: list[dict[str, Any]]
+    values: dict[str, int | float | str]
+
+
+def limit_operations(directive: str, operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(operations) > MAX_STEP_OPERATIONS:
+        raise DirectiveError(f"{directive} directive: this needs {len(operations)} operations and a Step plays at most {MAX_STEP_OPERATIONS}; use a smaller example")
+    return operations
 
 
 def discover(package: ModuleType) -> dict[str, ModuleType]:
@@ -36,7 +60,7 @@ def parse_spec(model: type[BaseModel], raw: Any, directive: str):
         raise DirectiveError(f"{directive} directive: " + "; ".join(describe(error))) from None
 
 
-def fill_values(step: dict[str, Any], values: dict[str, int | float]) -> dict[str, Any]:
+def fill_values(step: dict[str, Any], values: dict[str, int | float | str]) -> dict[str, Any]:
     filled = _fill_text(step, {"{" + name + "}": str(value) for name, value in values.items()})
     challenge = filled.get("challenge")
     if isinstance(challenge, dict) and challenge.get("answer") in values:

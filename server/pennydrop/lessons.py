@@ -43,12 +43,12 @@ class LessonLibrary:
         self._store = store
         self._speaker = speaker
 
-    def summaries(self) -> list[dict[str, Any]]:
-        hand = [{"id": lesson_id, **self._read_hand(lesson_id)[0], "source": LessonSource.HAND.value} for lesson_id in self._hand_ids()]
+    def summaries(self, profile_id: int | None = None) -> list[dict[str, Any]]:
+        hand = [{"id": lesson_id, **self._read_hand(lesson_id)[0], "source": LessonSource.HAND.value} for lesson_id in self._hand_ids()] if profile_id is None else []
         hand_ids = {item["id"] for item in hand}
         stored = [
-            {"id": record.id, "ask": record.ask, "title": record.title, "labs": record.labs, "source": record.source.value, "status": record.status}
-            for record in self._store.lessons()
+            {"id": record.id, "ask": record.ask, "title": record.title, "labs": record.labs, "source": record.source.value, "status": record.status, "profile_id": record.profile_id}
+            for record in self._store.lessons(profile_id)
         ]
         return hand + [item for item in stored if item["id"] not in hand_ids]
 

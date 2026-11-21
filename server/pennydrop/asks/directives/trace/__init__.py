@@ -6,10 +6,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ....tracer import ALGORITHMS, Trace, TraceError, Tracer
-from .._support import DirectiveError, DirectiveTools, discover, fill_values, parse_spec
+from ....tracer import ALGORITHMS, TraceError, Tracer
+from .._support import DirectiveError, DirectiveTools, TracedRun, discover, fill_values, limit_operations, parse_spec
 
-MAX_TRACE_OPS = 40
 TRACE_TOTALS = ("comparisons", "swaps", "writes")
 TARGETS = discover(sys.modules[__name__])
 
@@ -36,17 +35,17 @@ class TraceSpec(BaseModel):
 
 async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> dict[str, Any]:
     spec = parse_spec(TraceSpec, raw, "trace")
-    trace = await _run(spec, tools.tracer)
+    run = await _run(spec, tools.tracer)
     object_id = _traced_object(step, spec)
     target = TARGETS[step["scene"][object_id]["lab"]]
     played = len(step.get("do", []))
-    expanded = target.apply(step, object_id, trace, spec.input)
-    if len(expanded.get("do", [])) - played > MAX_TRACE_OPS:
-        raise DirectiveError(f"trace directive: the trace needs {len(expanded['do']) - played} operations and a Step plays at most {MAX_TRACE_OPS}; trace a smaller input")
-    return fill_values(expanded, {f"trace.{name}": getattr(trace.counters, name) for name in TRACE_TOTALS})
+    expanded = target.apply(step, object_id, run)
+    limit_operations("trace", expanded.get("do", [])[played:])
+    return fill_values(expanded, {f"trace.{name}": getattr(run.trace.counters, name) for name in TRACE_TOTALS})
 
 
-async def _run(spec: TraceSpec, tracer: Tracer) -> Trace:
+async def _run(spec: TraceSpec, tracer: Tracer) -> TracedRun:
+    source = ALGORITHMS[spec.code].source if spec.code in ALGORITHMS else spec.code
     try:
         trace = await (tracer.trace_named(spec.code, spec.input) if spec.code in ALGORITHMS else tracer.trace_source(spec.code, _entry_point(spec.code), spec.input))
     except TraceError as error:
@@ -55,7 +54,7 @@ async def _run(spec: TraceSpec, tracer: Tracer) -> Trace:
         raise DirectiveError(f"trace directive: the traced code raised {trace.error}")
     if trace.truncated:
         raise DirectiveError("trace directive: the traced code ran too long to play; trace a smaller input")
-    return trace
+    return TracedRun(trace, spec.input, source)
 
 
 def _entry_point(source: str) -> str:

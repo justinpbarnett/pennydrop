@@ -16,8 +16,17 @@ async def expand_directives(step: dict[str, Any], tools: DirectiveTools) -> dict
     return expanded
 
 
+def directives_for_labs(labs: tuple[str, ...]) -> dict[str, str]:
+    return {
+        lab: name
+        for lab in labs
+        for name, directive in DIRECTIVES.items()
+        if lab in getattr(directive, "TARGETS", {})
+    }
+
+
 def directive_guides() -> str:
     return "\n\n".join(directive.GUIDE for directive in DIRECTIVES.values())
 
 
-__all__ = ["DIRECTIVES", "DirectiveError", "DirectiveTools", "directive_guides", "expand_directives"]
+__all__ = ["DIRECTIVES", "DirectiveError", "DirectiveTools", "directive_guides", "directives_for_labs", "expand_directives"]

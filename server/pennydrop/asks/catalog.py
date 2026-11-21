@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import dataclass
 
@@ -27,6 +28,7 @@ class CatalogSnapshot:
 class Catalog:
     def __init__(self, settings: Settings):
         self._player_dir = settings.player_dir
+        self._minted_dir = settings.data_dir / "minted-labs" / "dist"
         self._signature: tuple | None = None
         self._snapshot: CatalogSnapshot | None = None
         self._lock = asyncio.Lock()
@@ -43,7 +45,9 @@ class Catalog:
 
     def _lab_files_signature(self) -> tuple:
         labs_dir = self._player_dir / "src" / "labs"
-        return tuple(sorted((str(path), path.stat().st_mtime_ns) for path in labs_dir.rglob("*") if path.is_file()))
+        built_in = ((str(path), path.stat().st_mtime_ns) for path in labs_dir.rglob("*") if path.is_file())
+        minted = ((str(path), hashlib.sha256(path.read_bytes()).hexdigest()) for path in self._minted_dir.glob("*.js"))
+        return tuple(sorted((*built_in, *minted)))
 
     async def _run_tool(self, *flags: str) -> bytes:
         try:

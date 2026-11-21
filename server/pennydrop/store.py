@@ -144,6 +144,35 @@ SCHEMA = [
     alter table minted_labs add column cost_usd real not null default 0;
     alter table minted_labs add column round_log text not null default '[]';
     """,
+    """
+    create table lessons_rebuilt (
+        id text primary key,
+        ask text not null,
+        title text not null,
+        labs text not null default '[]',
+        source text not null check (source in ('hand', 'live', 'course', 'bench')),
+        status text not null default 'ready',
+        topic_id integer references topics(id),
+        first_step_seconds real,
+        done_seconds real,
+        cost_usd real not null default 0,
+        created_at text not null,
+        tier text,
+        header text not null default '{}',
+        transcription_seconds real,
+        timings text not null default '{}',
+        error text,
+        repairs text not null default '[]',
+        profile_id integer references profiles(id)
+    );
+    insert into lessons_rebuilt (id, ask, title, labs, source, status, topic_id, first_step_seconds, done_seconds, cost_usd, created_at,
+        tier, header, transcription_seconds, timings, error, repairs)
+        select id, ask, title, labs, source, status, topic_id, first_step_seconds, done_seconds, cost_usd, created_at,
+        tier, header, transcription_seconds, timings, error, repairs from lessons;
+    drop table lessons;
+    alter table lessons_rebuilt rename to lessons;
+    update lessons set profile_id = (select profile_id from lesson_log where lesson_log.lesson_id = lessons.id);
+    """,
 ]
 
 
@@ -156,6 +185,7 @@ class LessonSource(StrEnum):
     HAND = "hand"
     LIVE = "live"
     COURSE = "course"
+    BENCH = "bench"
 
 
 @dataclass(frozen=True)
@@ -186,6 +216,8 @@ class LessonRecord:
     timings: dict[str, float] = field(default_factory=dict)
     error: str | None = None
     repairs: list[dict[str, Any]] = field(default_factory=list)
+    profile_id: int | None = None
+    topic_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -265,6 +297,7 @@ class Store:
 
     def _migrate(self) -> None:
         current = self._connection.execute("pragma user_version").fetchone()[0]
+        self._connection.execute("pragma foreign_keys = off")
         for version in range(current, len(SCHEMA)):
             self._connection.execute("begin")
             for statement in SCHEMA[version].split(";"):
@@ -272,6 +305,7 @@ class Store:
                     self._connection.execute(statement)
             self._connection.execute(f"pragma user_version = {version + 1}")
             self._connection.execute("commit")
+        self._connection.execute("pragma foreign_keys = on")
 
     def add_profile(self, name: str, kind: ProfileKind, born_year: int, born_month: int, theme: str, level: str = "beginner") -> Profile:
         cursor = self._connection.execute(
@@ -293,18 +327,19 @@ class Store:
         self._connection.execute(
             """
             insert into lessons (id, ask, title, labs, source, status, first_step_seconds, done_seconds, cost_usd, created_at,
-                tier, header, transcription_seconds, timings, error, repairs)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                tier, header, transcription_seconds, timings, error, repairs, profile_id, topic_id)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(id) do update set ask = excluded.ask, title = excluded.title, labs = excluded.labs,
                 status = excluded.status, first_step_seconds = excluded.first_step_seconds,
                 done_seconds = excluded.done_seconds, cost_usd = excluded.cost_usd, tier = excluded.tier,
                 header = excluded.header, transcription_seconds = excluded.transcription_seconds,
-                timings = excluded.timings, error = excluded.error, repairs = excluded.repairs
+                timings = excluded.timings, error = excluded.error, repairs = excluded.repairs, profile_id = excluded.profile_id,
+                topic_id = excluded.topic_id
             """,
             (
                 lesson.id, lesson.ask, lesson.title, json.dumps(lesson.labs), lesson.source.value, lesson.status,
                 lesson.first_step_seconds, lesson.done_seconds, lesson.cost_usd, _iso(_now()),
-                lesson.tier, json.dumps(lesson.header), lesson.transcription_seconds, json.dumps(lesson.timings), lesson.error, json.dumps(lesson.repairs),
+                lesson.tier, json.dumps(lesson.header), lesson.transcription_seconds, json.dumps(lesson.timings), lesson.error, json.dumps(lesson.repairs), lesson.profile_id, lesson.topic_id,
             ),
         )
 
@@ -314,8 +349,14 @@ class Store:
             (lesson_id, n, json.dumps(step), json.dumps(voice) if voice else None),
         )
 
-    def lessons(self) -> list[LessonRecord]:
-        return [_lesson_from(row) for row in self._connection.execute("select * from lessons order by created_at desc")]
+    def lessons(self, profile_id: int | None = None) -> list[LessonRecord]:
+        if profile_id is None:
+            rows = self._connection.execute(
+                "select * from lessons where source not in ('bench', 'course') and (profile_id is null or profile_id not in (select id from profiles where kind = 'kid')) order by created_at desc"
+            )
+        else:
+            rows = self._connection.execute("select * from lessons where source not in ('bench', 'course') and profile_id = ? order by created_at desc", (profile_id,))
+        return [_lesson_from(row) for row in rows]
 
     def lesson(self, lesson_id: str) -> LessonRecord | None:
         row = self._connection.execute("select * from lessons where id = ?", (lesson_id,)).fetchone()
@@ -327,6 +368,12 @@ class Store:
     def steps(self, lesson_id: str) -> list[dict[str, Any]]:
         rows = self._connection.execute("select json, voice_json from steps where lesson_id = ? order by n", (lesson_id,))
         return [{**json.loads(row["json"]), **({"voice": json.loads(row["voice_json"])} if row["voice_json"] else {})} for row in rows]
+
+    def hedge_losses(self, lesson_id: str) -> tuple[int, float]:
+        row = self._connection.execute(
+            "select count(*) as fired, coalesce(sum(cost_usd), 0) as cost from model_calls where lesson_id = ? and error like 'hedge:%'", (lesson_id,)
+        ).fetchone()
+        return row["fired"], row["cost"]
 
     def lesson_cost(self, lesson_id: str) -> float:
         row = self._connection.execute("select coalesce(sum(cost_usd), 0) as total from model_calls where lesson_id = ?", (lesson_id,)).fetchone()
@@ -368,6 +415,43 @@ class Store:
             query += " and profile_id = ?"
             arguments.append(profile_id)
         return [_review_from(row) for row in self._connection.execute(query + " order by due", arguments)]
+
+    def log_ask(self, profile_id: int, lesson_id: str, ask: str) -> None:
+        self.profile(profile_id)
+        self._connection.execute(
+            "insert into lesson_log (profile_id, lesson_id, ask, content_check, created_at) values (?, ?, ?, '', ?)",
+            (profile_id, lesson_id, ask, _iso(_now())),
+        )
+
+    def record_content_check(self, lesson_id: str, outcome: str) -> None:
+        self._connection.execute("update lesson_log set content_check = ? where lesson_id = ?", (outcome, lesson_id))
+
+    def profile_log(self, profile_id: int) -> dict[str, Any]:
+        profile = self.profile(profile_id)
+        asks = self._connection.execute(
+            """
+            select log.ask, log.lesson_id, log.content_check, log.created_at, lessons.title, lessons.status, lessons.done_seconds, lessons.cost_usd
+            from lesson_log as log left join lessons on lessons.id = log.lesson_id
+            where log.profile_id = ? order by log.created_at desc, log.id desc
+            """,
+            (profile_id,),
+        ).fetchall()
+        answers = self._connection.execute(
+            "select lesson_id, step_n, answer, correct, created_at from challenge_answers where profile_id = ? order by created_at desc, id desc",
+            (profile_id,),
+        ).fetchall()
+        return {
+            "profile": {"id": profile.id, "name": profile.name, "kind": profile.kind.value},
+            "asks": [{"transcript": row["ask"], "lesson_id": row["lesson_id"], "content_check": row["content_check"], "at": row["created_at"]} for row in asks],
+            "lessons": [
+                {"lesson_id": row["lesson_id"], "title": row["title"], "status": row["status"], "at": row["created_at"], "seconds": row["done_seconds"], "cost_usd": row["cost_usd"]}
+                for row in asks
+            ],
+            "answers": [
+                {"lesson_id": row["lesson_id"], "step": row["step_n"], "answer": json.loads(row["answer"]), "correct": bool(row["correct"]), "at": row["created_at"]}
+                for row in answers
+            ],
+        }
 
     def file_lab_request(self, ask: str, lab_hint: str | None = None) -> LabRequest:
         cursor = self._connection.execute("insert into lab_requests (ask, lab_hint, created_at) values (?, ?, ?)", (ask, lab_hint, _iso(_now())))
@@ -437,6 +521,7 @@ def _lesson_from(row: sqlite3.Row) -> LessonRecord:
         row["id"], row["ask"], row["title"], json.loads(row["labs"]), LessonSource(row["source"]), row["status"],
         row["first_step_seconds"], row["done_seconds"], row["cost_usd"], row["tier"], json.loads(row["header"]),
         row["transcription_seconds"], json.loads(row["timings"]), row["error"], json.loads(row["repairs"]),
+        row["profile_id"], row["topic_id"],
     )
 
 

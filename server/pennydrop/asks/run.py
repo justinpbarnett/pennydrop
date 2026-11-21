@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from ..lessons import done_event
-from ..store import LessonRecord, Profile, ProfileKind, Store
+from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
 from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
@@ -16,7 +16,7 @@ from .directives import DirectiveError, DirectiveTools, expand_directives
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .stopwatch import Stopwatch
-from .validator import Validator
+from .validator import PlayerCrash, Validator
 from .writer import Brief, Writer
 
 LOG = logging.getLogger("pennydrop.asks")
@@ -74,9 +74,6 @@ class ReadyStep:
     voice: asyncio.Task[Voice | None]
 
 
-PLAYER_CRASH_MARK = "\n    at "
-
-
 class LessonRun:
     def __init__(self, toolkit: Toolkit, ask: Ask, record: LessonRecord, live: LiveLesson, stopwatch: Stopwatch):
         self._kit = toolkit
@@ -88,6 +85,8 @@ class LessonRun:
         self._repairs: list[dict[str, Any]] = []
         self._catalog_labs: set[str] = set()
         self._published = 0
+        self._redone_for_child: set[int] = set()
+        self._refused = False
 
     @property
     def _reading(self) -> bool:
@@ -113,6 +112,8 @@ class LessonRun:
         self._catalog_labs = {lab.id for lab in snapshot.labs}
         plan = await kit.classifier.plan(self._ask.text, self._ask.profile, snapshot.labs, self._ask.viewing, self._record.id)
         self._stopwatch.mark("classified")
+        self._refused = not plan.fine_for_young_child
+        self._request_missing_lab(plan)
         self._record = replace(self._record, tier=plan.tier.value)
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
         brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None)
@@ -141,6 +142,13 @@ class LessonRun:
             raise LessonError("the writer finished without writing any Step")
         await pending.put(None)
 
+    def _request_missing_lab(self, plan: Plan) -> None:
+        if plan.labs or plan.follow_up or not plan.fine_for_young_child or self._record.source in (LessonSource.BENCH, LessonSource.COURSE):
+            return
+        store = self._kit.store
+        if not any(request.ask == self._ask.text for request in store.lab_requests("open")):
+            store.file_lab_request(self._ask.text)
+
     def _open(self, header: Header, start_scene: Any) -> None:
         header = header.model_copy(update={"labs": [lab for lab in header.labs if lab in self._catalog_labs], "start_scene": start_scene, "reading": self._reading})
         data = header.model_dump(exclude_none=True)
@@ -150,7 +158,10 @@ class LessonRun:
 
     async def _settle(self, brief: Brief, scene: Any, pending: asyncio.Queue[PendingStep | None], ready: asyncio.Queue[ReadyStep | None]) -> None:
         while (step := await pending.get()) is not None:
-            settled = await self._settle_step(brief, step, scene)
+            try:
+                settled = await self._settle_step(brief, step, scene)
+            except PlayerCrash as crash:
+                raise LessonError(f"the player's validator crashed on step {step.number}, and no rewrite can fix that: {crash}") from None
             scene = settled.scene
             self._stopwatch.mark("first_step_checked")
             await ready.put(ReadyStep(settled.step, self._voice(settled.step["say"])))
@@ -162,8 +173,6 @@ class LessonRun:
             checked = await self._check(written, pending.number, scene)
             if not checked.errors:
                 return SettledStep(checked.step, checked.scene)
-            if crash := next((error for error in checked.errors if PLAYER_CRASH_MARK in error), None):
-                raise LessonError(f"the player's validator crashed on step {pending.number}, which no rewrite can fix: {crash.splitlines()[0]}")
             if attempt == MAX_REPAIR_TRIES:
                 break
             self._log_repair(pending.number, attempt + 1, checked.errors, "redone by the writer")
@@ -181,6 +190,7 @@ class LessonRun:
         verdict, fine_for_child = await asyncio.gather(self._kit.validator.check(step, scene, self._reading), self._fine_for_child(step))
         errors = list(verdict.errors)
         if not fine_for_child:
+            self._redone_for_child.add(number)
             errors.append("say is not fine for a young child; rewrite the narration so it is gentle, true and free of frightening or adult content")
         return Checked(errors, step, verdict.scene)
 
@@ -249,10 +259,22 @@ class LessonRun:
             cost_usd=self._kit.store.lesson_cost(self._record.id), timings=marks, repairs=self._repairs,
         )
         self._kit.store.save_lesson(record)
+        self._record_content_check()
         self._live.publish("done", done_event(record, self._published))
 
+    def _record_content_check(self) -> None:
+        if not self._is_kid:
+            return
+        if self._refused:
+            outcome = "refused: ask a grown up"
+        elif self._redone_for_child:
+            outcome = "redone: step " + ", ".join(str(number) for number in sorted(self._redone_for_child))
+        else:
+            outcome = "passed"
+        self._kit.store.record_content_check(self._record.id, outcome)
+
     def _fail(self, error: BaseException) -> None:
-        LOG.error("lesson %s failed: %s", self._record.id, error)
+        LOG.error("lesson %s failed: %s", self._record.id, error, exc_info=error)
         record = replace(
             self._record, status="failed", error=str(error), cost_usd=self._kit.store.lesson_cost(self._record.id),
             timings=self._stopwatch.marks, repairs=self._repairs,
