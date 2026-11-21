@@ -6,7 +6,7 @@ import { LESSONS_ROOT } from "./load";
 
 const PLAYER_ROOT = resolve(import.meta.dir, "..");
 const BUILD_CACHE = join(PLAYER_ROOT, "node_modules/.cache/pennydrop-frames");
-const BUILD_INPUTS = ["src", "public", "index.html", "frame.html", "vite.config.ts", "package.json", "tsconfig.json"];
+const BUILD_INPUTS = ["src", "public", "vite.config.ts", "package.json", "pnpm-lock.yaml", "tsconfig.json"];
 const STALE_BUILD_MS = 60 * 60 * 1000;
 const WIDTH = 1600;
 const HEIGHT = 900;
@@ -37,7 +37,8 @@ function filesUnder(path: string): string[] {
 
 function sourceHash(): string {
   const hasher = new Bun.CryptoHasher("sha256");
-  const files = BUILD_INPUTS.flatMap((input) => (input.includes(".") ? [join(PLAYER_ROOT, input)] : filesUnder(join(PLAYER_ROOT, input)))).filter(existsSync).sort();
+  const pages = readdirSync(PLAYER_ROOT).filter((name) => name.endsWith(".html"));
+  const files = [...pages, ...BUILD_INPUTS].flatMap((input) => (input.includes(".") ? [join(PLAYER_ROOT, input)] : filesUnder(join(PLAYER_ROOT, input)))).filter(existsSync).sort();
   for (const file of files) hasher.update(relative(PLAYER_ROOT, file)).update(readFileSync(file));
   return hasher.digest("hex").slice(0, 16);
 }

@@ -54,6 +54,8 @@ export interface Frame {
 const PATH_KINDS: DrawableKind[] = ["line", "arrow", "path"];
 const WORD_KINDS: DrawableKind[] = ["text", "code", "math"];
 const ENTER_RISE = 18;
+const EXIT_SHARE = 0.38;
+const unit = (value: number) => Math.min(1, Math.max(0, value));
 
 const easings = new Map<string, (progress: number) => number>();
 export function easeFor(theme: Theme): (progress: number) => number {
@@ -235,21 +237,24 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
   const located = timeline.locate(time, theme.motionScale);
   const before = stageOf(located.before);
   const after = stageOf(located.after);
-  const progress = located.progress >= 1 ? 1 : easeFor(theme)(located.progress);
   const beforeItems = paintedStage(before, theme);
   const afterItems = paintedStage(after, theme);
+  const replaced = new Set(located.replaced);
+  const hasExits = replaced.size > 0 || [...beforeItems.keys()].some((id) => !afterItems.has(id));
+  const exitShare = hasExits ? EXIT_SHARE : 0;
+  const exitProgress = located.progress >= 1 ? 1 : exitShare === 0 ? 0 : unit(located.progress / exitShare);
+  const progress = located.progress >= 1 ? 1 : easeFor(theme)(unit((located.progress - exitShare) / (1 - exitShare)));
 
   const items = new Map<string, Painted>();
   if (before === after || progress >= 1) {
     afterItems.forEach((item, id) => items.set(id, item));
   } else {
     const oldObjects = new Set(before.objects.map((object) => object.id));
-    const clamped = Math.min(1, Math.max(0, progress));
-    const replaced = new Set(located.replaced);
+    const clamped = unit(progress);
     afterItems.forEach((item, id) => {
       const previous = beforeItems.get(id);
       if (replaced.has(objectOf(id))) {
-        items.set(id, { ...item, opacity: item.opacity * Math.max(0, clamped * 2 - 1) });
+        items.set(id, { ...item, opacity: item.opacity * clamped });
       } else if (previous) {
         blend(previous, item, progress).forEach((blended) => items.set(blended.id, blended));
       } else {
@@ -258,8 +263,8 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
       }
     });
     beforeItems.forEach((item, id) => {
-      if (replaced.has(objectOf(id))) items.set(`${id}~replaced`, { ...item, id: `${id}~replaced`, opacity: item.opacity * Math.max(0, 1 - clamped * 2) });
-      else if (!afterItems.has(id)) items.set(id, { ...item, opacity: item.opacity * (1 - clamped) });
+      if (replaced.has(objectOf(id))) items.set(`${id}~replaced`, { ...item, id: `${id}~replaced`, opacity: item.opacity * (1 - exitProgress) });
+      else if (!afterItems.has(id)) items.set(id, { ...item, opacity: item.opacity * (1 - exitProgress) });
     });
     applyTouches(items, located.touches, { before, after }, progress, theme);
   }
