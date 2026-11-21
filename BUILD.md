@@ -33,6 +33,7 @@ The goal and the design live outside the repo, in the workshop initiative `penny
   The key is `OPENROUTER_API_KEY` in the gitignored `.env`.
 - whisper-cli model: `~/.cache/whisper-cpp/ggml-large-v3-turbo-q5_0.bin`.
 - Playwright Chromium is cached in `~/Library/Caches/ms-playwright`.
+- `ELEVENLABS_API_KEY` is in `.env` on the free plan, so keep ElevenLabs use to short checks and ask before a long render.
 
 ## Decisions
 
@@ -79,8 +80,12 @@ The scanner's ledger lives in `.improve-codebase/`, which the scanner keeps out 
 
 ### Lesson stream
 
-`GET /api/lessons/{id}` returns `{id, lesson, steps, done}`.
-`GET /api/lessons/{id}/events` streams Server Sent Events: `lesson`, `step`, `done` with stats, and `error`.
+`POST /api/asks` takes JSON `{text, profile_id?, from?: {lesson_id, step}}`, or multipart with an `audio` file plus the same fields (`from` as a JSON string).
+It answers `{lesson_id, transcript}` as soon as the Lesson id exists, before any writing.
+`GET /api/lessons/{id}` returns `{id, lesson, steps, done, error}`. `done` is `false` while the Lesson is still being written.
+`GET /api/lessons/{id}/events` replays what is stored, then streams new events until the Lesson ends: `lesson` (`{id, lesson}`), `step`, `done` with stats, and `error` (`{message}`).
+`done` carries `seconds`, `first_step_seconds`, `steps`, `tier`, `labs`, `cost_usd`, `timings` (named marks in seconds from the Ask), `transcription_seconds` and `repairs`.
+A follow up Lesson (`from` set) has `lesson.start_scene`, the validator's Scene state at the `from` Step. The player starts its Timeline from it.
 Each Step the player receives is the Step JSON plus `voice: {url, duration, words: [{word, start, end}]}`.
 Without `voice` the player estimates timings from the words of `say`.
 
@@ -94,12 +99,14 @@ export const lab: LabDef<Spec, State> = {
   apply(state, op): State,
   size(state): { w, h },
   draw(state, ctx): Drawable[],
-  duration?(op): number,
+  duration?(op, state): number,
   during?(before, after, op, progress, ctx): Drawable[],
 }
 ```
 
 `init` and `apply` throw a `LabError` with a message the writer can act on.
+`duration` gets the state before the op, so a long run can take longer.
+Roles `series1` to `series6` give each item in a set its own color in every Theme.
 
 ## Work board
 
@@ -107,11 +114,14 @@ export const lab: LabDef<Spec, State> = {
 |---|---|---|
 | Player core, four Themes, array Lab, bubble sort Lesson, validate, catalog and frames tools | Sonnet agent | done, `267932f` |
 | Server core: config, gateway, JEV, store, TTS seam with Kokoro, intake, tracer, API, CLI | Sonnet agent | done, `ec669f0` |
-| Player fixes: stateless validator per contract, `start_scene`, real font metrics, even code panel padding, caption aligned to stage, Challenge card, lazy KaTeX and Shiki, drop the `plot` alias | player core agent | running |
+| Player fixes: stateless validator per contract, `start_scene`, real font metrics, even code panel padding, caption aligned to stage, Challenge card, lazy KaTeX and Shiki, drop the `plot` alias | player core agent | done, `d1eaaea` |
+| Player polish: caption highlighter, lining clock numerals, no literal em dash in font metrics, console 404; then the Ask UI with mic, streaming Steps and follow-ups | player core agent | running |
 | M2 Ask pipeline (server): catalog, JEV classify, streamed writer, directives, validator with redo, TTS per Step, live events, timing and cost, `pd ask`, `pd bench` | Sonnet agent | running |
-| `address` Lab and `lessons/page-table-walk.jsonl` | Sonnet agent | running |
+| `address` Lab and `lessons/page-table-walk.jsonl` | Sonnet agent | done, `8e51db5` |
 | `shapes` Lab and `lessons/pythagoras.jsonl` | Sonnet agent | running |
-| Next: player Ask UI with mic, M1 close (serve, tailnet, Chrome check, push), M3 Labs | build session | waiting |
+| M3 player Labs `code`, `graph`, `scheduler`, `threads`, each with scratch Lessons; their server expansion (trace to code and graph, `simulate` for scheduler and threads) follows once M2 lands | four Sonnet agents | `code` done `14c8338`, `scheduler` done; `graph` and `threads` running |
+| ElevenLabs adapter: works on the free plan (eleven_v3, 4 s for one line, word timings). Fix: `duration` must come from the audio (3.20 s) not the last word end (2.88 s), and a `pcm` output must be written as a real wav | server agent after M2 | open |
+| Next: M1 close (serve, tailnet, Chrome check, push), M4 kids mode | build session | waiting |
 
 ### Server facts for later work
 

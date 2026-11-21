@@ -37,6 +37,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       accent: "#FFD60A", active: "#FFD60A", compare: "#FFD60A", swap: "#E7E5DF",
       done: "#22C55E", ok: "#22C55E", warn: "#FFD60A", fault: "#E5484D",
       fill: "#141519", fill2: "#202127", highlight: "#FFD60A", edge: "#5A5B63",
+      series1: "#FFD60A", series2: "#4FB3FF", series3: "#22C55E", series4: "#FF7A59", series5: "#B08CFF", series6: "#E7E5DF",
     },
     fonts: {
       mark: { family: "'Routed Gothic', 'JetBrains Mono', sans-serif", weight: 400, tracking: 0.06 },
@@ -59,6 +60,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       accent: "#E2B253", active: "#F6CE6E", compare: "#F6CE6E", swap: "#FFF4D6",
       done: "#9BC57C", ok: "#9BC57C", warn: "#EBAA45", fault: "#E8705A",
       fill: "#15120C", fill2: "#241E12", highlight: "#FFDC93", edge: "#7C6A3E",
+      series1: "#E2B253", series2: "#7FB8C9", series3: "#9BC57C", series4: "#E8705A", series5: "#B79AD6", series6: "#F3E9D2",
     },
     fonts: {
       mark: { family: "'Cormorant Garamond', Georgia, serif", weight: 600, tracking: 0.02 },
@@ -82,6 +84,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       accent: "#FF6B35", active: "#FF6B35", compare: "#1E7FE0", swap: "#D81B8A",
       done: "#1FA867", ok: "#1FA867", warn: "#E59A00", fault: "#D93036",
       fill: "#FFFFFF", fill2: "#FFE08A", highlight: "#FFCB2E", edge: "#8E73C2",
+      series1: "#FF6B35", series2: "#1E7FE0", series3: "#1FA867", series4: "#D81B8A", series5: "#8A4FD6", series6: "#E59A00",
     },
     fonts: {
       mark: { family: "'Fredoka', 'Nunito', sans-serif", weight: 600, tracking: 0.01 },
@@ -104,6 +107,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       accent: "#2F6FEB", active: "#2F6FEB", compare: "#2F6FEB", swap: "#7C4DDB",
       done: "#18864C", ok: "#18864C", warn: "#A86A0A", fault: "#D12F38",
       fill: "#F3F5F8", fill2: "#E3E9F3", highlight: "#CFE0FF", edge: "#9AA3B2",
+      series1: "#2F6FEB", series2: "#D9480F", series3: "#18864C", series4: "#7C4DDB", series5: "#0E8A9B", series6: "#B8860B",
     },
     fonts: {
       mark: { family: "'Inter', system-ui, sans-serif", weight: 600, tracking: 0 },

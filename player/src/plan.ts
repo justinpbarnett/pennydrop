@@ -46,7 +46,7 @@ function runLabOp(scene: SceneState, op: ParsedOp): PlannedOp {
     const labOp = labOpFor(op, objectId);
     const after = { ...before, state: def.apply(before.state, labOp) };
     next = upsertObject(next, after);
-    duration = Math.max(duration, def.duration?.(labOp) ?? DEFAULT_LAB_OP_SECONDS);
+    duration = Math.max(duration, def.duration?.(labOp, before.state) ?? DEFAULT_LAB_OP_SECONDS);
     return { objectId, before, after, action: { type: "lab", name: labOp.name, parts: labOp.parts, args: labOp.args } };
   });
   return { op, touches, duration, after: next };

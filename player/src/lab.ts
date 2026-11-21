@@ -1,6 +1,7 @@
 export const ROLES = [
   "ground", "ink", "muted", "rule", "accent", "active", "compare", "swap",
   "done", "ok", "warn", "fault", "fill", "fill2", "highlight", "edge",
+  "series1", "series2", "series3", "series4", "series5", "series6",
 ] as const;
 export type Role = (typeof ROLES)[number];
 export type Paint = Role | "none";
@@ -94,7 +95,7 @@ export interface LabDef<Spec = Record<string, unknown>, State = unknown> {
   apply(state: State, op: LabOp): State;
   size(state: State): Size;
   draw(state: State, ctx: LabCtx): Drawable[];
-  duration?(op: LabOp): number;
+  duration?(op: LabOp, state: State): number;
   during?(before: State, after: State, op: LabOp, progress: number, ctx: LabCtx): Drawable[];
 }
 
