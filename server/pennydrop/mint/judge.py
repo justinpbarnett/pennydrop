@@ -28,6 +28,7 @@ A frame can be captured in the middle of an op, and the player crossfades text t
 The layout places the whole Lab drawing in the middle of the stage, so blank stage around the outside of the drawing is never a defect.
 A connector arrow that crosses a panel border to reach a part in another panel is correct, and an arrowhead that ends on its target part is correct; report an arrow only when it runs along or on top of a border line, its head covers text, or it points at nothing.
 Do not report the shapes of the theme's typeface glyphs (such as a 1 resembling an I), theme colors the Lab cannot choose, taste, motion, or anything you cannot point to in a specific frame.
+Report each defect once, at the first frame where it shows, even when it is visible in several frames.
 Reply with JSON only: a list of at most %d objects {"frame": <number of the frame, starting at 1>, "defect": "<what is wrong and where, in one sentence>", "fix": "<what to change in the drawing code>"}.
 Reply with [] when the frames have no such defect.""" % MAX_DEFECTS_PER_THEME
 
@@ -49,18 +50,33 @@ class Verdict:
     calls: list[CallStats]
 
 
-async def judge(gateway: Gateway, frames_dir: Path, lab_id: str) -> Verdict:
-    results = await asyncio.gather(*(_judge_theme(gateway, frames_dir, lab_id, theme) for theme in THEMES))
+PREVIOUS_REVIEW = """
+The previous review of an earlier version of this Lab found these problems, written as [theme, time] problem and fix:
+{problems}
+
+First check each one against these frames.
+Report one again, in the same words, only when it is still plainly visible in these frames; leave it out when it is fixed.
+Then add a new defect only when these frames show it clearly and it is not a matter of taste.
+Never reverse an earlier verdict: if the previous review asked for a mark to be brighter, do not now ask for it to be dimmer, unless these frames plainly show the opposite defect.
+Do not report something as new that was visible in the earlier frames and was not reported then, unless it is a clear overlap, clipping or contrast defect.
+"""
+
+
+async def judge(gateway: Gateway, frames_dir: Path, lab_id: str, previous: list[str] | None = None) -> Verdict:
+    results = await asyncio.gather(*(_judge_theme(gateway, frames_dir, lab_id, theme, previous or []) for theme in THEMES))
     return Verdict([defect for defects, _ in results for defect in defects], [stats for _, stats in results if stats])
 
 
-async def _judge_theme(gateway: Gateway, frames_dir: Path, lab_id: str, theme: str) -> tuple[list[Defect], CallStats | None]:
+async def _judge_theme(gateway: Gateway, frames_dir: Path, lab_id: str, theme: str, previous: list[str]) -> tuple[list[Defect], CallStats | None]:
     files = sorted(frames_dir.glob(f"lesson-{theme}-*.png"), key=_time_of)
     if not files:
         return [], None
     options: RequestOptions = {"system": SYSTEM, "images": tuple(Image.from_file(file) for file in files), "timeout": JUDGE_TIMEOUT_SECONDS}
     names = ", ".join(f"frame {index} is at {_time_of(file):.2f} s" for index, file in enumerate(files, 1))
-    completion = await gateway.complete(Job.VISION, f"These {len(files)} frames come from the example Lesson of a Lab called '{lab_id}', in the '{theme}' theme: {names}.", **options)
+    prompt = f"These {len(files)} frames come from the example Lesson of a Lab called '{lab_id}', in the '{theme}' theme: {names}."
+    if previous:
+        prompt += PREVIOUS_REVIEW.format(problems="\n".join(f"- {line}" for line in previous))
+    completion = await gateway.complete(Job.VISION, prompt, **options)
     labels = {str(index): f"t={_time_of(file):.2f}" for index, file in enumerate(files, 1)}
     return _defects(theme, completion.text, labels), completion.stats
 
@@ -82,3 +98,39 @@ def _defects(theme: str, text: str, labels: dict[str, str]) -> list[Defect]:
         for item in items[:MAX_DEFECTS_PER_THEME]
         if isinstance(item, dict) and item.get("defect")
     ]
+
+
+CONFIRM_SYSTEM = """You are a skeptical visual reviewer for an educational animation app.
+You are shown frames from one Lesson, drawn in one visual theme on a 1600 by 900 stage, and one claimed defect from another reviewer.
+Decide whether that defect is plainly visible in the frames, without measuring.
+Answer false when the claim is about taste, when it describes a normal crossfade or a mark caught mid-motion, when the frames show it fixed, or when you cannot point to it in a specific frame.
+Reply with JSON only: {"visible": true or false, "frame": <number of the frame that shows it, or 0>}"""
+
+
+@dataclass(frozen=True)
+class Confirmation:
+    confirmed: list[Defect]
+    raised: int
+    calls: list[CallStats]
+
+
+async def confirm(gateway: Gateway, frames_dir: Path, defects: list[Defect]) -> Confirmation:
+    answers = await asyncio.gather(*(_confirm_one(gateway, frames_dir, defect) for defect in defects))
+    confirmed = [defect for defect, (visible, _) in zip(defects, answers) if visible]
+    return Confirmation(confirmed, len(defects), [stats for _, stats in answers if stats])
+
+
+async def _confirm_one(gateway: Gateway, frames_dir: Path, defect: Defect) -> tuple[bool, CallStats | None]:
+    files = sorted(frames_dir.glob(f"lesson-{defect.theme}-*.png"), key=_time_of)
+    if not files:
+        return True, None
+    options: RequestOptions = {"system": CONFIRM_SYSTEM, "images": tuple(Image.from_file(file) for file in files), "timeout": JUDGE_TIMEOUT_SECONDS}
+    names = ", ".join(f"frame {index} is at {_time_of(file):.2f} s" for index, file in enumerate(files, 1))
+    claim = f"These {len(files)} frames are in the '{defect.theme}' theme: {names}.\nClaimed defect, reported at {defect.frame}: {defect.defect}"
+    completion = await gateway.complete(Job.VISION, claim, **options)
+    match = re.search(r"\{.*\}", completion.text, re.DOTALL)
+    try:
+        visible = bool(json.loads(match.group(0)).get("visible")) if match else True
+    except (json.JSONDecodeError, AttributeError):
+        visible = True
+    return visible, completion.stats

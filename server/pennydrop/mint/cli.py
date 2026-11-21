@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import signal
 import sys
 
 from ..services import Services
@@ -52,11 +53,16 @@ def _mint(services: Services, mint: Mint, lab_id: str, arguments: argparse.Names
         brief = services.store.mint(lab_id).brief
     if not brief:
         sys.exit('pd mint: give --brief "<what it must teach and its ops>" or --request N')
+    signal.signal(signal.SIGTERM, _interrupt)
     outcome = asyncio.run(mint.run(lab_id, brief, request_id=arguments.request, max_rounds=arguments.max_rounds, seed=arguments.seed))
     record = outcome.record
     print(f"{lab_id}: {record.status.value} after {record.rounds} rounds, {record.seconds:.0f} s, {record.input_tokens} in ({record.cached_tokens} cached) / {record.output_tokens} out tokens, ${record.cost_usd:.4f}")
     if not outcome.accepted:
         sys.exit(f"pd mint: '{lab_id}' still fails after {record.rounds} rounds:\n" + "\n".join(f"  {line}" for line in outcome.remaining))
+
+
+def _interrupt(signal_number, frame) -> None:
+    raise KeyboardInterrupt
 
 
 def _list(services: Services) -> None:

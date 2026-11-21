@@ -12,7 +12,7 @@ from ..store import MintRecord, MintStatus, Store
 from . import runtime, workspace as workspace_builder
 from .checks import Finding, run_checks
 from ..asks.validator import Validator
-from .judge import Defect, judge
+from .judge import Defect, confirm, judge
 from .paths import MINT_JOB_TIMEOUT_SECONDS, MintPaths
 from .runtime import MintError
 
@@ -29,13 +29,21 @@ These problems were still open on it, and TASK.md repeats them:
 {problems}
 
 Fix the cause of each one in place, keep everything that already works, and run ./check until it prints ok.
-"""
+{earlier}"""
 REPAIR_ROUND = """The task is in TASK.md and the rules are in RULES.md; reread both if you need them.
 Your Lab in src/labs/{lab_id}.ts and your lesson.jsonl were reviewed after your last round and these problems remain.
 Fix the cause of each one in place, never hide it, keep everything that already works, run ./check until it prints ok, and reply with a few lines on what you changed.
+A fix must not move, resize or recolor anything that was not reported; fixing one mark must not break its neighbours.
+
+{problems}
+{earlier}"""
+EARLIER_HEADING = """
+Reviews in earlier rounds also reported these problems, which you fixed or replaced since.
+Each one must stay fixed, so check your changes against them before you finish:
 
 {problems}
 """
+MAX_EARLIER_PROBLEMS = 30
 
 
 @dataclass(frozen=True)
@@ -43,6 +51,8 @@ class Seed:
     source: str
     lesson: str
     problems: list[str]
+    reviewed: list[str]
+    reported: list[str]
 
 
 @dataclass(frozen=True)
@@ -79,36 +89,48 @@ class Mint:
         started = time.monotonic()
         record = MintRecord(lab_id, brief, MintStatus.MINTING, str(workspace_path), request_id)
         self._store.save_mint(record)
-        prompt = SEEDED_ROUND.format(lab_id=lab_id, problems="\n".join(f"- {line}" for line in seeding.problems)) if seeding else FIRST_ROUND
+        prompt = SEEDED_ROUND.format(lab_id=lab_id, problems="\n".join(f"- {line}" for line in seeding.problems), earlier=_earlier_section([line for line in seeding.reported if line not in seeding.problems][-MAX_EARLIER_PROBLEMS:])) if seeding else FIRST_ROUND
         remaining: list[str] = []
-        for round_number in range(1, max_rounds + 1):
-            round_started = time.monotonic()
-            report(f"[{lab_id}] round {round_number}: the model is writing")
-            completion = await self._gateway.complete(Job.MINT, prompt, cwd=workspace_path, sandbox=SANDBOX, tools=CLAUDE_TOOLS, permission_mode=CLAUDE_PERMISSION_MODE, allowed_tools=f"{CLAUDE_CHECK_COMMAND},Read(/{self._paths.player / 'src'}/**)", timeout=MINT_JOB_TIMEOUT_SECONDS)
-            if not (workspace_path / "src" / "labs" / f"{lab_id}.ts").is_file():
-                self._store.save_mint(_finish(record, MintStatus.FAILED))
-                raise MintError(f"the Mint's model wrote no Lab file in round {round_number} (route {completion.stats.route if completion.stats else 'unknown'}); no more rounds were spent. Its reply: {completion.text.strip()[-600:]}")
-            runtime.format_source(self._paths, workspace_path / "src" / "labs" / f"{lab_id}.ts")
-            findings = await run_checks(self._paths, workspace_path)
-            defects: list[Defect] = []
-            judge_calls: list[CallStats] = []
-            if not findings:
-                report(f"[{lab_id}] round {round_number}: checks pass, the judge is looking at the frames")
-                verdict = await judge(self._gateway, workspace_path / "frames", lab_id)
-                defects, judge_calls = verdict.defects, verdict.calls
-            broken_tools = [item for item in findings if item.stage == "tool"]
-            if broken_tools:
-                self._store.save_mint(_finish(record, MintStatus.FAILED))
-                raise MintError(f"the Mint's own tooling failed, so no round was wasted on the Lab: {broken_tools[0].message}")
-            remaining = [str(item) for item in [*findings, *defects]]
-            record = _with_round(record, round_number, time.monotonic() - round_started, completion.stats, judge_calls, findings, defects, time.monotonic() - started)
-            self._store.save_mint(record)
-            report(f"[{lab_id}] round {round_number}: {len(findings)} check findings, {len(defects)} judge findings")
-            for line in remaining:
-                report(f"    {line}")
-            if not remaining:
-                break
-            prompt = REPAIR_ROUND.format(lab_id=lab_id, problems="\n".join(f"- {line}" for line in remaining))
+        reported: list[str] = list(seeding.reported) if seeding else []
+        reviewed: list[str] = list(seeding.reviewed) if seeding else []
+        try:
+            for round_number in range(1, max_rounds + 1):
+                round_started = time.monotonic()
+                report(f"[{lab_id}] round {round_number}: the model is writing")
+                completion = await self._gateway.complete(Job.MINT, prompt, cwd=workspace_path, sandbox=SANDBOX, tools=CLAUDE_TOOLS, permission_mode=CLAUDE_PERMISSION_MODE, allowed_tools=f"{CLAUDE_CHECK_COMMAND},Read(/{self._paths.player / 'src'}/**)", timeout=MINT_JOB_TIMEOUT_SECONDS)
+                if not (workspace_path / "src" / "labs" / f"{lab_id}.ts").is_file():
+                    self._store.save_mint(_finish(record, MintStatus.FAILED))
+                    raise MintError(f"the Mint's model wrote no Lab file in round {round_number} (route {completion.stats.route if completion.stats else 'unknown'}); no more rounds were spent. Its reply: {completion.text.strip()[-600:]}")
+                runtime.format_source(self._paths, workspace_path / "src" / "labs" / f"{lab_id}.ts")
+                findings = await run_checks(self._paths, workspace_path)
+                defects: list[Defect] = []
+                judge_calls: list[CallStats] = []
+                if not findings:
+                    report(f"[{lab_id}] round {round_number}: checks pass, the judge is looking at the frames")
+                    verdict = await judge(self._gateway, workspace_path / "frames", lab_id, reviewed)
+                    raised = verdict.defects
+                    confirmation = await confirm(self._gateway, workspace_path / "frames", raised)
+                    defects, judge_calls = confirmation.confirmed, [*verdict.calls, *confirmation.calls]
+                    reviewed = [str(defect) for defect in defects]
+                    report(f"[{lab_id}] round {round_number}: the judge raised {len(raised)} findings and {len(defects)} held up on a second look")
+                broken_tools = [item for item in findings if item.stage == "tool"]
+                if broken_tools:
+                    self._store.save_mint(_finish(record, MintStatus.FAILED))
+                    raise MintError(f"the Mint's own tooling failed, so no round was wasted on the Lab: {broken_tools[0].message}")
+                remaining = [str(item) for item in [*findings, *defects]]
+                record = _with_round(record, round_number, time.monotonic() - round_started, completion.stats, judge_calls, findings, defects, time.monotonic() - started)
+                self._store.save_mint(record)
+                report(f"[{lab_id}] round {round_number}: {len(findings)} check findings, {len(defects)} judge findings")
+                for line in remaining:
+                    report(f"    {line}")
+                if not remaining:
+                    break
+                reported = list(dict.fromkeys([*reported, *remaining]))
+                earlier = [line for line in reported if line not in remaining][-MAX_EARLIER_PROBLEMS:]
+                prompt = REPAIR_ROUND.format(lab_id=lab_id, problems="\n".join(f"- {line}" for line in remaining), earlier=_earlier_section(earlier))
+        except BaseException:
+            self._store.save_mint(_finish(record, MintStatus.FAILED))
+            raise
         if remaining:
             record = _finish(record, MintStatus.FAILED)
         else:
@@ -139,7 +161,8 @@ class Mint:
         if previous.status is not MintStatus.FAILED or not source.is_file() or not lesson.is_file():
             raise MintError(f"only a failed attempt that still has its Lab and lesson.jsonl can seed a mint; '{lab_id}' is {previous.status.value}")
         last = previous.round_log[-1]
-        return Seed(source.read_text(), lesson.read_text(), [*last["check_findings"], *last["judge_findings"]])
+        reported = list(dict.fromkeys(line for entry in previous.round_log for line in [*entry["check_findings"], *entry["judge_findings"]]))
+        return Seed(source.read_text(), lesson.read_text(), [*last["check_findings"], *last["judge_findings"]], list(last["judge_findings"]), reported)
 
     def _fresh_workspace(self, lab_id: str, brief: str, ask: str | None) -> Path:
         if (self._paths.labs / f"{lab_id}.ts").exists():
@@ -147,6 +170,10 @@ class Mint:
         shutil.rmtree(self._paths.workspace(lab_id), ignore_errors=True)
         return workspace_builder.prepare(self._paths, lab_id, brief, ask)
 
+
+
+def _earlier_section(earlier: list[str]) -> str:
+    return EARLIER_HEADING.format(problems="\n".join(f"- {line}" for line in earlier)) if earlier else ""
 
 
 def _with_round(record: MintRecord, number: int, seconds: float, codex: CallStats | None, judge_calls: list[CallStats], findings: list[Finding], defects: list[Defect], total_seconds: float) -> MintRecord:
