@@ -203,6 +203,8 @@ def create_app(services: Services) -> FastAPI:
 
     services.settings.tts_cache_dir.mkdir(parents=True, exist_ok=True)
     app.mount(MEDIA_PREFIX, StaticFiles(directory=services.settings.tts_cache_dir), name="tts-media")
+    services.settings.media_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=services.settings.media_dir), name="media")
     _mount_player(app, services)
     return app
 

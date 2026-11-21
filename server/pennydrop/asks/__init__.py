@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from ..courses import CourseContext
 from ..gateway import Gateway
 from ..lessons import LessonLibrary
+from ..pictures import PartLocator, PictureFinder
 from ..settings import Settings
 from ..store import LessonRecord, LessonSource, Store
 from ..tracer import Tracer
@@ -53,7 +54,8 @@ class Asks:
         self._store = store
         self._library = library
         self._validator = Validator(settings)
-        self._kit = Toolkit(store, catalog, Classifier(gateway), Writer(gateway, catalog), self._validator, DirectiveTools(tracer), speaker)
+        locator = PartLocator(gateway, settings.media_dir)
+        self._kit = Toolkit(store, catalog, Classifier(gateway), Writer(gateway, catalog), self._validator, DirectiveTools(tracer, PictureFinder(settings.media_dir, gateway, locator.warm), locator), speaker)
         self._live: dict[str, LiveLesson] = {}
         self._running: set[asyncio.Task] = set()
 

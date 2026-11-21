@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from ...pictures import PartLocator, PictureFinder
 from ...tracer import Trace, Tracer
 from ..lesson_format import describe
 
@@ -22,6 +23,10 @@ class DirectiveError(ValueError):
 @dataclass(frozen=True)
 class DirectiveTools:
     tracer: Tracer
+    images: PictureFinder
+    locator: PartLocator
+    lesson_id: str | None = None
+    young_child: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,7 +68,7 @@ def parse_spec(model: type[BaseModel], raw: Any, directive: str):
 def fill_values(step: dict[str, Any], values: dict[str, int | float | str]) -> dict[str, Any]:
     filled = _fill_text(step, {"{" + name + "}": str(value) for name, value in values.items()})
     challenge = filled.get("challenge")
-    if isinstance(challenge, dict) and challenge.get("answer") in values:
+    if isinstance(challenge, dict) and isinstance(challenge.get("answer"), str) and challenge["answer"] in values:
         filled["challenge"] = {**challenge, "answer": values[challenge["answer"]]}
     return filled
 

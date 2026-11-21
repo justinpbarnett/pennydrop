@@ -9,6 +9,7 @@ from typing import Any
 
 from ..courses import CourseContext
 from ..lessons import done_event
+from ..pictures import prefetch, subject_of
 from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
 from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
@@ -89,7 +90,9 @@ class LessonRun:
         self._catalog_labs: set[str] = set()
         self._published = 0
         self._redone_for_child: set[int] = set()
+        self._remembered_values: dict[str, Any] = {}
         self._refused = False
+        self._warm_picture: asyncio.Task[None] | None = None
 
     @property
     def _reading(self) -> bool:
@@ -117,9 +120,12 @@ class LessonRun:
         self._stopwatch.mark("classified")
         self._refused = not plan.fine_for_young_child
         self._request_missing_lab(plan)
+        photo_search = subject_of(self._ask.text) if "picture" in plan.labs else None
+        if photo_search:
+            self._warm_picture = asyncio.create_task(prefetch(kit.directive_tools.images, photo_search, not self._is_kid, self._record.id))
         self._record = replace(self._record, tier=plan.tier.value)
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
-        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course)
+        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, photo_search)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()
         ready: asyncio.Queue[ReadyStep | None] = asyncio.Queue()
         async with asyncio.TaskGroup() as group:
@@ -189,7 +195,8 @@ class LessonRun:
             return Checked([written.reason], None, scene)
         step = {**written, "step": number}
         try:
-            step = await expand_directives(step, self._kit.directive_tools)
+            tools = replace(self._kit.directive_tools, lesson_id=self._record.id, young_child=self._is_kid)
+            step = await expand_directives(step, tools, self._remembered_values)
         except DirectiveError as error:
             return Checked([str(error)], None, scene)
         verdict, fine_for_child, keeps_honor_code = await asyncio.gather(

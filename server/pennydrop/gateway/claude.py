@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 
 from ..settings import Settings
 from .process import run_process
-from .types import Request, RouteError, Usage
+from .types import Request, RouteError, Thinking, Usage
 
 
 class ClaudeRoute:
@@ -15,7 +15,7 @@ class ClaudeRoute:
     def unavailable_reason(self) -> str | None:
         return None
 
-    async def run(self, request: Request, model: str) -> AsyncIterator[str | Usage]:
+    async def run(self, request: Request, model: str) -> AsyncIterator[str | Usage | Thinking]:
         argv = [
             "claude", "-p", "--model", model,
             "--output-format", "stream-json", "--verbose", "--include-partial-messages",
@@ -40,6 +40,8 @@ class ClaudeRoute:
                     delta = event["event"].get("delta", {})
                     if delta.get("type") == "text_delta":
                         yield delta["text"]
+                    elif event["event"].get("type") == "content_block_start" and event["event"]["content_block"].get("type") == "thinking":
+                        yield Thinking()
                 elif event["type"] == "result":
                     if event.get("is_error"):
                         raise RouteError(f"claude reported an error: {event.get('result')}")

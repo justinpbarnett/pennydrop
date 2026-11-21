@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -14,7 +15,9 @@ from .api import AnthropicRoute, OpenRouterRoute
 from .claude import ClaudeRoute
 from .codex import CodexRoute
 from .jev import Answer, Choice, ChoiceAnswer, JevRoute, Question, Score, ScoreAnswer, YesNo, YesNoAnswer
-from .types import Completion, GatewayError, Image, Request, RouteError, Usage
+from .types import Completion, GatewayError, Image, Request, RouteError, Thinking, Usage
+
+LOG = logging.getLogger("pennydrop.gateway")
 
 __all__ = [
     "Answer", "Choice", "ChoiceAnswer", "Classification", "Completion", "Gateway", "GatewayError", "Image", "PingResult",
@@ -141,9 +144,10 @@ class Gateway:
     async def _hedged(self, job: Job, route: RouteSpec, request: Request) -> AsyncIterator[str | CallStats]:
         if request.hedge_after is None:
             async for item in self._attempt(job, route, request):
-                yield item
+                if not isinstance(item, Thinking):
+                    yield item
             return
-        queue: asyncio.Queue[tuple[int, str | CallStats | GatewayError | None]] = asyncio.Queue()
+        queue: asyncio.Queue[tuple[int, str | CallStats | Thinking | GatewayError | None]] = asyncio.Queue()
         starts: dict[int, float] = {}
 
         def spawn(index: int) -> asyncio.Task[None]:
@@ -172,6 +176,12 @@ class Gateway:
                     tasks[1] = spawn(1)
                     hedged = True
                     continue
+                if isinstance(item, Thinking):
+                    if index == 0 and winner is None and not hedged:
+                        LOG.warning("hedge: %s began thinking %.1fs in, so a second attempt starts now", route, time.monotonic() - starts[0])
+                        tasks[1] = spawn(1)
+                        hedged = True
+                    continue
                 if winner is None and isinstance(item, str):
                     winner = index
                     lost = [other for other, task in tasks.items() if other != winner and not task.done()]
@@ -195,7 +205,7 @@ class Gateway:
             for other in lost:
                 self._log_hedge_loser(job, route, request, starts[other], stats)
 
-    async def _attempt(self, job: Job, route: RouteSpec, request: Request) -> AsyncIterator[str | CallStats]:
+    async def _attempt(self, job: Job, route: RouteSpec, request: Request) -> AsyncIterator[str | CallStats | Thinking]:
         started = time.monotonic()
         first_token_seconds = None
         usage = Usage()
@@ -205,7 +215,7 @@ class Gateway:
                     if isinstance(item, Usage):
                         usage = item
                         continue
-                    if first_token_seconds is None:
+                    if first_token_seconds is None and not isinstance(item, Thinking):
                         first_token_seconds = time.monotonic() - started
                     yield item
         except Exception as error:
@@ -245,7 +255,7 @@ def _reraise_as_gateway_error(route: RouteSpec, error: Exception) -> NoReturn:
     raise RouteError(f"{route} failed with {type(error).__name__}: {error}") from error
 
 
-async def _with_deadline(items: AsyncIterator[str | Usage], deadline: float, route: RouteSpec) -> AsyncIterator[str | Usage]:
+async def _with_deadline(items: AsyncIterator[str | Usage | Thinking], deadline: float, route: RouteSpec) -> AsyncIterator[str | Usage | Thinking]:
     iterator = aiter(items)
     while True:
         try:

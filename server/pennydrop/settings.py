@@ -17,6 +17,7 @@ class Job(StrEnum):
     WRITER_FAST = "writer_fast"
     WRITER_STRONG = "writer_strong"
     VISION = "vision"
+    VISION_CHOOSE = "vision_choose"
     GRADE = "grade"
     FILM_RESEARCH = "film_research"
     FILM_SCRIPT = "film_script"
@@ -92,6 +93,10 @@ class Settings:
     @property
     def tts_cache_dir(self) -> Path:
         return self.data_dir / "tts"
+
+    @property
+    def media_dir(self) -> Path:
+        return self.data_dir / "media"
 
     @property
     def scratch_dir(self) -> Path:

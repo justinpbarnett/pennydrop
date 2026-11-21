@@ -9,11 +9,15 @@ import { THEMES } from "../src/theme";
 import { Timeline } from "../src/timeline";
 import { readLessonFile, registerAllLabs } from "./load";
 
+const VISIBLE_OPACITY = 0.05;
+const SETTLED_AFTER = 1;
+
 interface Request {
   id?: string;
   scene?: SceneSnapshot | null;
   step?: Step;
   reading?: boolean;
+  replay?: boolean;
 }
 
 interface StepResult {
@@ -22,16 +26,17 @@ interface StepResult {
   errors: string[];
 }
 
-async function checkStep(timeline: Timeline, step: Step): Promise<StepResult> {
+async function checkStep(timeline: Timeline, step: Step, replay = false): Promise<StepResult> {
   await prepareStepAssets(step);
   const span = timeline.addStep(step);
   const errors = [...span.errors];
   if (errors.length === 0) {
     try {
       for (const fraction of [0.02, 0.5, 0.98]) renderFrame(timeline, span.start + (span.end - span.start) * fraction, THEMES.pattern);
+      if (!replay && !renderFrame(timeline, span.end + SETTLED_AFTER, THEMES.pattern).items.some((item) => item.opacity > VISIBLE_OPACITY)) errors.push(`step ${step.step} draw: nothing is on stage when this Step ends; show something the narration talks about, such as a shape, a picture or a Lab figure`);
       const scenes = [...timeline.segments.filter((segment) => segment.start >= span.start && segment.start < span.end).map((segment) => segment.after), timeline.finalScene];
       const crowded = scenes.map((scene) => crowdedSceneError(scene, THEMES.pattern)).find((message) => message !== null);
-      if (crowded) errors.push(`step ${step.step} draw: ${crowded}`);
+      if (crowded && !replay) errors.push(`step ${step.step} draw: ${crowded}`);
     } catch (error) {
       if (!(error instanceof LabError)) throw error;
       errors.push(`step ${step.step} draw: ${error.message}`);
@@ -67,7 +72,7 @@ async function answer(request: Request): Promise<object> {
   const scene = request.reading === undefined ? start : { ...start, reading: request.reading };
   await prepareStepAssets(scene);
   const timeline = new Timeline(scene);
-  const result = await checkStep(timeline, step);
+  const result = await checkStep(timeline, step, request.replay === true);
   return { id, ...result, scene: snapshotOf(result.ok ? timeline.finalScene : start) };
 }
 

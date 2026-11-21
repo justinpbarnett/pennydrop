@@ -10,6 +10,9 @@ from .catalog import LabEntry
 
 STRONG_TIER_FROM_SCORE = 1.5
 LAB_QUESTION_PREFIX = "lab_"
+KID_LAB_HINTS = {
+    "picture": "Answer yes when a child asks what a real thing looks like, asks to see it, or asks what is inside it or what parts it has: a real photo shows it better than drawn shapes.",
+}
 FOLLOW_UP = "follow_up"
 NEW_TOPIC = "new_topic"
 
@@ -55,14 +58,17 @@ class Classifier:
             ),
             "graded_assignment": YesNo("Does the person want code or answers for a graded course assignment, rather than to understand a concept?"),
         }
+        is_kid = profile is not None and profile.kind is ProfileKind.KID
         for lab in labs:
-            questions[LAB_QUESTION_PREFIX + lab.id] = YesNo(f"Would the {lab.title} Lab help show this Ask as an animation? The {lab.title} Lab is: {lab.summary}")
+            question = f"Would the {lab.title} Lab help show this Ask as an animation? The {lab.title} Lab is: {lab.summary}"
+            if is_kid and lab.id in KID_LAB_HINTS:
+                question += " " + KID_LAB_HINTS[lab.id]
+            questions[LAB_QUESTION_PREFIX + lab.id] = YesNo(question)
         if viewing:
             questions["relation"] = Choice(
                 "Does the Ask continue the Lesson the person is watching, or start a new Topic?",
                 {FOLLOW_UP: "it builds on, questions or goes deeper into the Lesson being watched", NEW_TOPIC: "it is about something else"},
             )
-        is_kid = profile is not None and profile.kind is ProfileKind.KID
         if is_kid:
             questions["young_child_ok"] = YesNo("Is this question fine for a young child to learn about?")
         result = await self._gateway.classify(_state(ask, profile, viewing), questions, lesson_id=lesson_id)

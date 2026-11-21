@@ -57,6 +57,11 @@ class Usage:
 
 
 @dataclass(frozen=True)
+class Thinking:
+    pass
+
+
+@dataclass(frozen=True)
 class Completion:
     text: str
     stats: CallStats

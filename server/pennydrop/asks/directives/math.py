@@ -6,7 +6,7 @@ from typing import Any
 import sympy
 from pydantic import BaseModel, ConfigDict
 
-from ._support import DirectiveError, DirectiveTools, fill_values, parse_spec
+from ._support import DirectiveError, DirectiveTools, parse_spec
 
 MAX_EXPRESSION_CHARACTERS = 200
 SAFE_NAMES = {
@@ -34,9 +34,9 @@ class MathSpec(BaseModel):
     expr: str
 
 
-async def expand(step: dict[str, Any], raw: Any, _: DirectiveTools) -> dict[str, Any]:
+async def expand(step: dict[str, Any], raw: Any, _: DirectiveTools) -> tuple[dict[str, Any], dict[str, Any]]:
     spec = parse_spec(MathSpec, raw, "math")
-    return fill_values(step, {"math": evaluate(spec.expr)})
+    return step, {"math": evaluate(spec.expr)}
 
 
 def evaluate(expression: str) -> int | float:

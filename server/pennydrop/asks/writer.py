@@ -11,7 +11,7 @@ from ..settings import Job
 from ..store import Profile
 from .catalog import Catalog
 from .classify import Plan
-from .directives import directive_guides, directives_for_labs
+from .directives import directive_briefs, directive_guides
 from .lesson_format import Header, Malformed, ParsedLine, parse_line
 from .stopwatch import Stopwatch
 
@@ -32,6 +32,7 @@ Rules
 - When no Lab fits the Ask, build the explanation from primitives and the generic verbs.
 - Never write coordinates, pixel sizes or colors. Place objects with "at" relations and color with roles.
 - A Step's "scene" sets or replaces the objects it names, and null removes one. Every other object stays. A Step with no "scene" keeps the Scene as it was.
+- Keep at most about three objects on stage at once, because a Scene that fits only below 60% size fails. Remove what a Step no longer talks about (null in "scene") before it adds a big panel such as a code trace or a simulation, and never show the same Lab twice.
 - Put new objects in "scene". Use the generic verb "create" only for an object that must appear on a spoken Cue, and then always with "spec" holding the full object spec.
 - "do" runs after "scene". Each entry's "cue" is a word or phrase copied exactly from that Step's "say", and cues appear in the order they are spoken.
 - Include at least one predict Challenge. Put it on a Step before the Step that reveals the answer, and let that Step's narration ask the question without giving the answer.
@@ -69,6 +70,7 @@ class Brief:
     scene: Any = None
     watching_title: str | None = None
     course: CourseContext | None = None
+    photo_search: str | None = None
 
     def course_lines(self) -> list[str]:
         if not self.course:
@@ -85,8 +87,9 @@ class Brief:
             f"Labs that fit this Ask: {', '.join(self.plan.labs)}. Use them where they help, together with primitives."
             if self.plan.labs else "No Lab fits this Ask: build the explanation from primitives."
         )
-        for lab, directive in directives_for_labs(self.plan.labs).items():
-            lines.append(f"Play the {lab} Lab with the {directive} directive: write no operations for it yourself.")
+        lines.extend(directive_briefs(self.plan.labs))
+        if self.photo_search:
+            lines.append(f"A photo search for \"{self.photo_search}\" is already running: use the images directive with exactly that query for the Ask's main subject. You still choose freely for any other subject.")
         if self.plan.follow_up:
             lines.append(f"This is a follow up to the Lesson '{self.watching_title}'. Step 1 continues from the Scene below, so reuse its objects instead of recreating them. When Step 1 brings in a new example, its \"scene\" replaces the objects that still show the old one, so the stage matches the narration.")
             lines.append(f"Current Scene (JSON): {json.dumps(self.scene)}")
@@ -98,6 +101,7 @@ class Brief:
 
 WRITER_EFFORT = "low"
 WRITER_HEDGE_SECONDS = 2.5
+NO_THINKING = "Reply straight away without extended thinking: this task needs none."
 
 
 class Writer:
@@ -142,4 +146,4 @@ class Writer:
         return Malformed(completion.text, "the reply held no Step line")
 
     async def _system(self) -> str:
-        return FORMAT_RULES + "\n\n# Catalog\n\n" + (await self._catalog.current()).markdown + "\n\n# Directives, which replace the hand written operations above\n\n" + directive_guides()
+        return NO_THINKING + "\n\n" + FORMAT_RULES + "\n\n# Catalog\n\n" + (await self._catalog.current()).markdown + "\n\n# Directives, which replace the hand written operations above\n\n" + directive_guides()
