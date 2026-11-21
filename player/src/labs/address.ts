@@ -89,10 +89,11 @@ const BAND_LABEL_ROOM = 340;
 const VIRTUAL_Y = 60;
 const FIELD_ARROW_Y = 182;
 const PANEL_TOP = 232;
-const HEADER_HEIGHT = 60;
+const HEADER_HEIGHT = 76;
 const MAX_ENTRIES_PER_TABLE = 6;
 const MAX_TLB_SLOTS = 8;
 const MAX_BITS = 48;
+const ARROW_GAP = 12;
 const HEAD_LENGTH = 18;
 const HEAD_ANGLE = 0.5;
 
@@ -216,6 +217,7 @@ function physicalY(state: AddressState): number {
 }
 
 function totalHeight(state: AddressState): number {
+  if (state.access?.physical == null) return captionY(state) + 66;
   return physicalY(state) + 130;
 }
 
@@ -233,11 +235,11 @@ function rowY(state: AddressState, row: number): number {
   return PANEL_TOP + HEADER_HEIGHT + (row + 0.5) * rowHeight(state);
 }
 
-function band(state: AddressState, widths: number[], split: boolean): Band {
+function band(state: AddressState, widths: number[], split: boolean, alignedTo: Band | null = null): Band {
   const bits = widths.reduce((sum, width) => sum + width, 0);
   const gaps = split ? widths.length - 1 : 0;
-  const pitch = Math.max(20, Math.min(DIGIT_PITCH, Math.floor((bandWidth(state) - BAND_LABEL_ROOM - gaps * GROUP_GAP) / bits)));
-  const left = (bandWidth(state) - (bits * pitch + gaps * GROUP_GAP)) / 2;
+  const pitch = alignedTo?.pitch ?? Math.max(20, Math.min(DIGIT_PITCH, Math.floor((bandWidth(state) - BAND_LABEL_ROOM - gaps * GROUP_GAP) / bits)));
+  const left = alignedTo ? alignedTo.groups.at(-1)!.right - (bits * pitch + gaps * GROUP_GAP) : (bandWidth(state) - (bits * pitch + gaps * GROUP_GAP)) / 2;
   const bitX: number[] = [];
   const groups: Band["groups"] = [];
   let bit = 0;
@@ -265,7 +267,7 @@ function virtualBand(state: AddressState): Band {
 }
 
 function physicalBand(state: AddressState): Band {
-  return band(state, [pageBits(state), state.offsetBits], true);
+  return band(state, [pageBits(state), state.offsetBits], true, virtualBand(state));
 }
 
 interface GroupLabel {
@@ -300,15 +302,20 @@ function fieldFocused(state: AddressState, group: number): boolean {
   return state.access?.focus.includes(group) ?? false;
 }
 
+function resultShown(state: AddressState): boolean {
+  return state.access?.physical != null;
+}
+
 function virtualDrawables(state: AddressState): Drawable[] {
   const access = state.access;
+  const settled = resultShown(state);
   const value = access?.address ?? state.initialAddress;
   if (value === null) return [];
   const labels = access
     ? [...state.fields.map((field, index) => `${field.name} = ${access.parts[index]}`), `offset = ${hex(access.offset, hexWidth(state.offsetBits))}`]
-        .map((text, group): GroupLabel => (fieldFocused(state, group) ? { text, textRole: "active", bracketRole: "active" } : { text, textRole: "ink", bracketRole: "muted" }))
+        .map((text, group): GroupLabel => (fieldFocused(state, group) && !settled ? { text, textRole: "active", bracketRole: "active" } : { text, textRole: "ink", bracketRole: "muted" }))
     : null;
-  return bandDrawables(state, "v", "virtual", value, "ink", VIRTUAL_Y, virtualBand(state), labels, (group) => (fieldFocused(state, group) ? "active" : "ink"));
+  return bandDrawables(state, "v", "virtual", value, "ink", VIRTUAL_Y, virtualBand(state), labels, (group) => (fieldFocused(state, group) && !settled ? "active" : "ink"));
 }
 
 function physicalDrawables(state: AddressState): Drawable[] {
@@ -328,10 +335,10 @@ function panelRect(state: AddressState, id: string, column: number, fill: "fill"
 function header(state: AddressState, id: string, column: number, title: string, sub: string, badge: { text: string; role: Role } | null, titleRole: Role): Drawable[] {
   const x = columnX(state, column);
   const out: Drawable[] = [
-    { id: `${id}-title`, kind: "text", x: x + 18, y: PANEL_TOP + 24, text: title, size: 28, font: "mark", anchor: "start", fill: titleRole, z: 1 },
-    { id: `${id}-sub`, kind: "text", x: x + 18, y: PANEL_TOP + 48, text: sub, size: 22, font: "read", anchor: "start", fill: "muted", z: 1 },
+    { id: `${id}-title`, kind: "text", x: x + 18, y: PANEL_TOP + 26, text: title, size: 28, font: "read", anchor: "start", fill: titleRole, z: 1 },
+    { id: `${id}-sub`, kind: "text", x: x + 18, y: PANEL_TOP + 58, text: sub, size: 22, font: "read", anchor: "start", fill: "muted", z: 1 },
   ];
-  if (badge) out.push({ id: `${id}-badge`, kind: "text", x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 24, text: badge.text, size: 28, font: "mark", anchor: "end", fill: badge.role, z: 1 });
+  if (badge) out.push({ id: `${id}-badge`, kind: "text", x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 26, text: badge.text, size: 28, font: "mark", anchor: "end", fill: badge.role, z: 1 });
   return out;
 }
 
@@ -422,18 +429,19 @@ function connectors(state: AddressState): Connector[] {
   const access = state.access;
   if (!access) return [];
   const out: Connector[] = [];
+  const hopRole: Role = resultShown(state) ? "muted" : "active";
   const fields = virtualBand(state).groups;
-  if (access.lookup !== "none" && state.slots !== null) {
+  if (access.lookup !== "none" && state.slots !== null && access.hops.length === 0) {
     const index = fields.slice(0, state.fields.length);
     const from = (index[0]!.left + index.at(-1)!.right) / 2;
-    out.push({ id: "c-tlb", role: "active", points: [[from, FIELD_ARROW_Y], [columnX(state, 0) + COLUMN_WIDTH / 2, PANEL_TOP - 6]] });
+    out.push({ id: "c-tlb", role: hopRole, points: [[from, FIELD_ARROW_Y], [columnX(state, 0) + COLUMN_WIDTH / 2, PANEL_TOP - ARROW_GAP]] });
   }
   access.hops.forEach((_, level) => {
     const column = levelColumn(state, level);
-    out.push({ id: `c-field-${level}`, role: "active", points: [[fields[level]!.center, FIELD_ARROW_Y], [columnX(state, column) + COLUMN_WIDTH / 2, PANEL_TOP - 6]] });
+    if (level === access.hops.length - 1) out.push({ id: `c-field-${level}`, role: hopRole, points: [[fields[level]!.center, FIELD_ARROW_Y], [columnX(state, column) + COLUMN_WIDTH / 2, PANEL_TOP - ARROW_GAP]] });
     if (level > 0) {
       const from = selectedRowCenter(state, level - 1);
-      out.push({ id: `c-next-${level}`, role: "active", points: [[from.right, from.y], [columnX(state, column) - 6, PANEL_TOP + HEADER_HEIGHT / 2]] });
+      out.push({ id: `c-next-${level}`, role: hopRole, points: [[from.right, from.y], [columnX(state, column) - ARROW_GAP, PANEL_TOP + HEADER_HEIGHT / 2]] });
     }
   });
   if (access.physical !== null) {
