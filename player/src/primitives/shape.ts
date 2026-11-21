@@ -1,4 +1,4 @@
-import { type Drawable, fail, type LabDef, labelDrawable, numberField, type Point, type Role, roleField, segmentDrawable } from "../lab";
+import { type Drawable, fail, type LabDef, labelDrawable, type Point, positiveField, readsWords, type Role, roleField, segmentDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
 type ShapeName = "rect" | "circle" | "line" | "arrow" | "path";
@@ -14,6 +14,7 @@ interface ShapeState {
   label: string;
   role: Role;
   fillRole: Role | "none";
+  reading: boolean;
 }
 
 const DIRECTIONS = { right: [1, 0], left: [-1, 0], up: [0, -1], down: [0, 1] } as const;
@@ -46,6 +47,7 @@ function lineEnds(state: ShapeState): [Point, Point] {
 export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
   id: "shape",
   title: "Shape",
+  reading: "optional",
   catalog: {
     summary: "A rect, circle, line, arrow or path with an optional label. The shape grows to fit its label: a rect, circle or path holds it inside, an arrow or line carries it above (horizontal) or beside (vertical).",
     spec: {
@@ -60,26 +62,26 @@ export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
       role: "stroke color role, default ink",
       fill: "optional fill color role",
     },
-    ops: {},
     example: ['{"scene":{"box":{"kind":"shape","shape":"rect","label":"Hello"}}}'],
   },
+  ops: {},
   init(spec, objectId) {
     const shape = spec.shape as ShapeName;
     if (!SHAPES.includes(shape)) fail(`${objectId}: "shape" must be one of ${SHAPES.join(", ")}`);
     const role = roleField(spec, "role", "ink", objectId);
     const fillRole: ShapeState["fillRole"] = spec.fill === undefined ? "none" : roleField(spec, "fill", "fill", objectId);
     const label = typeof spec.label === "string" ? spec.label : "";
-    const base = { shape, label, role, fillRole, points: [] as number[], direction: "right" as Direction };
+    const base = { shape, label, role, fillRole, points: [] as number[], direction: "right" as Direction, reading: readsWords(spec) };
     const labelW = label ? markWidth(label) : 0;
     const wideEnough = (w: number) => (label ? Math.max(w, labelW + 2 * LABEL_PAD) : w);
     const tallEnough = (h: number) => (label ? Math.max(h, LABEL_BAND + LABEL_PAD) : h);
     if (shape === "circle") {
-      const r = numberField(spec, "r", 70, objectId);
+      const r = positiveField(spec, "r", 70, objectId);
       const diameter = label ? Math.max(r * 2, Math.hypot(labelW, LABEL_BAND) + LABEL_PAD) : r * 2;
       return { ...base, w: diameter, h: diameter };
     }
     if (shape === "line" || shape === "arrow") {
-      const length = numberField(spec, "length", 260, objectId);
+      const length = positiveField(spec, "length", 260, objectId);
       const direction = String(spec.direction ?? "right") as Direction;
       if (!(direction in DIRECTIONS)) fail(`${objectId}: "direction" must be right, left, up or down`);
       if (!label) {
@@ -103,10 +105,7 @@ export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
       const [fitW, fitH] = [wideEnough(w), tallEnough(h)];
       return { ...base, w: fitW, h: fitH, points: flat.map((value, index) => (index % 2 === 0 ? value - minX + (fitW - w) / 2 : value - minY + (fitH - h) / 2)) };
     }
-    return { ...base, w: wideEnough(numberField(spec, "w", 220, objectId)), h: tallEnough(numberField(spec, "h", 120, objectId)) };
-  },
-  apply(_state, op) {
-    return fail(`shape has no op "${op.name}"; use the generic verbs highlight, color, trace or morph`);
+    return { ...base, w: wideEnough(positiveField(spec, "w", 220, objectId)), h: tallEnough(positiveField(spec, "h", 120, objectId)) };
   },
   size: (state) => ({ w: state.w, h: state.h }),
   draw(state) {
@@ -120,7 +119,7 @@ export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
       out.push(segmentDrawable(shape, from, to, role, STROKE));
     }
     if (shape === "path") out.push({ id: "body", kind: "path", x: 0, y: 0, points: state.points, fill: state.fillRole, stroke: role, strokeWidth: 2, closed: state.fillRole !== "none" });
-    if (label) out.push(labelDrawable(label, labelAnchor(state), LABEL_SIZE, "mark", "ink", 1));
+    if (state.reading && label) out.push(labelDrawable(label, labelAnchor(state), LABEL_SIZE, "mark", "ink", 1));
     return out;
   },
 };

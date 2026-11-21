@@ -82,4 +82,5 @@ export const DO_RULES = [
   "Entries that share one cue start together.",
   "An entry with no cue starts when the previous entry ends. The first entry with no cue starts with the Step.",
   "A run of cue-less entries that would outlast the narration is sped up evenly to end with it, down to 0.12 seconds each, and then the Step grows.",
+  "A simulation op (a catalog op that says it runs in real time, such as a ball released or a swing) is never cut short or sped up. An entry whose cue lands while one runs waits for it to finish, and everything after it moves later.",
 ];

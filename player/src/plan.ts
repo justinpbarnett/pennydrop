@@ -1,7 +1,7 @@
 import { challengeProblems } from "./challenge";
 import type { Step, StepOp } from "./format";
 import { relationTargets } from "./relation";
-import { LabError, type LabOp } from "./lab";
+import { applyLabOp, hasOp, LabError, type LabOp, opIsTrueTime, opSeconds } from "./lab";
 import { narrate, resolveCues } from "./narration";
 import { parseSelector } from "./selector";
 import {
@@ -13,6 +13,7 @@ export interface PlannedOp {
   op: ParsedOp;
   touches: Touch[];
   duration: number;
+  trueTime: boolean;
   after: SceneState;
 }
 
@@ -23,8 +24,6 @@ export interface StepPlan {
   replaced: string[];
   errors: string[];
 }
-
-const DEFAULT_LAB_OP_SECONDS = 0.8;
 
 export function parseOp(index: number, raw: StepOp): ParsedOp {
   const { cue, op, on, ...args } = raw;
@@ -42,28 +41,32 @@ function runLabOp(scene: SceneState, op: ParsedOp): PlannedOp {
   const objectIds = [...new Set(op.selectors.map((selector) => selector.id))];
   let next = scene;
   let duration = 0;
+  let trueTime = false;
   const touches = objectIds.map((objectId): Touch => {
     const before = requireObject(next, objectId);
     const def = definitionOf(before);
     const labOp = labOpFor(op, objectId);
-    const after = { ...before, state: def.apply(before.state, labOp) };
+    const after = { ...before, state: applyLabOp(def, before.state, labOp) };
     next = upsertObject(next, after);
-    duration = Math.max(duration, def.duration?.(labOp, before.state) ?? DEFAULT_LAB_OP_SECONDS);
-    return { objectId, before, after, action: { type: "lab", name: labOp.name, parts: labOp.parts, args: labOp.args } };
+    const seconds = opSeconds(def, labOp, before.state);
+    const own = opIsTrueTime(def, labOp.name);
+    duration = Math.max(duration, seconds);
+    trueTime ||= own;
+    return { objectId, before, after, action: { type: "lab", name: labOp.name, parts: labOp.parts, args: labOp.args, seconds, trueTime: own } };
   });
-  return { op, touches, duration, after: next };
+  return { op, touches, duration, trueTime, after: next };
 }
 
 function handledByLab(scene: SceneState, op: ParsedOp): boolean {
   const first = op.selectors[0];
   const object = first && findObject(scene, first.id);
-  return Boolean(object && definitionOf(object).catalog.ops[op.name]);
+  return Boolean(object && hasOp(definitionOf(object), op.name));
 }
 
 function unknownOp(scene: SceneState, op: ParsedOp): LabError {
   const first = op.selectors[0];
   const object = first && findObject(scene, first.id);
-  const own = object ? Object.keys(definitionOf(object).catalog.ops) : [];
+  const own = object ? Object.keys(definitionOf(object).ops) : [];
   const owner = object ? ` on ${object.id} (${definitionOf(object).title})` : "";
   return new LabError(`unknown op "${op.name}"${owner}; ${own.length ? `${object!.id} knows ${own.join(", ")}; ` : ""}generic verbs: ${verbNames().join(", ")}`);
 }
@@ -76,7 +79,7 @@ export function applyOp(scene: SceneState, op: ParsedOp): PlannedOp {
     throw unknownOp(scene, op);
   }
   const result = verb.run(scene, op);
-  return { op, touches: result.touches, duration: verb.duration, after: result.scene };
+  return { op, touches: result.touches, duration: verb.duration, trueTime: false, after: result.scene };
 }
 
 function describe(error: unknown): string {

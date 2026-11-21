@@ -1,6 +1,6 @@
 import { borderPoint } from "../primitives/edge";
 import { nodeDrawables, type NodeLook } from "../primitives/node";
-import { type Drawable, fail, type LabDef, type LabOp, labelDrawable, lerp, type Paint, type Point, type Role, segmentDrawable, type Size } from "../lab";
+import { type Drawable, fail, type LabDef, type LabOp, labelDrawable, lerp, type OpDef, type Paint, type Point, type Role, readsWords, segmentDrawable, type Size } from "../lab";
 import { layoutGraph, type LayoutKind, type Side } from "../graph-layout";
 import { textWidth } from "../text-metrics";
 
@@ -30,6 +30,7 @@ interface GraphState {
   objectId: string;
   layout: LayoutKind;
   directed: boolean;
+  reading: boolean;
   frontierKind: FrontierKind | null;
   showDistances: boolean;
   radius: number;
@@ -44,7 +45,7 @@ interface GraphState {
   path: string[];
 }
 
-interface GraphSpec {
+interface GraphSpec extends Record<string, unknown> {
   nodes?: unknown;
   edges?: unknown;
   directed?: unknown;
@@ -112,8 +113,6 @@ const EDGE_LOOKS: Record<EdgeMood, { role: Role; width: number; weightFill: Pain
   relaxed: { role: "compare", width: 4.2, weightFill: "compare" },
   path: { role: "ok", width: 6.5, weightFill: "ok" },
 };
-
-const DURATIONS: Record<string, number> = { visit: 0.6, push: 0.55, pop: 0.55, relax: 0.9, dist: 0.5, path: 1.0, insert: 1.0, remove: 0.8, rotate: 1.3, swap: 1.1 };
 
 function idText(value: unknown, what: string, objectId: string): string {
   if (typeof value === "string" && value !== "") return value;
@@ -265,119 +264,153 @@ function treeEdgesAfter(state: GraphState, edges: GraphEdge[], root: string | nu
   return { ...state, edges: withSides(edges, state.objectId), root };
 }
 
-type OpHandler = (state: GraphState, args: Record<string, unknown>, opName: string) => GraphState;
-
-const HANDLERS: Record<string, OpHandler> = {
-  visit: (state, args, opName) => visitNode(state, nodeArg(state, args, "node", opName)),
-
-  push(state, args, opName) {
-    const kind = requireFrontier(state, opName);
-    const node = nodeArg(state, args, "node", opName);
-    const key = args.key;
-    if (key !== undefined && (typeof key !== "number" || !Number.isFinite(key))) fail(`op "push" arg "key" must be a number`);
-    if (kind === "heap" && key === undefined) fail(`op "push" on a heap frontier needs "key", the priority the heap orders by`);
-    return { ...state, frontier: [...state.frontier, { seq: state.nextSeq, node, key: key ?? null }], nextSeq: state.nextSeq + 1 };
+const ops: Record<string, OpDef<GraphState>> = {
+  visit: {
+    doc: '{"node"}; it becomes current and the old current becomes visited',
+    seconds: 0.6,
+    apply: (state, { args, name: opName }) => visitNode(state, nodeArg(state, args, "node", opName)),
   },
-
-  pop(state, args, opName) {
-    const kind = requireFrontier(state, opName);
-    const next = outEnd(state);
-    if (!next) return fail(`op "pop": the ${kind} is empty; push a node first`);
-    if (args.node !== undefined && String(args.node) !== next.node) {
-      fail(`op "pop" named "${args.node}", but a ${kind} gives up "${next.node}" first (${OUT_END_TAG[kind]}); name "${next.node}" or leave "node" out`);
-    }
-    return visitNode({ ...state, frontier: state.frontier.filter((entry) => entry !== next) }, next.node);
+  push: {
+    doc: '{"node","key"?} adds to the frontier; a heap needs "key", the priority (smallest first)',
+    seconds: 0.55,
+    apply(state, { args, name: opName }) {
+      const kind = requireFrontier(state, opName);
+      const node = nodeArg(state, args, "node", opName);
+      const key = args.key;
+      if (key !== undefined && (typeof key !== "number" || !Number.isFinite(key))) fail(`op "push" arg "key" must be a number`);
+      if (kind === "heap" && key === undefined) fail(`op "push" on a heap frontier needs "key", the priority the heap orders by`);
+      return { ...state, frontier: [...state.frontier, { seq: state.nextSeq, node, key: key ?? null }], nextSeq: state.nextSeq + 1 };
+    },
   },
-
-  relax(state, args, opName) {
-    const from = nodeArg(state, args, "from", opName);
-    const to = nodeArg(state, args, "to", opName);
-    const { key } = findEdge(state, from, to);
-    const dist = args.dist;
-    if (typeof dist !== "number" || !Number.isFinite(dist)) fail(`op "relax" needs "dist" as the new distance number for "${to}"`);
-    const relaxed = Object.fromEntries(Object.entries(state.relaxed).filter(([, target]) => target !== to));
-    return { ...state, showDistances: true, distances: { ...state.distances, [to]: dist }, relaxed: { ...relaxed, [key]: to } };
+  pop: {
+    doc: '{"node"?} takes the front of a queue, top of a stack or min of a heap, and makes it current; "node" must match it',
+    seconds: 0.55,
+    apply(state, { args, name: opName }) {
+      const kind = requireFrontier(state, opName);
+      const next = outEnd(state);
+      if (!next) return fail(`op "pop": the ${kind} is empty; push a node first`);
+      if (args.node !== undefined && String(args.node) !== next.node) {
+        fail(`op "pop" named "${args.node}", but a ${kind} gives up "${next.node}" first (${OUT_END_TAG[kind]}); name "${next.node}" or leave "node" out`);
+      }
+      return visitNode({ ...state, frontier: state.frontier.filter((entry) => entry !== next) }, next.node);
+    },
   },
-
-  dist(state, args, opName) {
-    const node = nodeArg(state, args, "node", opName);
-    const value = args.value;
-    if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) fail(`op "dist" needs "value" as a number, or null for infinity`);
-    return { ...state, showDistances: true, distances: { ...state.distances, [node]: value } };
+  relax: {
+    doc: '{"from","to","dist"} sweeps the edge, sets the distance of "to", and marks the edge as its best way in',
+    seconds: 0.9,
+    apply(state, { args, name: opName }) {
+      const from = nodeArg(state, args, "from", opName);
+      const to = nodeArg(state, args, "to", opName);
+      const { key } = findEdge(state, from, to);
+      const dist = args.dist;
+      if (typeof dist !== "number" || !Number.isFinite(dist)) fail(`op "relax" needs "dist" as the new distance number for "${to}"`);
+      const relaxed = Object.fromEntries(Object.entries(state.relaxed).filter(([, target]) => target !== to));
+      return { ...state, showDistances: true, distances: { ...state.distances, [to]: dist }, relaxed: { ...relaxed, [key]: to } };
+    },
+    during: (_before, after, op, progress) => relaxOverlay(after, op, progress),
   },
-
-  path(state, args) {
-    const nodes = args.nodes;
-    if (!Array.isArray(nodes) || nodes.some((node) => typeof node !== "string" && typeof node !== "number")) fail(`op "path" needs "nodes" as a list of node ids, or [] to clear the path`);
-    const ids = nodes.map((node) => requireNode(state, String(node), "path"));
-    return { ...state, path: ids.slice(1).map((id, index) => findEdge(state, ids[index]!, id).key) };
+  dist: {
+    doc: '{"node","value"} sets a distance label; value null means infinity',
+    seconds: 0.5,
+    apply(state, { args, name: opName }) {
+      const node = nodeArg(state, args, "node", opName);
+      const value = args.value;
+      if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) fail(`op "dist" needs "value" as a number, or null for infinity`);
+      return { ...state, showDistances: true, distances: { ...state.distances, [node]: value } };
+    },
   },
-
-  insert(state, args, opName) {
-    requireTree(state, opName);
-    const node = args.node === undefined ? fail(`op "insert" needs "node", the new node id`) : String(args.node);
-    if (state.nodes.some((existing) => existing.id === node)) fail(`op "insert": node "${node}" already exists; nodes: ${nodeList(state)}`);
-    const label = args.label === undefined ? node : idText(args.label, 'op "insert" arg "label"', state.objectId);
-    const grown: GraphState = { ...state, nodes: [...state.nodes, { id: node, label }] };
-    if (args.parent === undefined) {
-      if (state.root) fail(`op "insert" needs "parent"; the tree already has root "${state.root}"`);
-      return { ...grown, root: node };
-    }
-    const parent = nodeArg(state, args, "parent", opName);
-    const side = oneOf(args.side, SIDES, "side", state.objectId, null);
-    const occupant = side && state.edges.find((edge) => edge.from === parent && edge.side === side);
-    if (occupant) fail(`op "insert": ${side} child of "${parent}" is already "${occupant.to}"; pick the other side or insert under "${occupant.to}"`);
-    return treeEdgesAfter(grown, [...state.edges, { from: parent, to: node, weight: null, side }], state.root);
+  path: {
+    doc: '{"nodes":[...]} thick path along existing edges; [] clears it',
+    seconds: 1.0,
+    apply(state, { args }) {
+      const nodes = args.nodes;
+      if (!Array.isArray(nodes) || nodes.some((node) => typeof node !== "string" && typeof node !== "number")) fail(`op "path" needs "nodes" as a list of node ids, or [] to clear the path`);
+      const ids = nodes.map((node) => requireNode(state, String(node), "path"));
+      return { ...state, path: ids.slice(1).map((id, index) => findEdge(state, ids[index]!, id).key) };
+    },
   },
-
-  remove(state, args, opName) {
-    requireTree(state, opName);
-    const node = nodeArg(state, args, "node", opName);
-    const below = state.edges.filter((edge) => edge.from === node);
-    if (below.length > 1) fail(`op "remove": "${node}" has two children; swap it with a leaf first, then remove the leaf`);
-    const above = state.edges.find((edge) => edge.to === node);
-    const survivors = state.edges.filter((edge) => edge.from !== node && edge.to !== node);
-    const adopted = below[0] && above ? [{ ...above, to: below[0].to }] : [];
-    const root = state.root === node ? below[0]?.to ?? null : state.root;
-    const gone = (id: string) => id === node;
-    const keep = <T,>(record: Record<string, T>) => Object.fromEntries(Object.entries(record).filter(([id]) => !gone(id)));
-    return {
-      ...treeEdgesAfter({ ...state, nodes: state.nodes.filter((existing) => !gone(existing.id)) }, [...survivors, ...adopted], root),
-      visits: keep(state.visits),
-      distances: keep(state.distances),
-      frontier: state.frontier.filter((entry) => !gone(entry.node)),
-      relaxed: {},
-      path: [],
-    };
+  insert: {
+    doc: '{"node","parent","side"?:"left"|"right","label"?} adds a leaf to a tree and it slides out of its parent; no parent only for the first root',
+    seconds: 1.0,
+    apply(state, { args, name: opName }) {
+      requireTree(state, opName);
+      const node = args.node === undefined ? fail(`op "insert" needs "node", the new node id`) : String(args.node);
+      if (state.nodes.some((existing) => existing.id === node)) fail(`op "insert": node "${node}" already exists; nodes: ${nodeList(state)}`);
+      const label = args.label === undefined ? node : idText(args.label, 'op "insert" arg "label"', state.objectId);
+      const grown: GraphState = { ...state, nodes: [...state.nodes, { id: node, label }] };
+      if (args.parent === undefined) {
+        if (state.root) fail(`op "insert" needs "parent"; the tree already has root "${state.root}"`);
+        return { ...grown, root: node };
+      }
+      const parent = nodeArg(state, args, "parent", opName);
+      const side = oneOf(args.side, SIDES, "side", state.objectId, null);
+      const occupant = side && state.edges.find((edge) => edge.from === parent && edge.side === side);
+      if (occupant) fail(`op "insert": ${side} child of "${parent}" is already "${occupant.to}"; pick the other side or insert under "${occupant.to}"`);
+      return treeEdgesAfter(grown, [...state.edges, { from: parent, to: node, weight: null, side }], state.root);
+    },
+    during: travelDuring,
   },
-
-  rotate(state, args, opName) {
-    requireTree(state, opName);
-    const x = nodeArg(state, args, "node", opName);
-    const direction = oneOf(args.direction, SIDES, "direction", state.objectId, null);
-    if (!direction) fail(`op "rotate" needs "direction": "left" or "right"`);
-    const liftedSide = opposite(direction);
-    const liftedEdge = state.edges.find((edge) => edge.from === x && edge.side === liftedSide);
-    if (!liftedEdge) fail(`op "rotate" ${direction} at "${x}" lifts its ${liftedSide} child, but "${x}" has none; rotate "${x}" ${liftedSide} instead or pick another node`);
-    const lifted = liftedEdge.to;
-    const inner = state.edges.find((edge) => edge.from === lifted && edge.side === direction);
-    const above = state.edges.find((edge) => edge.to === x);
-    const untouched = state.edges.filter((edge) => edge !== liftedEdge && edge !== inner && edge !== above);
-    const rebuilt: GraphEdge[] = [
-      { from: lifted, to: x, weight: null, side: direction },
-      ...(inner ? [{ from: x, to: inner.to, weight: null, side: liftedSide }] : []),
-      ...(above ? [{ ...above, to: lifted }] : []),
-    ];
-    return treeEdgesAfter(state, [...untouched, ...rebuilt], state.root === x ? lifted : state.root);
+  remove: {
+    doc: '{"node"} deletes a tree node with at most one child; its child takes its place',
+    seconds: 0.8,
+    apply(state, { args, name: opName }) {
+      requireTree(state, opName);
+      const node = nodeArg(state, args, "node", opName);
+      const below = state.edges.filter((edge) => edge.from === node);
+      if (below.length > 1) fail(`op "remove": "${node}" has two children; swap it with a leaf first, then remove the leaf`);
+      const above = state.edges.find((edge) => edge.to === node);
+      const survivors = state.edges.filter((edge) => edge.from !== node && edge.to !== node);
+      const adopted = below[0] && above ? [{ ...above, to: below[0].to }] : [];
+      const root = state.root === node ? below[0]?.to ?? null : state.root;
+      const gone = (id: string) => id === node;
+      const keep = <T,>(record: Record<string, T>) => Object.fromEntries(Object.entries(record).filter(([id]) => !gone(id)));
+      return {
+        ...treeEdgesAfter({ ...state, nodes: state.nodes.filter((existing) => !gone(existing.id)) }, [...survivors, ...adopted], root),
+        visits: keep(state.visits),
+        distances: keep(state.distances),
+        frontier: state.frontier.filter((entry) => !gone(entry.node)),
+        relaxed: {},
+        path: [],
+      };
+    },
+    during: travelDuring,
   },
-
-  swap(state, args, opName) {
-    requireTree(state, opName);
-    const a = nodeArg(state, args, "a", opName);
-    const b = nodeArg(state, args, "b", opName);
-    if (a === b) fail(`op "swap" needs two different nodes, got "${a}" twice`);
-    const exchange = (id: string) => (id === a ? b : id === b ? a : id);
-    return { ...state, edges: state.edges.map((edge) => ({ ...edge, from: exchange(edge.from), to: exchange(edge.to) })), root: state.root && exchange(state.root) };
+  rotate: {
+    doc: '{"node","direction":"left"|"right"} binary tree rotation; the node moves down and its child rises',
+    seconds: 1.3,
+    apply(state, { args, name: opName }) {
+      requireTree(state, opName);
+      const x = nodeArg(state, args, "node", opName);
+      const direction = oneOf(args.direction, SIDES, "direction", state.objectId, null);
+      if (!direction) fail(`op "rotate" needs "direction": "left" or "right"`);
+      const liftedSide = opposite(direction);
+      const liftedEdge = state.edges.find((edge) => edge.from === x && edge.side === liftedSide);
+      if (!liftedEdge) fail(`op "rotate" ${direction} at "${x}" lifts its ${liftedSide} child, but "${x}" has none; rotate "${x}" ${liftedSide} instead or pick another node`);
+      const lifted = liftedEdge.to;
+      const inner = state.edges.find((edge) => edge.from === lifted && edge.side === direction);
+      const above = state.edges.find((edge) => edge.to === x);
+      const untouched = state.edges.filter((edge) => edge !== liftedEdge && edge !== inner && edge !== above);
+      const rebuilt: GraphEdge[] = [
+        { from: lifted, to: x, weight: null, side: direction },
+        ...(inner ? [{ from: x, to: inner.to, weight: null, side: liftedSide }] : []),
+        ...(above ? [{ ...above, to: lifted }] : []),
+      ];
+      return treeEdgesAfter(state, [...untouched, ...rebuilt], state.root === x ? lifted : state.root);
+    },
+    during: travelDuring,
+  },
+  swap: {
+    doc: '{"a","b"} two tree nodes trade places, as in heap sift',
+    seconds: 1.1,
+    apply(state, { args, name: opName }) {
+      requireTree(state, opName);
+      const a = nodeArg(state, args, "a", opName);
+      const b = nodeArg(state, args, "b", opName);
+      if (a === b) fail(`op "swap" needs two different nodes, got "${a}" twice`);
+      const exchange = (id: string) => (id === a ? b : id === b ? a : id);
+      return { ...state, edges: state.edges.map((edge) => ({ ...edge, from: exchange(edge.from), to: exchange(edge.to) })), root: state.root && exchange(state.root) };
+    },
+    during: travelDuring,
   },
 };
 
@@ -396,13 +429,15 @@ function geometryOf(state: GraphState): Geometry {
   let width = Math.max(graphWidth, MIN_WIDTH);
   let height = Math.max(graphHeight, MIN_HEIGHT);
   if (state.frontierKind) {
-    const captionWidth = textWidth(state.frontierKind, CAPTION_SIZE, "read");
+    const captionWidth = state.reading ? textWidth(state.frontierKind, CAPTION_SIZE, "read") : 0;
+    const captionGap = state.reading ? CAPTION_GAP : 0;
+    const tagRoom = state.reading ? TAG_ROOM : 0;
     const slots = Math.max(MIN_TRACK_SLOTS, state.frontier.length);
     const trackWidth = 2 * TRACK_PADDING + slots * (SLOT_WIDTH + SLOT_GAP) - SLOT_GAP;
-    const stripWidth = captionWidth + CAPTION_GAP + trackWidth;
+    const stripWidth = captionWidth + captionGap + trackWidth;
     width = Math.max(width, stripWidth + 2 * SIDE_MARGIN);
     const captionX = (width - stripWidth) / 2;
-    strip = { top: height + STRIP_GAP + TAG_ROOM, captionX, trackLeft: captionX + captionWidth + CAPTION_GAP, trackWidth };
+    strip = { top: height + STRIP_GAP + tagRoom, captionX, trackLeft: captionX + captionWidth + captionGap, trackWidth };
     height = strip.top + SLOT_HEIGHT + 2 * TRACK_PADDING;
   }
   const positions = new Map([...layout.positions].map(([id, point]): [string, Point] => [id, { x: (width - layout.w) / 2 + point.x, y: reach + VERTICAL_MARGIN + point.y }]));
@@ -496,7 +531,7 @@ function distanceLabel(state: GraphState, node: GraphNode, slot: Point): Drawabl
 
 function nodeParts(state: GraphState, node: GraphNode, positions: Map<string, Point>, slot: Point | undefined): Drawable[] {
   const radius = nodeRadius(state, node.id);
-  const body = nodeDrawables(node.label, positions.get(node.id)!, radius, nodeLook(state, node.id)).map((part) => ({ ...part, id: `${part.id}-${node.id}`, z: NODE_Z + (part.z ?? 0), part: `${state.objectId}[${node.id}]` }));
+  const body = nodeDrawables(node.label, positions.get(node.id)!, radius, nodeLook(state, node.id)).filter((part) => state.reading || part.kind !== "text").map((part) => ({ ...part, id: `${part.id}-${node.id}`, z: NODE_Z + (part.z ?? 0), part: `${state.objectId}[${node.id}]` }));
   return slot ? [...body, distanceLabel(state, node, slot)] : body;
 }
 
@@ -544,7 +579,7 @@ function edgeParts(state: GraphState, edge: GraphEdge, positions: Map<string, Po
   const key = keyOf(state, edge);
   const [start, end] = edgeEnds(state, positions, edge.from, edge.to);
   const parts: Drawable[] = [{ ...segmentDrawable(state.directed ? "arrow" : "line", start, end, look.role, look.width, EDGE_Z + (mood === "idle" ? 0 : 0.5)), id: `edge-${key}` }];
-  if (edge.weight !== null && spot) {
+  if (state.reading && edge.weight !== null && spot) {
     const text = String(edge.weight);
     const w = textWidth(text, CHIP_SIZE, "read") + CHIP_PADDING;
     parts.push(
@@ -561,18 +596,19 @@ function stripParts(state: GraphState, strip: Strip): Drawable[] {
   const centerY = strip.top + TRACK_PADDING + SLOT_HEIGHT / 2;
   const slotX = (index: number) => strip.trackLeft + TRACK_PADDING + index * (SLOT_WIDTH + SLOT_GAP) + SLOT_WIDTH / 2;
   const parts: Drawable[] = [
-    { id: "strip-caption", kind: "text", x: strip.captionX, y: centerY, text: kind, size: CAPTION_SIZE, font: "read", anchor: "start", fill: "muted", z: STRIP_Z },
+    ...(state.reading ? [{ id: "strip-caption", kind: "text" as const, x: strip.captionX, y: centerY, text: kind, size: CAPTION_SIZE, font: "read" as const, anchor: "start" as const, fill: "muted" as const, z: STRIP_Z }] : []),
     { id: "strip-track", kind: "rect", x: strip.trackLeft + strip.trackWidth / 2, y: centerY, w: strip.trackWidth, h: SLOT_HEIGHT + 2 * TRACK_PADDING, fill: "none", stroke: "rule", strokeWidth: 1.6, radius: 1, z: STRIP_Z },
   ];
   shown.forEach((entry, index) => {
     const label = state.nodes.find((node) => node.id === entry.node)!.label;
     const keyed = entry.key !== null;
     parts.push({ id: `entry-${entry.seq}`, kind: "rect", x: slotX(index), y: centerY, w: SLOT_WIDTH, h: SLOT_HEIGHT, fill: "fill2", stroke: "compare", strokeWidth: 2, radius: 1, z: STRIP_Z + 1 });
+    if (!state.reading) return;
     parts.push({ ...labelDrawable(label, { x: slotX(index), y: centerY + (keyed ? -11 : 0) }, 28, "mark", "ink", STRIP_Z + 2), id: `entry-${entry.seq}-label` });
     if (keyed) parts.push({ ...labelDrawable(String(entry.key), { x: slotX(index), y: centerY + 19 }, 20, "read", "muted", STRIP_Z + 2), id: `entry-${entry.seq}-key` });
   });
   const front = outEnd(state);
-  if (front) {
+  if (front && state.reading) {
     const index = shown.indexOf(front);
     parts.push({ id: "strip-tag", kind: "text", x: slotX(index), y: strip.top - TAG_ROOM / 2, text: OUT_END_TAG[kind], size: 20, font: "read", fill: "muted", z: STRIP_Z });
   }
@@ -581,9 +617,9 @@ function stripParts(state: GraphState, strip: Strip): Drawable[] {
 
 function drawAt(state: GraphState, positions: Map<string, Point>, appearing?: { node: string; opacity: number }): Drawable[] {
   const fade = (drawables: Drawable[], node: string) => (appearing?.node === node ? drawables.map((drawable) => ({ ...drawable, opacity: appearing.opacity })) : drawables);
-  const spots = weightSpots(state, positions);
+  const spots = state.reading ? weightSpots(state, positions) : new Map<string, Point>();
   const edges = state.edges.flatMap((edge) => fade(edgeParts(state, edge, positions, spots.get(keyOf(state, edge)), moodOf(state, keyOf(state, edge))), edge.to));
-  const slots = state.showDistances ? distanceSlots(state, positions, spots) : new Map<string, Point>();
+  const slots = state.reading && state.showDistances ? distanceSlots(state, positions, spots) : new Map<string, Point>();
   const nodes = state.nodes.flatMap((node) => fade(nodeParts(state, node, positions, slots.get(node.id)), node.id));
   const geometry = geometryOf(state);
   return [...edges, ...nodes, ...(geometry.strip ? stripParts(state, geometry.strip) : [])];
@@ -607,6 +643,11 @@ function travelingPositions(before: GraphState, after: GraphState, op: LabOp, pr
   }));
 }
 
+function travelDuring(before: GraphState, after: GraphState, op: LabOp, progress: number): Drawable[] {
+  const appearing = op.name === "insert" ? { node: String(op.args.node), opacity: progress } : undefined;
+  return drawAt(after, travelingPositions(before, after, op, progress), appearing);
+}
+
 function relaxOverlay(after: GraphState, op: LabOp, progress: number): Drawable[] {
   const from = String(op.args.from);
   const to = String(op.args.to);
@@ -623,6 +664,8 @@ function relaxOverlay(after: GraphState, op: LabOp, progress: number): Drawable[
 export const lab: LabDef<GraphSpec, GraphState> = {
   id: "graph",
   title: "Graph and tree",
+  reading: "optional",
+  ops,
   catalog: {
     summary: "Nodes and edges laid out by the Lab, with a frontier strip (queue, stack or heap), distance labels, and tree edits. For BFS, DFS, Dijkstra, BST, heaps and tries. Name nodes in args; no parts.",
     spec: {
@@ -633,18 +676,6 @@ export const lab: LabDef<GraphSpec, GraphState> = {
       root: "optional start or tree root node, default the first node",
       frontier: 'optional "queue", "stack" or "heap" strip under the graph',
       distances: "optional true to show infinity under every node until dist or relax sets it",
-    },
-    ops: {
-      visit: '{"node"}; it becomes current and the old current becomes visited',
-      push: '{"node","key"?} adds to the frontier; a heap needs "key", the priority (smallest first)',
-      pop: '{"node"?} takes the front of a queue, top of a stack or min of a heap, and makes it current; "node" must match it',
-      relax: '{"from","to","dist"} sweeps the edge, sets the distance of "to", and marks the edge as its best way in',
-      dist: '{"node","value"} sets a distance label; value null means infinity',
-      path: '{"nodes":[...]} thick path along existing edges; [] clears it',
-      insert: '{"node","parent","side"?:"left"|"right","label"?} adds a leaf to a tree and it slides out of its parent; no parent only for the first root',
-      remove: '{"node"} deletes a tree node with at most one child; its child takes its place',
-      rotate: '{"node","direction":"left"|"right"} binary tree rotation; the node moves down and its child rises',
-      swap: '{"a","b"} two tree nodes trade places, as in heap sift',
     },
     example: [
       '{"step":1,"say":"Start at A. Visit it, then queue its neighbors B and C.","scene":{"g":{"lab":"graph","nodes":["A","B","C","D"],"edges":[["A","B"],["A","C"],["B","D"],["C","D"]],"root":"A","frontier":"queue"}},"do":[{"cue":"Visit","op":"visit","on":["g"],"node":"A"},{"cue":"queue","op":"push","on":["g"],"node":"B"},{"cue":"queue","op":"push","on":["g"],"node":"C"}]}',
@@ -666,6 +697,7 @@ export const lab: LabDef<GraphSpec, GraphState> = {
       objectId,
       layout,
       directed,
+      reading: readsWords(spec),
       frontierKind,
       showDistances: spec.distances === true,
       radius: radiusFor(layout, nodes.length),
@@ -681,22 +713,7 @@ export const lab: LabDef<GraphSpec, GraphState> = {
     };
   },
 
-  apply(state, op) {
-    const handler = HANDLERS[op.name];
-    if (!handler) return fail(`graph has no op "${op.name}"; ops: ${Object.keys(HANDLERS).join(", ")}`);
-    return handler(state, op.args, op.name);
-  },
-
   size: (state) => geometryOf(state).size,
 
   draw: (state) => drawAt(state, geometryOf(state).positions),
-
-  duration: (op) => DURATIONS[op.name] ?? 0.7,
-
-  during(before, after, op, progress) {
-    if (op.name === "relax") return relaxOverlay(after, op, progress);
-    if (!["insert", "remove", "rotate", "swap"].includes(op.name)) return [];
-    const appearing = op.name === "insert" ? { node: String(op.args.node), opacity: progress } : undefined;
-    return drawAt(after, travelingPositions(before, after, op, progress), appearing);
-  },
 };

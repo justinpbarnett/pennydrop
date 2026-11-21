@@ -1,4 +1,4 @@
-import { type Drawable, fail, type LabDef, type LabOp, lerp, type Point, type Rect, type Size } from "../lab";
+import { boxDrawable, clamp01, type Drawable, fail, type LabDef, type LabOp, lerp, type OpDef, type Point, type Rect, type Size, textDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
 interface Part {
@@ -121,7 +121,6 @@ const SAMPLE_STEP = 4;
 const JUDGED_STEPS = [0.25, 0.5, 0.75];
 const JUDGED_PRESENCE = 0.5;
 
-const SECONDS: Record<string, number> = { show: 0.9, point: 0.8, zoom: 1.7, unzoom: 1.4, label: 0.9, clear: 0.5 };
 const PULSE_SECONDS = 1.4;
 
 function clamp(value: number, low: number, high: number): number {
@@ -273,7 +272,7 @@ function visiblePart(state: PictureState, rect: Rect): Rect | null {
 
 function presence(rect: Rect, visible: Rect | null): number {
   if (!visible) return 0;
-  const shown = clamp(((visible.w * visible.h) / (rect.w * rect.h) - PRESENT_FROM) / (PRESENT_TO - PRESENT_FROM), 0, 1);
+  const shown = clamp01(((visible.w * visible.h) / (rect.w * rect.h) - PRESENT_FROM) / (PRESENT_TO - PRESENT_FROM));
   return shown * shown * (3 - 2 * shown);
 }
 
@@ -331,7 +330,7 @@ function pointToRect(point: Point, rect: Rect): number {
 
 function pointToSegment(point: Point, from: Point, to: Point): number {
   const length = (to.x - from.x) ** 2 + (to.y - from.y) ** 2;
-  const along = length === 0 ? 0 : clamp(((point.x - from.x) * (to.x - from.x) + (point.y - from.y) * (to.y - from.y)) / length, 0, 1);
+  const along = length === 0 ? 0 : clamp01(((point.x - from.x) * (to.x - from.x) + (point.y - from.y) * (to.y - from.y)) / length);
   return Math.hypot(point.x - lerp(from.x, to.x, along), point.y - lerp(from.y, to.y, along));
 }
 
@@ -496,7 +495,7 @@ function pointerDrawables(prefix: string, state: PictureState, view: View, mark:
   const rect = inFrame(state, view, mark.part.box);
   const visible = visiblePart(state, rect);
   const { tail, tip, room } = pointerGeometry(state, visible ?? unseenSpot(state, rect), placementOf(state, "pointer", mark.part));
-  const opacity = mark.weight * presence(rect, visible) * clamp((room - POINTER_MIN) / POINTER_MIN, 0, 1);
+  const opacity = mark.weight * presence(rect, visible) * clamp01((room - POINTER_MIN) / POINTER_MIN);
   const clip = viewport(state);
   const arrow = (id: string, stroke: "ground" | "accent", strokeWidth: number, z: number): Drawable => ({ id: `${prefix}-${id}`, kind: "arrow", x: tail.x, y: tail.y, x2: tip.x, y2: tip.y, stroke, strokeWidth, opacity, clip, z });
   return [arrow("casing", "ground", 13, 4.5), arrow("arrow", "accent", 6, 4.6)];
@@ -519,7 +518,7 @@ function labelDrawables(prefix: string, state: PictureState, view: View, mark: W
     { id: `${prefix}-line`, kind: "line", x: anchor.x, y: anchor.y, x2: end.x, y2: end.y, stroke: "accent", strokeWidth: 3, opacity: backing, z: 5 },
     { id: `${prefix}-dot`, kind: "circle", x: anchor.x, y: anchor.y, r: 7, fill: "accent", stroke: "ground", strokeWidth: 2.5, opacity: backing, z: 5.1 },
     { id: `${prefix}-pill`, kind: "rect", x: spot.x, y: spot.y, w: pill.w, h: pill.h, fill: "ground", stroke: "accent", strokeWidth: 3, radius: 1, opacity: backing, z: 6 },
-    { id: `${prefix}-text`, kind: "text", x: spot.x, y: spot.y, text: mark.part.name, size: LABEL_SIZE, font: "read", fill: "ink", opacity: shown, z: 6.1 },
+    textDrawable(`${prefix}-text`, mark.part.name, spot, { size: LABEL_SIZE, opacity: shown, z: 6.1 }),
   ];
 }
 
@@ -528,11 +527,11 @@ function compose(state: PictureState, marks: Marks): Drawable[] {
   const { view, shown } = marks;
   const out: Drawable[] = [
     { id: "picture", kind: "image", x: w / 2, y: h / 2, w, h, href: state.src, crop: { x: view.x, y: view.y, w: view.s, h: view.s }, opacity: shown, z: 0 },
-    { id: "rim", kind: "rect", x: w / 2, y: h / 2, w, h, fill: "none", stroke: "rule", strokeWidth: 2, opacity: shown, z: 2 },
+    boxDrawable("rim", { x: 0, y: 0, w, h }, { fill: "none", stroke: "rule", strokeWidth: 2, opacity: shown, z: 2 }),
   ];
   if (state.reading) {
     state.creditText.lines.forEach((text, index) => {
-      out.push({ id: `credit-${index}`, kind: "text", x: 0, y: h + CREDIT_TOP + index * CREDIT_PITCH, text, size: state.creditText.size, font: "read", anchor: "start", fill: "muted", opacity: shown, z: 1 });
+      out.push(textDrawable(`credit-${index}`, text, { x: 0, y: h + CREDIT_TOP + index * CREDIT_PITCH }, { size: state.creditText.size, anchor: "start", fill: "muted", opacity: shown, z: 1 }));
     });
   }
   const outlines = new Map<Part, { weight: number; growth: number }>();
@@ -562,33 +561,77 @@ function remember(state: PictureState, kind: Mention["kind"], part: Part): Menti
   return state.history.some((mention) => mention.kind === kind && mention.part === part.name) ? state.history : [...state.history, { kind, part: part.name }];
 }
 
-const OPS: Record<string, (state: PictureState, op: LabOp) => PictureState> = {
-  show: (state) => ({ ...state, shown: true }),
-  point(state, op) {
-    requireShown(state, op);
-    const part = partOf(state, op);
-    return { ...state, pointing: part.name, history: remember(state, "pointer", part) };
+function during(before: PictureState, after: PictureState, op: LabOp, progress: number): Drawable[] {
+  const pulsing = op.name === "label" && !after.reading;
+  const placing = after.history.length < before.history.length ? before.history : after.history;
+  return compose({ ...after, history: placing }, {
+    shown: lerp(before.shown ? 1 : 0, after.shown ? 1 : 0, progress),
+    view: mixView(before.view, after.view, progress),
+    pointing: crossfade(weigh(before, before.pointing === null ? [] : [before.pointing]), weigh(after, after.pointing === null ? [] : [after.pointing]), progress),
+    labels: crossfade(weigh(before, before.labels), weigh(after, after.labels), progress),
+    pulse: pulsing ? { part: partOf(after, op), weight: Math.abs(Math.sin(2 * Math.PI * progress)) } : null,
+  });
+}
+
+const ops: Record<string, OpDef<PictureState>> = {
+  show: {
+    doc: "no args; the picture fades in. The first op of every picture.",
+    seconds: 0.9,
+    apply: (state) => ({ ...state, shown: true }),
+    during,
   },
-  zoom(state, op) {
-    requireShown(state, op);
-    const part = partOf(state, op);
-    return { ...state, view: viewFor(state, part.box), pointing: state.pointing === part.name ? state.pointing : null };
+  point: {
+    doc: '{"on": ["pic[beak]"]}; a pointer arrow and a glowing outline appear on that part, replacing an earlier point',
+    seconds: 0.8,
+    apply(state, op) {
+      requireShown(state, op);
+      const part = partOf(state, op);
+      return { ...state, pointing: part.name, history: remember(state, "pointer", part) };
+    },
+    during,
   },
-  unzoom(state, op) {
-    requireShown(state, op);
-    return { ...state, view: FULL_VIEW };
+  zoom: {
+    doc: '{"on": ["pic[beak]"]}; the camera glides in until that part fills the frame; a pointer on another part is dropped, the pointer and labels on this part stay on it. Very small parts stop zooming once the picture would turn blurry',
+    seconds: 1.7,
+    apply(state, op) {
+      requireShown(state, op);
+      const part = partOf(state, op);
+      return { ...state, view: viewFor(state, part.box), pointing: state.pointing === part.name ? state.pointing : null };
+    },
+    during,
   },
-  label(state, op) {
-    requireShown(state, op);
-    const part = partOf(state, op);
-    return state.reading && !state.labels.includes(part.name) ? { ...state, labels: [...state.labels, part.name], history: remember(state, "label", part) } : state;
+  unzoom: {
+    doc: "no args; the camera glides back out to the whole picture",
+    seconds: 1.4,
+    apply(state, op) {
+      requireShown(state, op);
+      return { ...state, view: FULL_VIEW };
+    },
+    during,
   },
-  clear: (state) => ({ ...state, pointing: null, labels: [], history: [] }),
+  label: {
+    doc: '{"on": ["pic[beak]"]}; writes the part\'s name on a tag with a line to the part and keeps it. With reading false it pulses the part\'s outline twice instead and keeps nothing',
+    seconds: (_op, state) => (state.reading ? 0.9 : PULSE_SECONDS),
+    apply(state, op) {
+      requireShown(state, op);
+      const part = partOf(state, op);
+      return state.reading && !state.labels.includes(part.name) ? { ...state, labels: [...state.labels, part.name], history: remember(state, "label", part) } : state;
+    },
+    during,
+  },
+  clear: {
+    doc: "no args; removes the pointer, outline and labels",
+    seconds: 0.5,
+    apply: (state) => ({ ...state, pointing: null, labels: [], history: [] }),
+    during,
+  },
 };
 
 export const lab: LabDef<Record<string, unknown>, PictureState> = {
   id: "picture",
   title: "Picture",
+  reading: "optional",
+  ops,
   catalog: {
     summary: "A real picture (photo, painting or drawing) that the Lesson shows, points at, zooms into like a camera and labels. Say what you want about named parts; the Lab places the pointer, outline and zoom. The picture starts hidden, so begin with show. For a child who cannot read yet, set reading to false: then nothing on screen needs reading, and label pulses the part's outline instead of writing its name.",
     spec: {
@@ -599,14 +642,6 @@ export const lab: LabDef<Record<string, unknown>, PictureState> = {
       credit: 'copy {"title","creator","license","source"} from the images result; it is shown small under the picture only when reading is on',
       reading: "true (default) shows the credit and lets label write names; false shows no text at all",
       at: "optional place on the stage; two pictures with at {\"row\": [\"a\", \"b\"]} sit side by side to compare",
-    },
-    ops: {
-      show: "no args; the picture fades in. The first op of every picture.",
-      point: '{"on": ["pic[beak]"]}; a pointer arrow and a glowing outline appear on that part, replacing an earlier point',
-      zoom: '{"on": ["pic[beak]"]}; the camera glides in until that part fills the frame; a pointer on another part is dropped, the pointer and labels on this part stay on it. Very small parts stop zooming once the picture would turn blurry',
-      unzoom: "no args; the camera glides back out to the whole picture",
-      label: '{"on": ["pic[beak]"]}; writes the part\'s name on a tag with a line to the part and keeps it. With reading false it pulses the part\'s outline twice instead and keeps nothing',
-      clear: "no args; removes the pointer, outline and labels",
     },
     example: [
       '{"step":1,"say":"This is a great grey owl. Look at those big yellow eyes.","scene":{"owl":{"lab":"picture","src":"/media/owl.webp","w":1024,"h":768,"parts":[{"name":"eyes","box":{"x":0.28,"y":0.24,"w":0.5,"h":0.24}},{"name":"beak","box":{"x":0.5,"y":0.4,"w":0.1,"h":0.2}}],"credit":{"title":"Great grey owl close up","creator":"Unknown","license":"CC0","source":"https://www.rawpixel.com/image/6036892"},"reading":false}},"do":[{"cue":"great grey owl","op":"show","on":["owl"]},{"cue":"yellow eyes","op":"point","on":["owl[eyes]"]}]}',
@@ -641,12 +676,6 @@ export const lab: LabDef<Record<string, unknown>, PictureState> = {
     };
   },
 
-  apply(state, op) {
-    const handler = OPS[op.name];
-    if (!handler) return fail(`picture has no op "${op.name}"; ops: ${Object.keys(OPS).join(", ")}`);
-    return handler(state, op);
-  },
-
   size: (state) => ({ w: state.frame.w, h: state.frame.h + creditBand(state.reading, state.creditText.lines.length) }),
 
   draw: (state) =>
@@ -657,18 +686,4 @@ export const lab: LabDef<Record<string, unknown>, PictureState> = {
       labels: weigh(state, state.labels),
       pulse: null,
     }),
-
-  duration: (op, state) => (op.name === "label" && !state.reading ? PULSE_SECONDS : SECONDS[op.name] ?? 0.9),
-
-  during(before, after, op, progress) {
-    const pulsing = op.name === "label" && !after.reading;
-    const placing = after.history.length < before.history.length ? before.history : after.history;
-    return compose({ ...after, history: placing }, {
-      shown: lerp(before.shown ? 1 : 0, after.shown ? 1 : 0, progress),
-      view: mixView(before.view, after.view, progress),
-      pointing: crossfade(weigh(before, before.pointing === null ? [] : [before.pointing]), weigh(after, after.pointing === null ? [] : [after.pointing]), progress),
-      labels: crossfade(weigh(before, before.labels), weigh(after, after.labels), progress),
-      pulse: pulsing ? { part: partOf(after, op), weight: Math.abs(Math.sin(2 * Math.PI * progress)) } : null,
-    });
-  },
 };

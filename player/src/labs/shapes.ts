@@ -1,5 +1,5 @@
 import { textWidth } from "../text-metrics";
-import { type Drawable, fail, type LabDef, type LabOp, lerp, type Paint, type Point, type Role, type Size } from "../lab";
+import { boxDrawable, clamp01, type Drawable, fail, integerArg, integerField, type LabCtx, type LabDef, type LabOp, lerp, type OpDef, type Point, positiveField, readsWords, type Role, type Size, textDrawable } from "../lab";
 
 type SpecFields = Record<string, unknown>;
 type Side = "a" | "b" | "c";
@@ -10,17 +10,12 @@ interface Base {
   reading: boolean;
 }
 
-interface OpDef<S> {
-  doc: string;
-  seconds: number;
-  run(state: S, op: LabOp): S;
-  during?(before: S, after: S, op: LabOp, progress: number): Drawable[];
-}
+type FigureOp<S> = OpDef<S> & { seconds: number };
 
 interface Figure<S extends Base> {
   spec: Record<string, string>;
   init(spec: SpecFields, objectId: string, reading: boolean): S;
-  ops: Record<string, OpDef<S>>;
+  ops: Record<string, FigureOp<S>>;
   size(state: S): Size;
   draw(state: S): Drawable[];
 }
@@ -29,7 +24,6 @@ const SIDES: Side[] = ["a", "b", "c"];
 const SIDE_ROLE: Record<Side, Role> = { a: "done", b: "swap", c: "accent" };
 const MAX_FILLED_SIDE = 12;
 
-const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 const ease = (value: number) => clamp01(value) ** 2 * (3 - 2 * clamp01(value));
 const whole = (value: number) => Math.floor(value + 1e-9);
 const fmt = (value: number) => String(Math.round(value * 100) / 100);
@@ -46,35 +40,8 @@ function staggered(progress: number, index: number, count: number, spread: numbe
   return ease((progress - (spread * index) / count) / (1 - spread));
 }
 
-function wholeField(spec: SpecFields, key: string, fallback: number, min: number, max: number, objectId: string): number {
-  const value = spec[key] ?? fallback;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
-    fail(`${objectId}: "${key}" must be a whole number from ${min} to ${max}, got ${JSON.stringify(value)}`);
-  }
-  return value;
-}
-
-function wholeArg(op: LabOp, key: string, min: number, max: number, fallback?: number): number {
-  const value = op.args[key] ?? fallback;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
-    fail(`op "${op.name}" needs "${key}" as a whole number from ${min} to ${max}, got ${JSON.stringify(value)}`);
-  }
-  return value;
-}
-
-function positiveField(spec: SpecFields, key: string, objectId: string): number | undefined {
-  const value = spec[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) fail(`${objectId}: "${key}" must be a positive number, got ${JSON.stringify(value)}`);
-  return value;
-}
-
-function text(id: string, x: number, y: number, content: string, size: number, fill: Paint = "ink", extra: Partial<Drawable> = {}): Drawable {
-  return { id, kind: "text", x, y, text: content, size, font: "read", fill, ...extra };
-}
-
-function box(id: string, x: number, y: number, w: number, h: number, extra: Partial<Drawable>): Drawable {
-  return { id, kind: "rect", x, y, w, h, ...extra };
+function boxAt(id: string, x: number, y: number, w: number, h: number, look: Parameters<typeof boxDrawable>[2]): Drawable {
+  return boxDrawable(id, { x: x - w / 2, y: y - h / 2, w, h }, look);
 }
 
 function arc(center: Point, radius: number, degrees: number, samples: number): number[] {
@@ -169,14 +136,14 @@ function drawBlocks(state: BlocksState, shown: number): Drawable[] {
   layout.slots.forEach((slot, index) => {
     const isLit = index < lit;
     const scale = index === lit ? 1 + 0.2 * pulse : 1;
-    out.push(box(`b${index}`, slot.x, slot.y, BLOCK * scale, BLOCK * scale, {
+    out.push(boxAt(`b${index}`, slot.x, slot.y, BLOCK * scale, BLOCK * scale, {
       fill: isLit ? "accent" : "fill2", stroke: isLit || scale > 1 ? "accent" : "edge", strokeWidth: 2, radius: 0.28, z: 2, part: `${state.objectId}[${index}]`,
     }));
-    if (isLit && state.reading) out.push(text(`n${index}`, slot.x, slot.y, String(index + 1), 30, "ground", { z: 3 }));
+    if (isLit && state.reading) out.push(textDrawable(`n${index}`, String(index + 1), slot, { size: 30, fill: "ground", z: 3 }));
   });
-  for (const outline of layout.outlines) out.push(box(outline.id, outline.x, outline.y, outline.w, outline.h, { fill: "none", stroke: outline.role, strokeWidth: 3, radius: 0.5, z: 1 }));
-  if (state.reading && lit > 0) out.push(text("total", layout.size.w / 2, 54, String(lit), 76, "ink", { z: 3 }));
-  if (state.reading && state.groupSize !== null) out.push(text("caption", layout.size.w / 2, layout.size.h - 40, groupCaption(state), 40, "ink"));
+  for (const outline of layout.outlines) out.push(boxAt(outline.id, outline.x, outline.y, outline.w, outline.h, { fill: "none", stroke: outline.role, strokeWidth: 3, radius: 0.5, z: 1 }));
+  if (state.reading && lit > 0) out.push(textDrawable("total", String(lit), { x: layout.size.w / 2, y: 54 }, { size: 76, z: 3 }));
+  if (state.reading && state.groupSize !== null) out.push(textDrawable("caption", groupCaption(state), { x: layout.size.w / 2, y: layout.size.h - 40 }, { size: 40 }));
   return out;
 }
 
@@ -186,16 +153,16 @@ const blocks: Figure<BlocksState> = {
     columns: "optional blocks per row, 1 to 20, default 10 or fewer",
   },
   init(spec, objectId, reading) {
-    const count = wholeField(spec, "count", 0, 1, 100, objectId);
-    const columns = wholeField(spec, "columns", Math.min(count, 10), 1, 20, objectId);
+    const count = integerField(spec, "count", 0, 1, 100, objectId);
+    const columns = integerField(spec, "columns", Math.min(count, 10), 1, 20, objectId);
     return { figure: "blocks", objectId, reading, count, columns, counted: 0, groupSize: null };
   },
   ops: {
     count: {
       doc: 'lights the blocks one by one while the count ticks up; optional "to": n counts up to n, default all',
       seconds: 2.6,
-      run(state, op) {
-        const to = wholeArg(op, "to", 1, state.count, state.count);
+      apply(state, op) {
+        const to = integerArg(op.args, "to", op.name, 1, state.count, state.count);
         if (to <= state.counted) fail(`op "count" on ${state.objectId}: already counted to ${state.counted}; "to" must be from ${state.counted + 1} to ${state.count}`);
         return { ...state, counted: to };
       },
@@ -204,15 +171,15 @@ const blocks: Figure<BlocksState> = {
     group: {
       doc: '{"size": k} slides the blocks into groups of k and counts the groups; a short last group is marked as left over',
       seconds: 1.4,
-      run(state, op) {
+      apply(state, op) {
         if (state.count < 2) fail(`op "group" on ${state.objectId}: one block cannot make groups; make a figure with "count" of at least 2`);
-        return { ...state, groupSize: wholeArg(op, "size", 2, state.count) };
+        return { ...state, groupSize: integerArg(op.args, "size", op.name, 2, state.count) };
       },
     },
     ungroup: {
       doc: "slides the groups back into one row of blocks",
       seconds: 1.2,
-      run(state) {
+      apply(state) {
         if (state.groupSize === null) fail(`op "ungroup" on ${state.objectId}: the blocks are not grouped; use op "group" with "size" first`);
         return { ...state, groupSize: null };
       },
@@ -258,7 +225,7 @@ function hopDrawables(state: LineState, index: number, reveal: number): Drawable
   const hop = state.hops[index]!;
   const mid = lineX(state, (hop.from + hop.to) / 2);
   const out: Drawable[] = [{ id: `hop-${index}`, kind: "path", x: 0, y: 0, points: hopPoints(state, hop), fill: "none", stroke: "accent", strokeWidth: 3.5, z: 2, draw: clamp01(reveal) }];
-  if (state.reading) out.push(text(`hop-${index}-label`, mid, LINE_Y - TOKEN_LIFT - hopHeight(state, hop) - 28, `${hop.step > 0 ? "+" : "-"}${Math.abs(hop.step)}`, 30, "ink", { opacity: clamp01((reveal - 0.6) * 2.5), z: 3 }));
+  if (state.reading) out.push(textDrawable(`hop-${index}-label`, `${hop.step > 0 ? "+" : "-"}${Math.abs(hop.step)}`, { x: mid, y: LINE_Y - TOKEN_LIFT - hopHeight(state, hop) - 28 }, { size: 30, opacity: clamp01((reveal - 0.6) * 2.5), z: 3 }));
   return out;
 }
 
@@ -273,19 +240,19 @@ const line: Figure<LineState> = {
     start: "where the hopper stands, default from",
   },
   init(spec, objectId, reading) {
-    const from = wholeField(spec, "from", 0, -1000, 1000, objectId);
-    const to = wholeField(spec, "to", from + 10, from + 1, from + 40, objectId);
-    const token = wholeField(spec, "start", from, from, to, objectId);
+    const from = integerField(spec, "from", 0, -1000, 1000, objectId);
+    const to = integerField(spec, "to", from + 10, from + 1, from + 40, objectId);
+    const token = integerField(spec, "start", from, from, to, objectId);
     return { figure: "line", objectId, reading, from, to, token, hops: [] };
   },
   ops: {
     hop: {
       doc: '{"by": n} the hopper hops n along the line, leaving an arc; "each": k hops k at a time, so by 6 each 2 is three hops; negative goes left',
       seconds: 1.6,
-      run(state, op) {
-        const by = wholeArg(op, "by", -40, 40);
+      apply(state, op) {
+        const by = integerArg(op.args, "by", op.name, -40, 40);
         if (by === 0) fail(`op "hop" on ${state.objectId}: "by" must not be 0`);
-        const step = op.args.each === undefined ? by : wholeArg(op, "each", 1, 40) * Math.sign(by);
+        const step = op.args.each === undefined ? by : integerArg(op.args, "each", op.name, 1, 40) * Math.sign(by);
         if (Math.abs(by) % Math.abs(step) !== 0) fail(`op "hop" on ${state.objectId}: ${by} is not a whole number of hops of ${Math.abs(step)}; use "each" of 1 or a number that divides ${Math.abs(by)}`);
         const target = state.token + by;
         if (target < state.from || target > state.to) {
@@ -315,7 +282,7 @@ const line: Figure<LineState> = {
       const x = lineX(state, value);
       out.push({ id: `tick-${value}`, kind: "line", x, y: LINE_Y - 10, x2: x, y2: LINE_Y + 10, stroke: "ink", strokeWidth: 2, z: 1 });
       const labelled = (value - state.from) % labelEvery === 0 || value === state.to;
-      if (state.reading && labelled) out.push(text(`num-${value}`, x, LINE_Y + 46, String(value), value === state.token ? 42 : 30, value === state.token ? "ink" : "muted"));
+      if (state.reading && labelled) out.push(textDrawable(`num-${value}`, String(value), { x, y: LINE_Y + 46 }, { size: value === state.token ? 42 : 30, fill: value === state.token ? "ink" : "muted" }));
     }
     state.hops.forEach((_, index) => out.push(...hopDrawables(state, index, 1)));
     out.push(tokenDrawable({ x: lineX(state, state.token), y: LINE_Y - TOKEN_LIFT }));
@@ -339,14 +306,14 @@ function drawFraction(state: FractionState, shown: number): Drawable[] {
   const lit = whole(shown);
   const partWidth = BAR_WIDTH / state.parts;
   const center = BAR_PAD + BAR_WIDTH / 2;
-  const out: Drawable[] = range(state.parts).map((index) => box(`part-${index}`, BAR_PAD + partWidth * (index + 0.5), BAR_Y, partWidth, BAR_HEIGHT, {
+  const out: Drawable[] = range(state.parts).map((index) => boxAt(`part-${index}`, BAR_PAD + partWidth * (index + 0.5), BAR_Y, partWidth, BAR_HEIGHT, {
     fill: index < lit ? "accent" : "fill2", stroke: "ink", strokeWidth: 2.5, z: 1,
   }));
   if (state.reading) {
     out.push(
-      text("numerator", center, BAR_Y + BAR_HEIGHT / 2 + 66, String(lit), 64),
+      textDrawable("numerator", String(lit), { x: center, y: BAR_Y + BAR_HEIGHT / 2 + 66 }, { size: 64 }),
       { id: "vinculum", kind: "line", x: center - 50, y: BAR_Y + BAR_HEIGHT / 2 + 102, x2: center + 50, y2: BAR_Y + BAR_HEIGHT / 2 + 102, stroke: "ink", strokeWidth: 4 },
-      text("denominator", center, BAR_Y + BAR_HEIGHT / 2 + 148, String(state.parts), 64),
+      textDrawable("denominator", String(state.parts), { x: center, y: BAR_Y + BAR_HEIGHT / 2 + 148 }, { size: 64 }),
     );
   }
   return out;
@@ -358,15 +325,15 @@ const fraction: Figure<FractionState> = {
     shaded: "parts already shaded, default 0",
   },
   init(spec, objectId, reading) {
-    const parts = wholeField(spec, "parts", 4, 1, 12, objectId);
-    return { figure: "fraction", objectId, reading, parts, shaded: wholeField(spec, "shaded", 0, 0, parts, objectId) };
+    const parts = integerField(spec, "parts", 4, 1, 12, objectId);
+    return { figure: "fraction", objectId, reading, parts, shaded: integerField(spec, "shaded", 0, 0, parts, objectId) };
   },
   ops: {
     shade: {
       doc: '{"to": n} shades parts one by one until n are shaded; the numerator ticks up over the whole bar\'s part count',
       seconds: 1.8,
-      run(state, op) {
-        const to = wholeArg(op, "to", 0, state.parts);
+      apply(state, op) {
+        const to = integerArg(op.args, "to", op.name, 0, state.parts);
         if (to === state.shaded) fail(`op "shade" on ${state.objectId}: already ${state.shaded} of ${state.parts} shaded; pick another "to" from 0 to ${state.parts}`);
         return { ...state, shaded: to };
       },
@@ -396,16 +363,16 @@ function drawArea(state: AreaState, shown: number): Drawable[] {
   const lit = whole(shown);
   const width = state.columns * cell;
   const height = state.rows * cell;
-  const out: Drawable[] = range(state.columns * state.rows).map((index) => box(
+  const out: Drawable[] = range(state.columns * state.rows).map((index) => boxAt(
     `u${index}`, AREA_LEFT + (index % state.columns + 0.5) * cell, AREA_TOP + (Math.floor(index / state.columns) + 0.5) * cell, cell, cell,
     { fill: index < lit ? "accent" : "fill", stroke: index < lit ? "ground" : "edge", strokeWidth: 1.4, opacity: index < lit ? 0.7 : 1, z: 1 },
   ));
-  out.push(box("body", AREA_LEFT + width / 2, AREA_TOP + height / 2, width, height, { fill: "none", stroke: "ink", strokeWidth: 3, z: 2 }));
+  out.push(boxAt("body", AREA_LEFT + width / 2, AREA_TOP + height / 2, width, height, { fill: "none", stroke: "ink", strokeWidth: 3, z: 2 }));
   if (state.reading) {
     out.push(
-      text("columns", AREA_LEFT + width / 2, AREA_TOP - 32, String(state.columns), 38, "muted"),
-      text("rows", AREA_LEFT - 36, AREA_TOP + height / 2, String(state.rows), 38, "muted"),
-      text("formula", AREA_LEFT + width / 2, AREA_TOP + height + 58, `${state.columns} × ${state.rows} = ${lit > 0 ? lit : "?"}`, 56),
+      textDrawable("columns", String(state.columns), { x: AREA_LEFT + width / 2, y: AREA_TOP - 32 }, { size: 38, fill: "muted" }),
+      textDrawable("rows", String(state.rows), { x: AREA_LEFT - 36, y: AREA_TOP + height / 2 }, { size: 38, fill: "muted" }),
+      textDrawable("formula", `${state.columns} × ${state.rows} = ${lit > 0 ? lit : "?"}`, { x: AREA_LEFT + width / 2, y: AREA_TOP + height + 58 }, { size: 56 }),
     );
   }
   return out;
@@ -417,16 +384,16 @@ const area: Figure<AreaState> = {
     rows: "unit squares down, 1 to 20; equal to columns makes a square",
   },
   init(spec, objectId, reading) {
-    const columns = wholeField(spec, "columns", 0, 1, 20, objectId);
-    return { figure: "area", objectId, reading, columns, rows: wholeField(spec, "rows", columns, 1, 20, objectId), filled: 0 };
+    const columns = integerField(spec, "columns", 0, 1, 20, objectId);
+    return { figure: "area", objectId, reading, columns, rows: integerField(spec, "rows", columns, 1, 20, objectId), filled: 0 };
   },
   ops: {
     fill: {
       doc: 'fills the unit squares row by row while the count ticks up; optional "to": n fills the first n, default all',
       seconds: 2.4,
-      run(state, op) {
+      apply(state, op) {
         const total = state.columns * state.rows;
-        const to = wholeArg(op, "to", 1, total, total);
+        const to = integerArg(op.args, "to", op.name, 1, total, total);
         if (to <= state.filled) fail(`op "fill" on ${state.objectId}: ${state.filled} of ${total} squares are already filled; "to" must be from ${state.filled + 1} to ${total}`);
         return { ...state, filled: to };
       },
@@ -463,21 +430,21 @@ function drawAngle(state: AngleState, degrees: number): Drawable[] {
     { id: "arc", kind: "path", x: 0, y: 0, points: sweep, fill: "none", stroke: "accent", strokeWidth: 4, z: 3 },
     { id: "right-mark", kind: "path", x: 0, y: 0, points: [vertex.x + RIGHT_MARK, vertex.y, vertex.x + RIGHT_MARK, vertex.y - RIGHT_MARK, vertex.x, vertex.y - RIGHT_MARK], fill: "none", stroke: "ink", strokeWidth: 3, opacity: Math.abs(degrees - 90) < 0.5 ? 1 : 0, z: 3 },
   ];
-  if (state.reading) out.push(text("degrees", vertex.x, vertex.y + 54, `${Math.round(degrees)}°`, 52));
+  if (state.reading) out.push(textDrawable("degrees", `${Math.round(degrees)}°`, { x: vertex.x, y: vertex.y + 54 }, { size: 52 }));
   return out;
 }
 
 const angle: Figure<AngleState> = {
   spec: { degrees: "size of the angle, 1 to 180, default 90; 90 gets a square corner mark" },
   init(spec, objectId, reading) {
-    return { figure: "angle", objectId, reading, degrees: wholeField(spec, "degrees", 90, 1, 180, objectId) };
+    return { figure: "angle", objectId, reading, degrees: integerField(spec, "degrees", 90, 1, 180, objectId) };
   },
   ops: {
     open: {
       doc: '{"to": degrees} swings the top ray to a new angle, 1 to 180, while the number ticks',
       seconds: 1.8,
-      run(state, op) {
-        const to = wholeArg(op, "to", 1, 180);
+      apply(state, op) {
+        const to = integerArg(op.args, "to", op.name, 1, 180);
         if (to === state.degrees) fail(`op "open" on ${state.objectId}: the angle is already ${to} degrees; pick another "to" from 1 to 180`);
         return { ...state, degrees: to };
       },
@@ -594,7 +561,7 @@ function drawSquare(state: TriangleState, frames: Record<Side, SquareFrame>, sid
       const visible = clamp01(growth * length - row);
       const lit = index < whole(view.shown[side]) && !(side === "c" && view.combine > 0);
       const pose = cellPose(state, frames, side, index, view.combine);
-      out.push(box(`${side}-u${index}`, pose.at.x, pose.at.y, u, u, {
+      out.push(boxAt(`${side}-u${index}`, pose.at.x, pose.at.y, u, u, {
         fill: lit ? role : "fill", stroke: lit ? "ground" : "edge", strokeWidth: 1.4, opacity: lit ? 0.62 * visible : visible, rotation: pose.turn, z: pose.moved > 0 ? 4 : 2, part,
       }));
     });
@@ -604,8 +571,8 @@ function drawSquare(state: TriangleState, frames: Record<Side, SquareFrame>, sid
     const center = along(frame.origin, [[frame.across, (length * u) / 2], [frame.outward, (length * u) / 2]]);
     const size = Math.min(72, Math.max(28, u * 1.1));
     out.push(
-      box(`${side}-count-back`, center.x, center.y, size * (0.5 * count.length + 0.9), size * 1.25, { fill: "ground", opacity: 0.8, radius: 0.5, z: 5 }),
-      text(`${side}-count`, center.x, center.y, count, size, "ink", { z: 6 }),
+      boxAt(`${side}-count-back`, center.x, center.y, size * (0.5 * count.length + 0.9), size * 1.25, { fill: "ground", opacity: 0.8, radius: 0.5, z: 5 }),
+      textDrawable(`${side}-count`, count, center, { size, z: 6 }),
     );
   }
   return out;
@@ -667,8 +634,8 @@ function triangleDrawables(state: TriangleState, view: TriangleView): Drawable[]
       const halfAlong = (Math.abs(frame.outward.x) * tag.w + Math.abs(frame.outward.y) * tag.h) / 2;
       const middle = along(mix(frame.start, frame.end, 0.5), [[frame.outward, reach + SIDE_TAG_GAP + halfAlong]]);
       out.push(
-        box(`${side}-tag`, middle.x, middle.y, tag.w, tag.h, { fill: "ground", stroke: SIDE_ROLE[side], strokeWidth: 2.5, radius: 0.5, z: 7 }),
-        text(`${side}-label`, middle.x, middle.y, tag.label, SIDE_TAG_FONT, "ink", { z: 8 }),
+        boxAt(`${side}-tag`, middle.x, middle.y, tag.w, tag.h, { fill: "ground", stroke: SIDE_ROLE[side], strokeWidth: 2.5, radius: 0.5, z: 7 }),
+        textDrawable(`${side}-label`, tag.label, middle, { size: SIDE_TAG_FONT, z: 8 }),
       );
     }
   }
@@ -703,7 +670,7 @@ function requireCells(state: TriangleState, side: Side, op: LabOp): void {
 }
 
 function readTriangle(spec: SpecFields, objectId: string, reading: boolean): TriangleState {
-  const given = { a: positiveField(spec, "a", objectId), b: positiveField(spec, "b", objectId), c: positiveField(spec, "c", objectId) };
+  const given = { a: positiveField(spec, "a", undefined, objectId), b: positiveField(spec, "b", undefined, objectId), c: positiveField(spec, "c", undefined, objectId) };
   const known = SIDES.filter((side) => given[side] !== undefined);
   if (known.length < 2) fail(`${objectId}: a right triangle needs two of its sides: the legs "a" and "b", or one leg and the hypotenuse "c"; got ${known.length === 0 ? "none" : `only "${known[0]}"`}`);
   let { a, b, c } = given;
@@ -739,7 +706,7 @@ const triangle: Figure<TriangleState> = {
     square: {
       doc: '{"side": "a"|"b"|"c"} (a list builds several, or on: ["tri[a]"]) grows a square outward from that side; its area is the side length squared',
       seconds: 1.4,
-      run(state, op) {
+      apply(state, op) {
         const sides = sidesOf(state, op);
         const again = sides.find((side) => state.built[side]);
         if (again) fail(`op "square" on ${state.objectId}: the square on side ${again} is already built`);
@@ -754,13 +721,13 @@ const triangle: Figure<TriangleState> = {
     fill: {
       doc: 'same "side"; fills that square with unit squares one by one and counts them (whole-number sides up to 12); optional "to": n fills the first n of a single side',
       seconds: 2.4,
-      run(state, op) {
+      apply(state, op) {
         const sides = sidesOf(state, op);
         const filled = { ...state.filled };
         for (const side of sides) {
           requireCells(state, side, op);
           const total = cellTotal(state, side);
-          const to = wholeArg(op, "to", 1, total, total);
+          const to = integerArg(op.args, "to", op.name, 1, total, total);
           if (to <= state.filled[side]) fail(`op "fill" on ${state.objectId}: the square on side ${side} already has ${state.filled[side]} of its ${total} unit squares; "to" must be from ${state.filled[side] + 1} to ${total}`);
           filled[side] = to;
         }
@@ -775,7 +742,7 @@ const triangle: Figure<TriangleState> = {
     combine: {
       doc: "slides every unit square of the squares on a and b into the square on c, where they fit exactly, because a² + b² = c²; needs a and b filled and c built",
       seconds: 3.2,
-      run(state, op) {
+      apply(state, op) {
         for (const side of SIDES) requireCells(state, side, op);
         for (const side of ["a", "b"] as const) {
           if (state.filled[side] < cellTotal(state, side)) fail(`op "combine" on ${state.objectId}: fill the square on side ${side} first, it has ${state.filled[side]} of ${cellTotal(state, side)} unit squares`);
@@ -850,7 +817,7 @@ function holeDrawables(state: RearrangeState, opacity: Record<"a" | "b" | "c", n
   const squareHole = (side: "a" | "b", from: number): Drawable => {
     const length = side === "a" ? a : b;
     const center = proofPoint(state, { x: from + length / 2, y: from + length / 2 });
-    return box(`hole-${side}`, center.x, center.y, length * u, length * u, { fill: SIDE_ROLE[side], stroke: SIDE_ROLE[side], strokeWidth: 3, opacity: 0.4 * opacity[side], z: 1 });
+    return boxAt(`hole-${side}`, center.x, center.y, length * u, length * u, { fill: SIDE_ROLE[side], stroke: SIDE_ROLE[side], strokeWidth: 3, opacity: 0.4 * opacity[side], z: 1 });
   };
   const out: Drawable[] = [
     { id: "hole-c", kind: "path", x: 0, y: 0, points: hypotenuseHole, closed: true, fill: SIDE_ROLE.c, stroke: SIDE_ROLE.c, strokeWidth: 3, opacity: 0.4 * opacity.c, z: 1 },
@@ -865,7 +832,7 @@ function holeDrawables(state: RearrangeState, opacity: Record<"a" | "b" | "c", n
     ];
     for (const [side, value, center, length] of spots) {
       const at = proofPoint(state, center);
-      out.push(text(`hole-${side}-area`, at.x, at.y, fmt(value), Math.min(72, Math.max(26, 0.5 * length * u)), "ink", { opacity: opacity[side as Side], z: 5 }));
+      out.push(textDrawable(`hole-${side}-area`, fmt(value), at, { size: Math.min(72, Math.max(26, 0.5 * length * u)), opacity: opacity[side as Side], z: 5 }));
     }
   }
   return out;
@@ -877,15 +844,15 @@ function drawProof(state: RearrangeState, placed: Pose[], opacity: Record<"a" | 
   const center = PROOF_SIDE / 2;
   const top = proofTop(state);
   const out: Drawable[] = [
-    box("frame", center, top + PROOF_SIDE / 2, PROOF_SIDE, PROOF_SIDE, { fill: "fill", stroke: "ink", strokeWidth: 3, z: 0 }),
+    boxAt("frame", center, top + PROOF_SIDE / 2, PROOF_SIDE, PROOF_SIDE, { fill: "fill", stroke: "ink", strokeWidth: 3, z: 0 }),
     ...placed.flatMap((pose, index) => pieceDrawables(state, index, pose.corner, pose.direction)),
     ...holeDrawables(state, opacity),
   ];
   if (state.reading) {
     out.push(
-      text("edge-a", (a * u) / 2, top - 36, fmt(a), 36, SIDE_ROLE.a),
-      text("edge-b", (a + b / 2) * u, top - 36, fmt(b), 36, SIDE_ROLE.b),
-      text("edge-sum", center, top + PROOF_SIDE + 46, `${fmt(a)} + ${fmt(b)} = ${fmt(a + b)}`, 36, "muted"),
+      textDrawable("edge-a", fmt(a), { x: (a * u) / 2, y: top - 36 }, { size: 36, fill: SIDE_ROLE.a }),
+      textDrawable("edge-b", fmt(b), { x: (a + b / 2) * u, y: top - 36 }, { size: 36, fill: SIDE_ROLE.b }),
+      textDrawable("edge-sum", `${fmt(a)} + ${fmt(b)} = ${fmt(a + b)}`, { x: center, y: top + PROOF_SIDE + 46 }, { size: 36, fill: "muted" }),
     );
   }
   return out;
@@ -900,8 +867,8 @@ const rearrange: Figure<RearrangeState> = {
     arrangement: '"frame" (default): the four triangles circle a tilted square of side c; "squares": they leave a square of side a and a square of side b',
   },
   init(spec, objectId, reading) {
-    const a = positiveField(spec, "a", objectId);
-    const b = positiveField(spec, "b", objectId);
+    const a = positiveField(spec, "a", undefined, objectId);
+    const b = positiveField(spec, "b", undefined, objectId);
     if (a === undefined || b === undefined) fail(`${objectId}: figure "rearrange" needs both legs "a" and "b" as positive numbers`);
     const arrangement = spec.arrangement ?? "frame";
     if (arrangement !== "frame" && arrangement !== "squares") fail(`${objectId}: "arrangement" must be "frame" or "squares", got ${JSON.stringify(arrangement)}`);
@@ -911,7 +878,7 @@ const rearrange: Figure<RearrangeState> = {
     arrange: {
       doc: '{"into": "frame"|"squares"} slides the four triangles to the other arrangement; the left over area is c² in "frame" and a² + b² in "squares"',
       seconds: 3.6,
-      run(state, op) {
+      apply(state, op) {
         const into = op.args.into;
         if (into !== "frame" && into !== "squares") fail(`op "arrange" on ${state.objectId} needs "into" as "frame" or "squares", got ${JSON.stringify(into)}`);
         if (into === state.arrangement) fail(`op "arrange" on ${state.objectId}: the triangles are already in the "${into}" arrangement; use "${into === "frame" ? "squares" : "frame"}"`);
@@ -949,23 +916,15 @@ const FIGURE_NAMES = Object.keys(FIGURES);
 
 const figureOf = (state: ShapesState) => FIGURES[state.figure];
 
-function opDocs(): Record<string, string> {
-  const docs: Record<string, string[]> = {};
-  for (const [name, figure] of Object.entries(FIGURES)) {
-    for (const [op, def] of Object.entries(figure.ops)) (docs[op] ??= []).push(`${name}: ${def.doc}`);
-  }
-  return Object.fromEntries(Object.entries(docs).map(([op, texts]) => [op, texts.join(" | ")]));
+function opNames(): string[] {
+  return [...new Set(Object.values(FIGURES).flatMap((figure) => Object.keys(figure.ops)))];
 }
 
-function opSeconds(name: string): number {
-  for (const figure of Object.values(FIGURES)) {
-    const def = figure.ops[name];
-    if (def) return def.seconds;
-  }
-  return 0.8;
+function opDoc(name: string): string {
+  return Object.entries(FIGURES).filter(([, figure]) => name in figure.ops).map(([figureName, figure]) => `${figureName}: ${figure.ops[name]!.doc}`).join(" | ");
 }
 
-function opOf(state: ShapesState, name: string): OpDef<ShapesState> {
+function opOf(state: ShapesState, name: string): FigureOp<ShapesState> {
   const def = figureOf(state).ops[name];
   if (!def) {
     const own = Object.keys(figureOf(state).ops).join(", ");
@@ -974,20 +933,28 @@ function opOf(state: ShapesState, name: string): OpDef<ShapesState> {
   return def;
 }
 
+const ops: Record<string, OpDef<ShapesState>> = Object.fromEntries(opNames().map((name) => [name, {
+  doc: opDoc(name),
+  seconds: (op: LabOp, state: ShapesState) => opOf(state, op.name).seconds,
+  apply: (state: ShapesState, op: LabOp) => opOf(state, op.name).apply(state, op),
+  during: (before: ShapesState, after: ShapesState, op: LabOp, progress: number, ctx: LabCtx) => figureOf(after).ops[op.name]?.during?.(before, after, op, progress, ctx) ?? [],
+}]));
+
 export const lab: LabDef<SpecFields, ShapesState> = {
   id: "shapes",
   title: "Numbers and shapes",
+  reading: "optional",
   catalog: {
     summary: "Counting, number lines, fractions, area and right triangles, from a first count to Pythagoras. One object is one figure, chosen by \"figure\"; every number (counts, areas, side lengths) is computed here. In a Lesson with reading false, for a small child, every figure reads from pictures alone.",
     spec: {
       figure: `one of ${FIGURE_NAMES.join(", ")}`,
       ...Object.fromEntries(Object.entries(FIGURES).map(([name, figure]) => [`figure "${name}"`, Object.entries(figure.spec).map(([field, doc]) => `${field}: ${doc}`).join("; ")])),
     },
-    ops: opDocs(),
     example: [
       '{"step":1,"say":"Here is a right triangle with sides three and four. Build the square on the short side, then count it.","scene":{"tri":{"lab":"shapes","figure":"triangle","a":3,"b":4}},"do":[{"cue":"Build the square","op":"square","on":["tri"],"side":"a"},{"cue":"count it","op":"fill","on":["tri"],"side":"a"}]}',
     ],
   },
+  ops,
 
   init(spec, objectId) {
     const name = spec.figure;
@@ -996,16 +963,10 @@ export const lab: LabDef<SpecFields, ShapesState> = {
     const known = [...Object.keys(figure.spec), "reading"];
     const unknown = Object.keys(spec).filter((key) => key !== "lab" && key !== "figure" && !known.includes(key));
     if (unknown.length > 0) fail(`${objectId}: figure "${name}" has no field ${unknown.map((key) => `"${key}"`).join(", ")}; its fields are ${Object.keys(figure.spec).join(", ")}`);
-    return figure.init(spec, objectId, spec.reading !== false);
+    return figure.init(spec, objectId, readsWords(spec));
   },
-
-  apply: (state, op) => ({ ...opOf(state, op.name).run(state, op) }),
 
   size: (state) => figureOf(state).size(state),
 
   draw: (state) => figureOf(state).draw(state),
-
-  duration: (op) => opSeconds(op.name),
-
-  during: (before, after, op, progress) => figureOf(after).ops[op.name]?.during?.(before, after, op, progress) ?? [],
 };

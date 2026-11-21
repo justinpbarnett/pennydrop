@@ -1,4 +1,4 @@
-import { type Drawable, fail, type LabDef, numberField, type Role, roleField } from "../lab";
+import { type Drawable, fail, type LabDef, positiveField, readsWords, type Role, roleField } from "../lab";
 
 interface Series {
   id: string;
@@ -15,6 +15,7 @@ interface AxesState {
   xLabel: string;
   yLabel: string;
   series: Series[];
+  reading: boolean;
 }
 
 const PAD = { left: 90, right: 30, top: 30, bottom: 70 };
@@ -44,6 +45,7 @@ function niceTick(value: number): string {
 export const primitive: LabDef<Record<string, unknown>, AxesState> = {
   id: "axes",
   title: "Axes",
+  reading: "optional",
   catalog: {
     summary: "Labeled axes with optional plotted series.",
     spec: {
@@ -55,23 +57,26 @@ export const primitive: LabDef<Record<string, unknown>, AxesState> = {
       w: "px, default 760",
       h: "px, default 460",
     },
-    ops: { series: '{"points": [[x, y], ...], "role"?: "accent", "label"?: text} adds a series; draws on with trace' },
     example: ['{"scene":{"ax":{"kind":"axes","x":[0,10],"y":[0,100],"series":[{"points":[[0,0],[10,100]]}]}}}'],
+  },
+  ops: {
+    series: {
+      doc: '{"points": [[x, y], ...], "role"?: "accent", "label"?: text} adds a series; draws on with trace',
+      seconds: 1.2,
+      apply: (state, op) => ({ ...state, series: [...state.series, ...readSeries([op.args], "axes", state.series.length)] }),
+    },
   },
   init(spec, objectId) {
     return {
       x: range(spec.x, "x", objectId),
       y: range(spec.y, "y", objectId),
-      w: numberField(spec, "w", 760, objectId),
-      h: numberField(spec, "h", 460, objectId),
+      w: positiveField(spec, "w", 760, objectId),
+      h: positiveField(spec, "h", 460, objectId),
       xLabel: typeof spec.xLabel === "string" ? spec.xLabel : "",
       yLabel: typeof spec.yLabel === "string" ? spec.yLabel : "",
       series: readSeries(spec.series, objectId),
+      reading: readsWords(spec),
     };
-  },
-  apply(state, op) {
-    if (op.name !== "series") return fail(`axes has no op "${op.name}"`);
-    return { ...state, series: [...state.series, ...readSeries([op.args], "axes", state.series.length)] };
   },
   size: (state) => ({ w: state.w, h: state.h }),
   draw(state) {
@@ -91,20 +96,23 @@ export const primitive: LabDef<Record<string, unknown>, AxesState> = {
       out.push(
         { id: `grid-x-${tick}`, kind: "line", x: px(xv), y: bottom, x2: px(xv), y2: top, stroke: "rule", strokeWidth: 0.6, z: -1 },
         { id: `grid-y-${tick}`, kind: "line", x: left, y: py(yv), x2: right, y2: py(yv), stroke: "rule", strokeWidth: 0.6, z: -1 },
-        { id: `tick-x-${tick}`, kind: "text", x: px(xv), y: bottom + 28, text: niceTick(xv), size: 22, font: "read", fill: "muted" },
-        { id: `tick-y-${tick}`, kind: "text", x: left - 16, y: py(yv), text: niceTick(yv), size: 22, font: "read", fill: "muted", anchor: "end" },
       );
+      if (state.reading) {
+        out.push(
+          { id: `tick-x-${tick}`, kind: "text", x: px(xv), y: bottom + 28, text: niceTick(xv), size: 22, font: "read", fill: "muted" },
+          { id: `tick-y-${tick}`, kind: "text", x: left - 16, y: py(yv), text: niceTick(yv), size: 22, font: "read", fill: "muted", anchor: "end" },
+        );
+      }
     }
-    if (state.xLabel) out.push({ id: "label-x", kind: "text", x: (left + right) / 2, y: state.h - 14, text: state.xLabel, size: 26, font: "mark", fill: "ink" });
-    if (state.yLabel) out.push({ id: "label-y", kind: "text", x: 22, y: (top + bottom) / 2, text: state.yLabel, size: 26, font: "mark", fill: "ink", rotation: -90 });
+    if (state.reading && state.xLabel) out.push({ id: "label-x", kind: "text", x: (left + right) / 2, y: state.h - 14, text: state.xLabel, size: 26, font: "mark", fill: "ink" });
+    if (state.reading && state.yLabel) out.push({ id: "label-y", kind: "text", x: 22, y: (top + bottom) / 2, text: state.yLabel, size: 26, font: "mark", fill: "ink", rotation: -90 });
     for (const series of state.series) {
       out.push({ id: `series-${series.id}`, kind: "path", x: 0, y: 0, points: series.points.flatMap(([xv, yv]) => [px(xv), py(yv)]), fill: "none", stroke: series.role, strokeWidth: 2.4, z: 2 });
-      if (series.label) {
+      if (state.reading && series.label) {
         const last = series.points.at(-1)!;
         out.push({ id: `series-${series.id}-label`, kind: "text", x: px(last[0]) - 8, y: py(last[1]) - 20, text: series.label, size: 24, font: "mark", fill: series.role, anchor: "end", z: 2 });
       }
     }
     return out;
   },
-  duration: () => 1.2,
 };

@@ -342,7 +342,17 @@ function header(state: AddressState, id: string, column: number, title: string, 
   return out;
 }
 
-function rowCell(state: AddressState, id: string, column: number, row: number, role: Role | null, left: string, right: string, rightRole: Role): Drawable[] {
+interface RowCell {
+  id: string;
+  column: number;
+  row: number;
+  role: Role | null;
+  left: string;
+  right: string;
+  rightRole: Role;
+}
+
+function rowCell(state: AddressState, { id, column, row, role, left, right, rightRole }: RowCell): Drawable[] {
   const x = columnX(state, column);
   const y = rowY(state, row);
   const height = rowHeight(state) - 6;
@@ -372,7 +382,7 @@ function tlbDrawables(state: AddressState): Drawable[] {
   for (let slot = 0; slot < state.slots; slot++) {
     const entry = state.tlb[slot];
     const role: Role | null = access && (access.tlbSlot === slot || access.filledSlot === slot) ? "ok" : null;
-    out.push(...rowCell(state, "tlb", 0, slot, role, entry ? hex(entry.page, width) : "", entry ? hex(entry.frame, width) : "", "ink"));
+    out.push(...rowCell(state, { id: "tlb", column: 0, row: slot, role, left: entry ? hex(entry.page, width) : "", right: entry ? hex(entry.frame, width) : "", rightRole: "ink" }));
   }
   if (lookedUp) out.push(...caption(state, "tlb", 0, `page ${hex(access.page, width)}`, "index bits joined", "ink"));
   return out;
@@ -411,7 +421,7 @@ function levelDrawables(state: AddressState, level: number): Drawable[] {
     const selected = index === hop.index;
     const role: Role | null = selected ? (hop.faulted ? (filled ? "ok" : "fault") : "compare") : null;
     const text = target === undefined ? "invalid" : typeof target === "string" ? `table ${target}` : `frame ${hex(target, frameWidth)}`;
-    out.push(...rowCell(state, id, column, row, role, String(index), text, target === undefined ? "fault" : "ink"));
+    out.push(...rowCell(state, { id, column, row, role, left: String(index), right: text, rightRole: target === undefined ? "fault" : "ink" }));
   });
   out.push(...caption(state, id, column, `entry ${hex(hop.address, addressWidth)}`, `${hex(table.base, addressWidth)} + ${hop.index} × ${state.entryBytes}`, "ink"));
   return out;
@@ -557,11 +567,17 @@ function fillTlb(state: AddressState, op: LabOp): AddressState {
   return { ...state, tlb, access: { ...access, filledSlot: tlb.length - 1, focus: indexFocus(state) } };
 }
 
-const OP_SECONDS: Record<string, number> = { split: 1.2, tlb: 0.9, walk: 1.1, fault: 1.2, physical: 1.4, fill: 1.0 };
+function revealConnectors(before: AddressState, after: AddressState, _op: LabOp, progress: number): Drawable[] {
+  const known = new Set(connectors(before).map((connector) => connector.id));
+  return connectors(after)
+    .filter((connector) => !known.has(connector.id))
+    .map((connector) => ({ ...connectorDrawable(connector), draw: progress }));
+}
 
 export const lab: LabDef<AddressSpec, AddressState> = {
   id: "address",
   title: "Address translation",
+  reading: "required",
   catalog: {
     summary: "Turns a virtual address into a physical one with a multi level page table and an optional TLB. The Lab computes every field value, entry address and the physical address; Steps only say which stage to show. Object parts are not used: put the object alone in \"on\".",
     spec: {
@@ -574,14 +590,6 @@ export const lab: LabDef<AddressSpec, AddressState> = {
       tables: 'every table by name as {"T0": {"base": "0x1000", "entries": {"3": "T1"}}}; entries of upper levels name a table, entries of the last level are frame numbers; an index not listed is invalid; at most 6 entries per table',
       tlb: 'optional {"slots": 4, "entries": [{"page": "0x80", "frame": "0x11"}]}; page is the index fields joined; omit for no TLB',
       freeFrames: 'frame numbers the OS hands out on a page fault, in order, such as ["0x30"]',
-    },
-    ops: {
-      split: 'optional {"address": "0x3A5C"}; starts an access: writes the address in binary, groups the digits and brackets each field with its value; a new address starts a new access and clears the walk',
-      tlb: "looks the page up in the TLB and shows a hit (with its frame) or a miss; needed before walk when the TLB exists",
-      walk: "walks the next level: the PTBR or the previous entry points at a table, the field's index selects an entry, and the entry address (base + index x entryBytes) is shown; an entry that is not listed shows as invalid",
-      fault: "after a walk reached an invalid last level entry: the OS brings the page into the next free frame and fills the entry",
-      physical: "joins the frame number and the offset into the physical address; works after a TLB hit or a finished walk",
-      fill: "after a miss and a finished walk: stores page to frame in the TLB, evicting the oldest entry when it is full",
     },
     example: [
       '{"step":1,"say":"Split the address, miss the TLB, walk both levels, and form the physical address.","scene":{"mmu":{"lab":"address","bits":16,"fields":{"L1":4,"L2":4},"offsetBits":8,"entryBytes":2,"address":"0x3A5C","tables":{"T0":{"base":"0x1000","entries":{"3":"T1"}},"T1":{"base":"0x2000","entries":{"10":"0x2B"}}},"tlb":{"slots":4,"entries":[]}}},"do":[{"cue":"Split","op":"split","on":["mmu"]},{"cue":"miss","op":"tlb","on":["mmu"]},{"cue":"walk","op":"walk","on":["mmu"]},{"cue":"both levels","op":"walk","on":["mmu"]},{"cue":"physical address","op":"physical","on":["mmu"]}]}',
@@ -616,16 +624,43 @@ export const lab: LabDef<AddressSpec, AddressState> = {
     };
   },
 
-  apply(state, op) {
-    switch (op.name) {
-      case "split": return startAccess(state, op);
-      case "tlb": return lookUpTlb(state, op);
-      case "walk": return walkLevel(state, op);
-      case "fault": return faultIn(state, op);
-      case "physical": return formPhysical(state, op);
-      case "fill": return fillTlb(state, op);
-      default: return fail(`address has no op "${op.name}"; ops: ${Object.keys(OP_SECONDS).join(", ")}`);
-    }
+  ops: {
+    split: {
+      doc: 'optional {"address": "0x3A5C"}; starts an access: writes the address in binary, groups the digits and brackets each field with its value; a new address starts a new access and clears the walk',
+      seconds: 1.2,
+      apply: startAccess,
+      during: revealConnectors,
+    },
+    tlb: {
+      doc: "looks the page up in the TLB and shows a hit (with its frame) or a miss; needed before walk when the TLB exists",
+      seconds: 0.9,
+      apply: lookUpTlb,
+      during: revealConnectors,
+    },
+    walk: {
+      doc: "walks the next level: the PTBR or the previous entry points at a table, the field's index selects an entry, and the entry address (base + index x entryBytes) is shown; an entry that is not listed shows as invalid",
+      seconds: 1.1,
+      apply: walkLevel,
+      during: revealConnectors,
+    },
+    fault: {
+      doc: "after a walk reached an invalid last level entry: the OS brings the page into the next free frame and fills the entry",
+      seconds: 1.2,
+      apply: faultIn,
+      during: revealConnectors,
+    },
+    physical: {
+      doc: "joins the frame number and the offset into the physical address; works after a TLB hit or a finished walk",
+      seconds: 1.4,
+      apply: formPhysical,
+      during: revealConnectors,
+    },
+    fill: {
+      doc: "after a miss and a finished walk: stores page to frame in the TLB, evicting the oldest entry when it is full",
+      seconds: 1.0,
+      apply: fillTlb,
+      during: revealConnectors,
+    },
   },
 
   size(state) {
@@ -640,14 +675,5 @@ export const lab: LabDef<AddressSpec, AddressState> = {
       ...physicalDrawables(state),
       ...connectors(state).map(connectorDrawable),
     ];
-  },
-
-  duration: (op) => OP_SECONDS[op.name] ?? 1,
-
-  during(before, after, _op, progress) {
-    const known = new Set(connectors(before).map((connector) => connector.id));
-    return connectors(after)
-      .filter((connector) => !known.has(connector.id))
-      .map((connector) => ({ ...connectorDrawable(connector), draw: progress }));
   },
 };

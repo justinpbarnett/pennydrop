@@ -1,5 +1,5 @@
-import { CODE_LANGUAGES, tokenizeCode } from "../highlight";
-import { type Drawable, fail, labelDrawable, type LabDef, type LabOp, type Paint, type Rect, segmentDrawable, type Span, stringArg, stringField } from "../lab";
+import { CODE_LANGUAGES, codeListing, fitted, languageField, loadHighlighter, NUMBER_SCALE, tokenizeCode } from "../highlight";
+import { boxDrawable, type BoxLook, type Drawable, fail, type LabDef, type Paint, type Rect, segmentDrawable, type Span, stringArg, stringField, textDrawable, type TextLook } from "../lab";
 import { textWidth } from "../text-metrics";
 
 interface Variable {
@@ -49,7 +49,6 @@ const SOURCE_PAD = 22;
 const MAX_CODE_SIZE = 28;
 const MIN_CODE_SIZE = 18;
 const LINE_HEIGHT_PER_SIZE = 1.5;
-const NUMBER_SCALE = 0.72;
 const NUMBER_GAP = 18;
 const MAX_VARIABLES = 12;
 const MAX_ROW_HEIGHT = 46;
@@ -57,7 +56,6 @@ const OUTPUT_LINES = 8;
 const BAND_OPACITY = 0.16;
 const GLOBAL_FRAME = "global";
 const UNSET = "–";
-const ELLIPSIS = "…";
 const CARD_GAP = 8;
 const MAX_CARD_HEIGHT = 64;
 const MIN_CARD_HEIGHT = 34;
@@ -72,27 +70,6 @@ const PANELS: Record<"source" | "stack" | "variables" | "output", Rect> = {
 
 const PANEL_TITLES = { stack: "Call stack", variables: "Variables", output: "Output" } as const;
 
-function fitted(text: string, size: number, width: number): string {
-  if (textWidth(text, size, "code") <= width) return text;
-  let kept = text.length;
-  while (kept > 0 && textWidth(text.slice(0, kept) + ELLIPSIS, size, "code") > width) kept -= 1;
-  return text.slice(0, kept) + ELLIPSIS;
-}
-
-function fittedSpans(spans: Span[], size: number, width: number): Span[] {
-  const text = spans.map((span) => span.text).join("");
-  if (textWidth(text, size, "code") <= width) return spans;
-  const kept = fitted(text, size, width).length - ELLIPSIS.length;
-  const out: Span[] = [];
-  let used = 0;
-  for (const span of spans) {
-    if (used >= kept) break;
-    out.push({ ...span, text: span.text.slice(0, kept - used) });
-    used += span.text.length;
-  }
-  return [...out, { text: ELLIPSIS, role: "muted" }];
-}
-
 function valueArg(args: Record<string, unknown>, key: string, opName: string): string {
   const value = args[key];
   if (typeof value === "string") return value;
@@ -102,12 +79,6 @@ function valueArg(args: Record<string, unknown>, key: string, opName: string): s
 
 function optionalValueArg(args: Record<string, unknown>, key: string, opName: string): string | null {
   return args[key] === undefined || args[key] === null ? null : valueArg(args, key, opName);
-}
-
-function readLanguage(spec: CodeStepperSpec, objectId: string): string {
-  const language = stringField(spec, "language", objectId, "python");
-  if (!CODE_LANGUAGES.includes(language)) fail(`${objectId}: language "${language}" is not available; use one of ${CODE_LANGUAGES.join(", ")}`);
-  return language;
 }
 
 function readDeclared(vars: unknown, objectId: string): string[] {
@@ -157,28 +128,27 @@ function codeMetrics(lines: Span[][]) {
   return { size, gutter, lineWidth: SOURCE_WIDTH - SOURCE_PAD * 2 - gutter, lineHeight: Math.min(size * LINE_HEIGHT_PER_SIZE, innerHeight / lines.length) };
 }
 
-function boxDrawable(id: string, rect: Rect, fill: Paint, stroke: Paint, z: number, extras: Partial<Drawable> = {}): Drawable {
-  return { id, kind: "rect", x: rect.x + rect.w / 2, y: rect.y + rect.h / 2, w: rect.w, h: rect.h, fill, stroke, strokeWidth: 1, radius: 1, z, ...extras };
+function panelBox(id: string, rect: Rect, fill: Paint, stroke: Paint, z: number, extras: BoxLook = {}): Drawable {
+  return boxDrawable(id, rect, { fill, stroke, strokeWidth: 1, radius: 1, z, ...extras });
 }
 
-function textDrawable(id: string, text: string, x: number, y: number, size: number, fill: Paint, extras: Partial<Drawable> = {}): Drawable {
-  return { ...labelDrawable(text, { x, y }, size, "code", fill, 2), id, anchor: "start", ...extras };
+function codeText(id: string, text: string, x: number, y: number, size: number, fill: Paint, extras: Partial<TextLook> = {}): Drawable {
+  return textDrawable(id, text, { x, y }, { size, font: "code", fill, anchor: "start", z: 2, ...extras });
 }
 
 function panelDrawables(key: keyof typeof PANEL_TITLES, trailing?: string): Drawable[] {
   const rect = PANELS[key];
-  const header = labelDrawable(PANEL_TITLES[key], { x: rect.x + PANEL_PAD, y: rect.y + HEADER_HEIGHT / 2 }, HEADER_SIZE, "mark", "muted", 2);
   const out: Drawable[] = [
-    boxDrawable(`${key}-panel`, rect, "fill", "rule", 0),
-    { ...header, id: `${key}-title`, anchor: "start" },
+    panelBox(`${key}-panel`, rect, "fill", "rule", 0),
+    textDrawable(`${key}-title`, PANEL_TITLES[key], { x: rect.x + PANEL_PAD, y: rect.y + HEADER_HEIGHT / 2 }, { size: HEADER_SIZE, font: "mark", fill: "muted", anchor: "start", z: 2 }),
     { ...segmentDrawable("line", { x: rect.x + PANEL_PAD, y: rect.y + HEADER_HEIGHT }, { x: rect.x + rect.w - PANEL_PAD, y: rect.y + HEADER_HEIGHT }, "rule", 1, 1), id: `${key}-rule` },
   ];
-  if (trailing) out.push(textDrawable(`${key}-trailing`, trailing, rect.x + rect.w - PANEL_PAD, rect.y + HEADER_HEIGHT / 2, HEADER_SIZE - 2, "muted", { anchor: "end" }));
+  if (trailing) out.push(codeText(`${key}-trailing`, trailing, rect.x + rect.w - PANEL_PAD, rect.y + HEADER_HEIGHT / 2, HEADER_SIZE - 2, "muted", { anchor: "end" }));
   return out;
 }
 
 function bandDrawable(id: string, panel: Rect, y: number, height: number, opacity: number): Drawable {
-  return boxDrawable(id, { x: panel.x + 1, y: y - height / 2, w: panel.w - 2, h: height }, "active", "none", 1, { opacity, radius: 0 });
+  return panelBox(id, { x: panel.x + 1, y: y - height / 2, w: panel.w - 2, h: height }, "active", "none", 1, { opacity, radius: 0 });
 }
 
 function sourceDrawables(state: CodeStepperState): Drawable[] {
@@ -186,19 +156,12 @@ function sourceDrawables(state: CodeStepperState): Drawable[] {
   const lineY = (line: number) => SOURCE_PAD + (line - 0.5) * lineHeight;
   const marked = state.currentLine !== null;
   const barY = lineY(state.currentLine ?? 1);
-  const out: Drawable[] = [
-    boxDrawable("source-panel", PANELS.source, "fill", "rule", 0),
+  return [
+    panelBox("source-panel", PANELS.source, "fill", "rule", 0),
     bandDrawable("line-bar", PANELS.source, barY, lineHeight, marked ? BAND_OPACITY : 0),
-    boxDrawable("line-marker", { x: 1, y: barY - lineHeight / 2, w: 6, h: lineHeight }, "active", "none", 1, { opacity: marked ? 1 : 0, radius: 0 }),
+    panelBox("line-marker", { x: 1, y: barY - lineHeight / 2, w: 6, h: lineHeight }, "active", "none", 1, { opacity: marked ? 1 : 0, radius: 0 }),
+    ...codeListing(state.lines, { left: SOURCE_PAD, top: SOURCE_PAD, size, lineHeight, gutter, lineWidth }),
   ];
-  state.lines.forEach((spans, index) => {
-    const y = lineY(index + 1);
-    out.push(
-      textDrawable(`number-${index + 1}`, String(index + 1), SOURCE_PAD, y, size * NUMBER_SCALE, "muted"),
-      { id: `line-${index + 1}`, kind: "code", x: SOURCE_PAD + gutter, y, spans: spans.length ? fittedSpans(spans, size, lineWidth) : [{ text: " ", role: "ink" }], size, font: "code", anchor: "start", z: 2 },
-    );
-  });
-  return out;
 }
 
 function variableRowGeometry(frame: Frame) {
@@ -220,7 +183,7 @@ function variableDrawables(state: CodeStepperState): Drawable[] {
   const frame = topFrame(state);
   const { rowHeight, size, left, inner, nameWidth } = variableRowGeometry(frame);
   const out = panelDrawables("variables", frame.label === GLOBAL_FRAME ? undefined : fitted(frame.label, HEADER_SIZE - 2, PANELS.variables.w * 0.5));
-  if (frame.variables.length === 0) out.push(textDrawable("variables-empty", "nothing yet", left, variableRowY(frame, 0), size, "muted"));
+  if (frame.variables.length === 0) out.push(codeText("variables-empty", "nothing yet", left, variableRowY(frame, 0), size, "muted"));
   frame.variables.forEach((variable, index) => {
     const y = variableRowY(frame, index);
     const changed = frame.changed === variable.name;
@@ -228,8 +191,8 @@ function variableDrawables(state: CodeStepperState): Drawable[] {
     const valueWidth = inner - nameWidth - 12;
     if (changed) out.push(bandDrawable(`row-${variable.name}-tint`, PANELS.variables, y, rowHeight, BAND_OPACITY));
     out.push(
-      textDrawable(`row-${variable.name}-name`, fitted(variable.name, size, nameWidth - 12), left, y, size, "ink"),
-      textDrawable(`row-${variable.name}-value`, unset ? UNSET : fitted(variable.value!, size, valueWidth), left + nameWidth, y, size, unset ? "muted" : changed ? "active" : "ink"),
+      codeText(`row-${variable.name}-name`, fitted(variable.name, size, nameWidth - 12), left, y, size, "ink"),
+      codeText(`row-${variable.name}-value`, unset ? UNSET : fitted(variable.value!, size, valueWidth), left + nameWidth, y, size, unset ? "muted" : changed ? "active" : "ink"),
     );
   });
   return out;
@@ -255,14 +218,14 @@ function stackDrawables(state: CodeStepperState): Drawable[] {
     const isTop = hidden + offset === state.frames.length - 1;
     const y = bottom - (offset + 1) * cardHeight - offset * CARD_GAP;
     out.push(
-      boxDrawable(`frame-${hidden + offset}`, { x: left, y, w: width, h: cardHeight }, isTop ? "fill2" : "none", isTop ? "active" : "rule", 1, { strokeWidth: isTop ? 2 : 1 }),
-      textDrawable(`frame-${hidden + offset}-label`, fitted(frame.label, size, width - 28), left + 14, y + cardHeight / 2, size, isTop ? "ink" : "muted"),
+      panelBox(`frame-${hidden + offset}`, { x: left, y, w: width, h: cardHeight }, isTop ? "fill2" : "none", isTop ? "active" : "rule", 1, { strokeWidth: isTop ? 2 : 1 }),
+      codeText(`frame-${hidden + offset}-label`, fitted(frame.label, size, width - 28), left + 14, y + cardHeight / 2, size, isTop ? "ink" : "muted"),
     );
   });
   if (state.returned) {
     const rect = PANELS.stack;
     const text = `${state.returned.function} returned${state.returned.value === null ? "" : ` ${state.returned.value}`}`;
-    out.push(textDrawable("returned", fitted(text, 20, width), left, rect.y + rect.h - PANEL_PAD - FOOTER_HEIGHT / 2, 20, "ok"));
+    out.push(codeText("returned", fitted(text, 20, width), left, rect.y + rect.h - PANEL_PAD - FOOTER_HEIGHT / 2, 20, "ok"));
   }
   return out;
 }
@@ -273,7 +236,7 @@ function outputDrawables(state: CodeStepperState): Drawable[] {
   const first = Math.max(0, state.output.length - OUTPUT_LINES);
   const out = panelDrawables("output", first > 0 ? `+${first} earlier` : undefined);
   state.output.slice(first).forEach((text, offset) => {
-    out.push(textDrawable(`output-${first + offset}`, fitted(text, 20, rect.w - PANEL_PAD * 2), rect.x + PANEL_PAD, rect.y + HEADER_HEIGHT + 8 + (offset + 0.5) * rowHeight, 20, "ink"));
+    out.push(codeText(`output-${first + offset}`, fitted(text, 20, rect.w - PANEL_PAD * 2), rect.x + PANEL_PAD, rect.y + HEADER_HEIGHT + 8 + (offset + 0.5) * rowHeight, 20, "ink"));
   });
   return out;
 }
@@ -296,6 +259,7 @@ function lineNumber(state: CodeStepperState, args: Record<string, unknown>): num
 export const lab: LabDef<CodeStepperSpec, CodeStepperState> = {
   id: "code",
   title: "Code stepper",
+  reading: "required",
   catalog: {
     summary: "Runs a Python or C snippet one event at a time: source with a current line marker, the top frame's variables, the call stack and the output. Events map one to one onto the tracer.",
     spec: {
@@ -303,24 +267,65 @@ export const lab: LabDef<CodeStepperSpec, CodeStepperState> = {
       language: `one of ${CODE_LANGUAGES.join(", ")}, default python`,
       vars: 'optional names every called frame lists from the start, such as ["n","result"]; shown as – until set',
     },
-    ops: {
-      line: '{"n": 3} moves the current line marker to source line 3 and clears the "just changed" highlight',
-      set: '{"name": "result", "value": "6"} writes a variable in the top frame; a new name adds a row; value is the repr as text',
-      call: '{"name": "factorial", "args": {"n": "3"}} pushes a frame whose parameters are set from args',
-      return: '{"value": "6"} pops the top frame and shows what it returned; value is optional; the global frame cannot return',
-      print: '{"text": "6"} appends a line to the output; \\n splits it into several lines',
-    },
     example: [
       '{"step":1,"say":"Call factorial of three. It gets its own frame with n equal to three.","scene":{"run":{"lab":"code","language":"python","source":"def factorial(n):\\n    if n <= 1:\\n        return 1\\n    return n * factorial(n - 1)\\n\\nprint(factorial(3))","vars":["n"]}},"do":[{"cue":"Call","op":"line","on":["run"],"n":6},{"cue":"own frame","op":"call","on":["run"],"name":"factorial","args":{"n":"3"}},{"cue":"equal to three","op":"line","on":["run"],"n":2}]}',
     ],
   },
+
+  ops: {
+    line: {
+      doc: '{"n": 3} moves the current line marker to source line 3 and clears the "just changed" highlight',
+      seconds: 0.45,
+      apply: (state, op) => ({ ...state, currentLine: lineNumber(state, op.args), returned: null, frames: state.frames.map((frame) => ({ ...frame, changed: null })) }),
+    },
+    set: {
+      doc: '{"name": "result", "value": "6"} writes a variable in the top frame; a new name adds a row; value is the repr as text',
+      seconds: 0.7,
+      apply(state, op) {
+        const name = stringArg(op.args, "name", "set");
+        if (name === "") fail('op "set" needs "name" as a variable name');
+        return withTopFrame(state, writeVariable(topFrame(state), name, valueArg(op.args, "value", "set")));
+      },
+      during: (before, after, _op, progress) => setPulse(before, after, progress),
+    },
+    call: {
+      doc: '{"name": "factorial", "args": {"n": "3"}} pushes a frame whose parameters are set from args',
+      seconds: 0.7,
+      apply(state, op) {
+        const name = stringArg(op.args, "name", "call");
+        const args = readCallArgs(op.args.args);
+        const frame = newFrame(callLabel(name, args), state.declared, args);
+        if (frame.variables.length > MAX_VARIABLES) fail(`op "call" ${name} would list ${frame.variables.length} variables; the table shows at most ${MAX_VARIABLES}`);
+        return { ...state, frames: [...state.frames, frame], returned: null };
+      },
+    },
+    return: {
+      doc: '{"value": "6"} pops the top frame and shows what it returned; value is optional; the global frame cannot return',
+      seconds: 0.7,
+      apply(state, op) {
+        if (state.frames.length === 1) fail('op "return" has no frame to pop: only the global frame is on the stack; use "call" first');
+        const name = topFrame(state).label.replace(/\(.*$/, "");
+        return { ...state, frames: state.frames.slice(0, -1), returned: { function: name, value: optionalValueArg(op.args, "value", "return") } };
+      },
+    },
+    print: {
+      doc: '{"text": "6"} appends a line to the output; \\n splits it into several lines',
+      seconds: 0.5,
+      apply(state, op) {
+        const text = stringArg(op.args, "text", "print").replace(/\n$/, "");
+        return { ...state, output: [...state.output, ...text.split("\n")] };
+      },
+    },
+  },
+
+  prepare: loadHighlighter,
 
   init(spec, objectId) {
     const source = stringField(spec, "source", objectId).replace(/\n+$/, "");
     if (source.trim() === "") fail(`${objectId}: "source" must hold at least one line of code`);
     const declared = readDeclared(spec.vars, objectId);
     return {
-      lines: tokenizeCode(source, readLanguage(spec, objectId)),
+      lines: tokenizeCode(source, languageField(spec, objectId)),
       declared,
       frames: [newFrame(GLOBAL_FRAME, [])],
       currentLine: null,
@@ -329,47 +334,9 @@ export const lab: LabDef<CodeStepperSpec, CodeStepperState> = {
     };
   },
 
-  apply(state, op: LabOp) {
-    switch (op.name) {
-      case "line":
-        return { ...state, currentLine: lineNumber(state, op.args), returned: null, frames: state.frames.map((frame) => ({ ...frame, changed: null })) };
-      case "set": {
-        const name = stringArg(op.args, "name", "set");
-        if (name === "") fail('op "set" needs "name" as a variable name');
-        return withTopFrame(state, writeVariable(topFrame(state), name, valueArg(op.args, "value", "set")));
-      }
-      case "call": {
-        const name = stringArg(op.args, "name", "call");
-        const args = readCallArgs(op.args.args);
-        const frame = newFrame(callLabel(name, args), state.declared, args);
-        if (frame.variables.length > MAX_VARIABLES) fail(`op "call" ${name} would list ${frame.variables.length} variables; the table shows at most ${MAX_VARIABLES}`);
-        return { ...state, frames: [...state.frames, frame], returned: null };
-      }
-      case "return": {
-        if (state.frames.length === 1) fail('op "return" has no frame to pop: only the global frame is on the stack; use "call" first');
-        const name = topFrame(state).label.replace(/\(.*$/, "");
-        return { ...state, frames: state.frames.slice(0, -1), returned: { function: name, value: optionalValueArg(op.args, "value", "return") } };
-      }
-      case "print": {
-        const text = stringArg(op.args, "text", "print").replace(/\n$/, "");
-        return { ...state, output: [...state.output, ...text.split("\n")] };
-      }
-      default:
-        return fail(`code has no op "${op.name}"; ops: line, set, call, return, print`);
-    }
-  },
-
   size: () => ({ w: WIDTH, h: HEIGHT }),
 
   draw(state) {
     return [...sourceDrawables(state), ...stackDrawables(state), ...variableDrawables(state), ...outputDrawables(state)];
-  },
-
-  duration(op) {
-    return ({ line: 0.45, set: 0.7, call: 0.7, return: 0.7, print: 0.5 } as Record<string, number>)[op.name] ?? 0.6;
-  },
-
-  during(before, after, op, progress) {
-    return op.name === "set" ? setPulse(before, after, progress) : [];
   },
 };

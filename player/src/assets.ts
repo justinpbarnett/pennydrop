@@ -1,17 +1,23 @@
-import { loadHighlighter } from "./highlight";
+import type { AnyLabDef } from "./lab";
+import { definitionIfRegistered } from "./registry";
 
-const KINDS = { code: new Set(["code", "primitive:code"]) };
-
-function uses(value: unknown, names: Set<string>): boolean {
-  if (typeof value !== "object" || value === null) return false;
+function collectDefs(value: unknown, found: Set<AnyLabDef>): void {
+  if (typeof value !== "object" || value === null) return;
   const entry = value as Record<string, unknown>;
-  if ((typeof entry.kind === "string" && names.has(entry.kind)) || (typeof entry.defKey === "string" && names.has(entry.defKey))) return true;
-  if (typeof entry.lab === "string" && names.has(entry.lab)) return true;
-  return Object.values(entry).some((child) => uses(child, names));
+  const keys = [
+    typeof entry.defKey === "string" ? entry.defKey : null,
+    typeof entry.lab === "string" ? `lab:${entry.lab}` : null,
+    typeof entry.kind === "string" ? `primitive:${entry.kind}` : null,
+  ];
+  for (const key of keys) {
+    const def = key === null ? undefined : definitionIfRegistered(key);
+    if (def) found.add(def);
+  }
+  Object.values(entry).forEach((child) => collectDefs(child, found));
 }
 
-export const usesCode = (value: unknown) => uses(value, KINDS.code);
-
 export async function prepareStepAssets(value: unknown): Promise<void> {
-  if (usesCode(value)) await loadHighlighter();
+  const defs = new Set<AnyLabDef>();
+  collectDefs(value, defs);
+  await Promise.all([...defs].map((def) => def.prepare?.()));
 }

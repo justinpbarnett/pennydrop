@@ -1,10 +1,11 @@
-import { type Drawable, fail, type LabDef, numberField, type Paint, type Point, type Role, roleField, stringField } from "../lab";
+import { type Drawable, type LabDef, type Paint, type Point, positiveField, readsWords, type Role, roleField, stringField } from "../lab";
 import { textWidth } from "../text-metrics";
 
 interface NodeState {
   label: string;
   radius: number;
   role: Role;
+  reading: boolean;
 }
 
 export interface NodeLook {
@@ -30,19 +31,20 @@ export function nodeDrawables(label: string, center: Point, radius: number, look
 export const primitive: LabDef<Record<string, unknown>, NodeState> = {
   id: "node",
   title: "Node",
+  reading: "optional",
   round: true,
   catalog: {
     summary: "A labeled circle for graphs and trees. Join nodes with the connect verb or an edge object.",
     spec: { label: "text inside", radius: "optional px, default 52", role: "outline color role, default ink" },
-    ops: {},
     example: ['{"scene":{"a":{"kind":"node","label":"A"},"b":{"kind":"node","label":"B","at":{"right of":"a"}}}}'],
   },
+  ops: {},
   init(spec, objectId) {
-    return { label: stringField(spec, "label", objectId), radius: numberField(spec, "radius", 52, objectId), role: roleField(spec, "role", "ink", objectId) };
-  },
-  apply(_state, op) {
-    return fail(`node has no op "${op.name}"; use highlight or color`);
+    return { label: stringField(spec, "label", objectId), radius: positiveField(spec, "radius", 52, objectId), role: roleField(spec, "role", "ink", objectId), reading: readsWords(spec) };
   },
   size: (state) => ({ w: state.radius * 2, h: state.radius * 2 }),
-  draw: (state) => nodeDrawables(state.label, { x: state.radius, y: state.radius }, state.radius, { stroke: state.role, fill: "fill", strokeWidth: 1.6, labelFill: "ink" }),
+  draw(state) {
+    const drawables = nodeDrawables(state.label, { x: state.radius, y: state.radius }, state.radius, { stroke: state.role, fill: "fill", strokeWidth: 1.6, labelFill: "ink" });
+    return state.reading ? drawables : drawables.filter((drawable) => drawable.kind !== "text");
+  },
 };

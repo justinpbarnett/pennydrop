@@ -1,4 +1,4 @@
-import { definitionByKey, definitionKeyForSpec } from "./registry";
+import { definitionByKey, definitionKeyForSpec, specText, wordlessKeys } from "./registry";
 import type { LessonHeader, ObjectSpec } from "./format";
 import { type AnyLabDef, fail, type Role } from "./lab";
 import { parseRelation, type Relation } from "./relation";
@@ -28,16 +28,15 @@ export function startSceneOf(header: LessonHeader): SceneState {
   return { ...(header.start_scene ?? EMPTY_SCENE), reading: header.reading !== false };
 }
 
-const WORD_PRIMITIVES = ["primitive:text", "primitive:code", "primitive:math"];
-
 export function createObject(id: string, spec: ObjectSpec, scene: SceneState): SceneObject {
   const defKey = definitionKeyForSpec(id, spec);
+  const def = definitionByKey(defKey);
   const reading = scene.reading !== false;
-  if (!reading && WORD_PRIMITIVES.includes(defKey)) {
-    fail(`${id}: this Lesson has "reading": false, for a child who cannot read, so it cannot use kind "${defKey.replace("primitive:", "")}" objects; show the idea with a shape, a picture or a Lab figure instead`);
+  if (!reading && def.reading === "required") {
+    fail(`${id}: ${specText(defKey)} needs reading, and this Lesson has "reading": false, for a child who cannot read; use a Lab or kind that works without words (${wordlessKeys().join(", ")})`);
   }
   const { at, ...fields } = spec;
-  const state = definitionByKey(defKey).init({ ...fields, reading }, id);
+  const state = def.init({ ...fields, reading }, id);
   return at === undefined ? { id, defKey, state } : { id, defKey, state, at: parseRelation(id, at) };
 }
 

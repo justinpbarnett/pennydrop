@@ -1,4 +1,4 @@
-import { type Drawable, fail, type LabDef, type LabOp, labelDrawable, lerp, type Point, type Rect, type Role, segmentDrawable, stringArg } from "../lab";
+import { boxDrawable, type Drawable, fail, type LabDef, type LabOp, lerp, type OpDef, type Point, type Rect, type Role, segmentDrawable, stringArg, textDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
 type Status = "ready" | "running" | "blocked" | "waiting";
@@ -223,98 +223,76 @@ function waitForCycle(state: ThreadsState): string[] {
   return [];
 }
 
-interface OpDefinition {
-  seconds: number;
-  doc: string;
-  run(state: ThreadsState, op: LabOp): void;
+function threadOp(seconds: number, doc: string, change: (draft: ThreadsState, op: LabOp) => void, keepsCycle = false): OpDef<ThreadsState> {
+  return {
+    doc,
+    seconds,
+    apply(state, op) {
+      const next = structuredClone(state);
+      if (!keepsCycle) next.cycle = [];
+      change(next, op);
+      return next;
+    },
+    during: (before, after, _op, progress) => connectorArrows(before, after, progress),
+  };
 }
 
-const OPS: Record<string, OpDefinition> = {
-  run: {
-    seconds: 0.7,
-    doc: 'thread "t" is on the CPU; optional "label" (at most 24 characters, such as "count++") shows what it does; consumes an item it took',
-    run(state, op) {
-      const thread = actor(state, op);
-      takeCpu(state, thread, optionalText(op, "label", MAX_LABEL));
-      thread.carrying = null;
-    },
-  },
-  acquire: {
-    seconds: 0.8,
-    doc: '"t" takes a free "lock"; an arrow points from the lock to its owner; fails if the lock is held',
-    run(state, op) {
-      const thread = actor(state, op);
-      const lock = lockArg(state, op);
-      if (lock.owner === thread.name) fail(`${thread.name} already holds ${lock.name}; locks are not recursive, so this would be a self deadlock: use "block" to show it`);
-      if (lock.owner !== null) fail(`${lock.name} is held by ${lock.owner}; use "block" so ${thread.name} waits in its queue, or release it first`);
-      lock.owner = thread.name;
-      takeCpu(state, thread, `lock(${lock.name})`);
-    },
-  },
-  block: {
-    seconds: 0.9,
-    doc: '"t" asks for a "lock" that is held and joins its wait queue as blocked',
-    run(state, op) {
-      const thread = actor(state, op);
-      const lock = lockArg(state, op);
-      if (lock.owner === null) fail(`${lock.name} is free, so ${thread.name} would get it: use "acquire"`);
-      takeCpu(state, thread, `lock(${lock.name})`);
-      thread.status = "blocked";
-      thread.on = lock.name;
-      lock.queue.push(thread.name);
-    },
-  },
-  release: {
-    seconds: 0.9,
-    doc: 'the owner "t" frees "lock"; the first waiter in its queue, if any, is handed the lock and becomes ready',
-    run(state, op) {
-      const thread = actor(state, op);
-      const lock = lockArg(state, op);
-      if (lock.owner !== thread.name) fail(`${thread.name} cannot release ${lock.name}: ${lock.owner === null ? "it is free" : `it is held by ${lock.owner}`}; only the owner releases`);
-      takeCpu(state, thread, `unlock(${lock.name})`);
-      passLock(state, lock);
-    },
-  },
-  wait: {
-    seconds: 1.0,
-    doc: '"t" owns "lock", releases it and sleeps on "cond" (condition variable) until a signal or broadcast',
-    run(state, op) {
-      const thread = actor(state, op);
-      const cond = condArg(state, op);
-      const lock = lockArg(state, op);
-      if (lock.owner !== thread.name) fail(`${thread.name} must hold ${lock.name} to wait on ${cond.name}; "acquire" it first`);
-      takeCpu(state, thread, `wait(${cond.name}, ${lock.name})`);
-      passLock(state, lock);
-      thread.status = "waiting";
-      thread.on = cond.name;
-      cond.sleepers.push({ thread: thread.name, lock: lock.name });
-    },
-  },
-  signal: {
-    seconds: 0.9,
-    doc: '"t" wakes the first sleeper of "cond"; it moves to the queue of the lock it released, or takes that lock if it is free',
-    run(state, op) {
-      const thread = actor(state, op);
-      const cond = condArg(state, op);
-      takeCpu(state, thread, `signal(${cond.name})`);
-      const sleeper = cond.sleepers.shift();
-      if (sleeper) wake(state, sleeper);
-    },
-  },
-  broadcast: {
-    seconds: 1.1,
-    doc: '"t" wakes every sleeper of "cond", each moving to the queue of the lock it released',
-    run(state, op) {
-      const thread = actor(state, op);
-      const cond = condArg(state, op);
-      takeCpu(state, thread, `broadcast(${cond.name})`);
-      cond.sleepers.splice(0).forEach((sleeper) => wake(state, sleeper));
-    },
-  },
+const ops: Record<string, OpDef<ThreadsState>> = {
+  run: threadOp(0.7, 'thread "t" is on the CPU; optional "label" (at most 24 characters, such as "count++") shows what it does; consumes an item it took', (state, op) => {
+    const thread = actor(state, op);
+    takeCpu(state, thread, optionalText(op, "label", MAX_LABEL));
+    thread.carrying = null;
+  }),
+  acquire: threadOp(0.8, '"t" takes a free "lock"; an arrow points from the lock to its owner; fails if the lock is held', (state, op) => {
+    const thread = actor(state, op);
+    const lock = lockArg(state, op);
+    if (lock.owner === thread.name) fail(`${thread.name} already holds ${lock.name}; locks are not recursive, so this would be a self deadlock: use "block" to show it`);
+    if (lock.owner !== null) fail(`${lock.name} is held by ${lock.owner}; use "block" so ${thread.name} waits in its queue, or release it first`);
+    lock.owner = thread.name;
+    takeCpu(state, thread, `lock(${lock.name})`);
+  }),
+  block: threadOp(0.9, '"t" asks for a "lock" that is held and joins its wait queue as blocked', (state, op) => {
+    const thread = actor(state, op);
+    const lock = lockArg(state, op);
+    if (lock.owner === null) fail(`${lock.name} is free, so ${thread.name} would get it: use "acquire"`);
+    takeCpu(state, thread, `lock(${lock.name})`);
+    thread.status = "blocked";
+    thread.on = lock.name;
+    lock.queue.push(thread.name);
+  }),
+  release: threadOp(0.9, 'the owner "t" frees "lock"; the first waiter in its queue, if any, is handed the lock and becomes ready', (state, op) => {
+    const thread = actor(state, op);
+    const lock = lockArg(state, op);
+    if (lock.owner !== thread.name) fail(`${thread.name} cannot release ${lock.name}: ${lock.owner === null ? "it is free" : `it is held by ${lock.owner}`}; only the owner releases`);
+    takeCpu(state, thread, `unlock(${lock.name})`);
+    passLock(state, lock);
+  }),
+  wait: threadOp(1.0, '"t" owns "lock", releases it and sleeps on "cond" (condition variable) until a signal or broadcast', (state, op) => {
+    const thread = actor(state, op);
+    const cond = condArg(state, op);
+    const lock = lockArg(state, op);
+    if (lock.owner !== thread.name) fail(`${thread.name} must hold ${lock.name} to wait on ${cond.name}; "acquire" it first`);
+    takeCpu(state, thread, `wait(${cond.name}, ${lock.name})`);
+    passLock(state, lock);
+    thread.status = "waiting";
+    thread.on = cond.name;
+    cond.sleepers.push({ thread: thread.name, lock: lock.name });
+  }),
+  signal: threadOp(0.9, '"t" wakes the first sleeper of "cond"; it moves to the queue of the lock it released, or takes that lock if it is free', (state, op) => {
+    const thread = actor(state, op);
+    const cond = condArg(state, op);
+    takeCpu(state, thread, `signal(${cond.name})`);
+    const sleeper = cond.sleepers.shift();
+    if (sleeper) wake(state, sleeper);
+  }),
+  broadcast: threadOp(1.1, '"t" wakes every sleeper of "cond", each moving to the queue of the lock it released', (state, op) => {
+    const thread = actor(state, op);
+    const cond = condArg(state, op);
+    takeCpu(state, thread, `broadcast(${cond.name})`);
+    cond.sleepers.splice(0).forEach((sleeper) => wake(state, sleeper));
+  }),
   put: {
-    seconds: 1.0,
-    doc: '"t" puts "item" (number or text up to 5 characters) in the next free slot of the bounded buffer; fails when full',
-    run(state, op) {
+    ...threadOp(1.0, '"t" puts "item" (number or text up to 5 characters) in the next free slot of the bounded buffer; fails when full', (state, op) => {
       const thread = actor(state, op);
       const buffer = requireBuffer(state);
       const value = itemArg(op);
@@ -322,34 +300,27 @@ const OPS: Record<string, OpDefinition> = {
       buffer.slots[buffer.tail] = { id: state.itemsMade++, value };
       buffer.tail = (buffer.tail + 1) % buffer.slots.length;
       takeCpu(state, thread, `put(${value})`);
-    },
+    }),
+    during: (before, after, op, progress) => [...connectorArrows(before, after, progress), ...putGlide(after, op, progress)],
   },
-  take: {
-    seconds: 1.0,
-    doc: '"t" takes the oldest item from the buffer and holds it until its next "run"; fails when empty',
-    run(state, op) {
-      const thread = actor(state, op);
-      const buffer = requireBuffer(state);
-      const item = buffer.slots[buffer.head];
-      if (!item) fail(`the buffer is empty; ${thread.name} must wait for a producer to "put"`);
-      buffer.slots[buffer.head] = null;
-      buffer.head = (buffer.head + 1) % buffer.slots.length;
-      takeCpu(state, thread, `take() = ${item.value}`);
-      thread.carrying = item;
-    },
-  },
-  deadlock: {
-    seconds: 1.4,
-    doc: "draws the wait-for cycle: every thread blocked in it holds a lock the next one needs; fails if no cycle exists",
-    run(state) {
-      const cycle = waitForCycle(state);
-      if (cycle.length === 0) {
-        const blocked = state.threads.filter((thread) => thread.status === "blocked").map((thread) => `${thread.name} on ${thread.on}`).join(", ") || "no thread is blocked";
-        fail(`${state.objectId} has no deadlock: no ring of threads each blocked on a lock the next one holds (${blocked}); use "block" until the ring closes`);
-      }
-      state.cycle = cycle;
-    },
-  },
+  take: threadOp(1.0, '"t" takes the oldest item from the buffer and holds it until its next "run"; fails when empty', (state, op) => {
+    const thread = actor(state, op);
+    const buffer = requireBuffer(state);
+    const item = buffer.slots[buffer.head];
+    if (!item) fail(`the buffer is empty; ${thread.name} must wait for a producer to "put"`);
+    buffer.slots[buffer.head] = null;
+    buffer.head = (buffer.head + 1) % buffer.slots.length;
+    takeCpu(state, thread, `take() = ${item.value}`);
+    thread.carrying = item;
+  }),
+  deadlock: threadOp(1.4, "draws the wait-for cycle: every thread blocked in it holds a lock the next one needs; fails if no cycle exists", (state) => {
+    const cycle = waitForCycle(state);
+    if (cycle.length === 0) {
+      const blocked = state.threads.filter((thread) => thread.status === "blocked").map((thread) => `${thread.name} on ${thread.on}`).join(", ") || "no thread is blocked";
+      fail(`${state.objectId} has no deadlock: no ring of threads each blocked on a lock the next one holds (${blocked}); use "block" until the ring closes`);
+    }
+    state.cycle = cycle;
+  }, true),
 };
 
 function columnHeight(count: number): number {
@@ -382,11 +353,11 @@ function geometryOf(state: ThreadsState): Geometry {
 }
 
 function text(id: string, content: string, at: Point, size: number, fill: Role, anchor: "start" | "middle" | "end", part: string): Drawable {
-  return { ...labelDrawable(content, at, size, "read", fill, TEXT_Z), id, anchor, part };
+  return textDrawable(id, content, at, { size, fill, anchor, part, z: TEXT_Z });
 }
 
 function box(id: string, rect: Rect, fill: Role, stroke: Role, strokeWidth: number, part: string): Drawable {
-  return { id, kind: "rect", x: rect.x + rect.w / 2, y: rect.y + rect.h / 2, w: rect.w, h: rect.h, fill, stroke, strokeWidth, radius: 1, z: 1, part };
+  return boxDrawable(id, rect, { fill, stroke, strokeWidth, radius: 1, z: 1, part });
 }
 
 function chipWidth(name: string): number {
@@ -446,7 +417,7 @@ function itemDrawables(item: Item, center: Point, size: number): Drawable[] {
   const fontSize = Math.min(size * 0.46, ((size - 14) / textWidth(label, 1, "read")));
   return [
     { id: `item-${item.id}`, kind: "rect", x: center.x, y: center.y, w: size, h: size, fill: "fill2", stroke: "accent", strokeWidth: 1.8, radius: 0.6, z: ITEM_Z },
-    { ...labelDrawable(label, center, fontSize, "read", "ink", ITEM_Z + 1), id: `item-${item.id}-value` },
+    textDrawable(`item-${item.id}-value`, label, center, { size: fontSize, z: ITEM_Z + 1 }),
   ];
 }
 
@@ -556,9 +527,11 @@ function bufferDrawables(state: ThreadsState, geometry: Geometry): Drawable[] {
   ];
 }
 
-function newlyAppearing(before: ThreadsState, after: ThreadsState): Connector[] {
+function connectorArrows(before: ThreadsState, after: ThreadsState, progress: number): Drawable[] {
   const known = new Set(connectorsOf(before, geometryOf(before)).map((connector) => connector.id));
-  return connectorsOf(after, geometryOf(after)).filter((connector) => !known.has(connector.id));
+  return connectorsOf(after, geometryOf(after))
+    .filter((connector) => !known.has(connector.id))
+    .map((connector) => ({ ...connectorDrawable(connector), draw: progress }));
 }
 
 function putGlide(after: ThreadsState, op: LabOp, progress: number): Drawable[] {
@@ -578,6 +551,8 @@ function putGlide(after: ThreadsState, op: LabOp, progress: number): Drawable[] 
 export const lab: LabDef<ThreadsSpec, ThreadsState> = {
   id: "threads",
   title: "Threads and locks",
+  reading: "required",
+  ops,
   catalog: {
     summary: "Threads share one CPU. Locks show owner and wait queue, condition variables show sleepers, and a bounded buffer shows slots with in and out markers. The Lab checks every op is legal and errors with the fix. Put the object alone in \"on\".",
     spec: {
@@ -586,7 +561,6 @@ export const lab: LabDef<ThreadsSpec, ThreadsState> = {
       conds: 'optional list of up to 2 condition variable names, such as ["notEmpty"]; needs locks',
       buffer: 'optional {"capacity": 1 to 8} bounded buffer',
     },
-    ops: Object.fromEntries(Object.entries(OPS).map(([name, definition]) => [name, definition.doc])),
     example: [
       '{"step":1,"say":"Two threads race for one lock. A takes it, so B has to wait.","scene":{"th":{"lab":"threads","threads":["A","B"],"locks":["m"]}},"do":[{"cue":"A takes","op":"acquire","on":["th"],"t":"A","lock":"m"},{"cue":"B has to wait","op":"block","on":["th"],"t":"B","lock":"m"}]}',
     ],
@@ -612,14 +586,6 @@ export const lab: LabDef<ThreadsSpec, ThreadsState> = {
     };
   },
 
-  apply(state, op) {
-    const definition = OPS[op.name] ?? fail(`threads has no op "${op.name}"; ops: ${Object.keys(OPS).join(", ")}`);
-    const next = structuredClone(state);
-    if (op.name !== "deadlock") next.cycle = [];
-    definition.run(next, op);
-    return next;
-  },
-
   size(state) {
     const { width, height } = geometryOf(state);
     return { w: width, h: height };
@@ -633,12 +599,5 @@ export const lab: LabDef<ThreadsSpec, ThreadsState> = {
       ...bufferDrawables(state, geometry),
       ...connectorsOf(state, geometry).map(connectorDrawable),
     ];
-  },
-
-  duration: (op) => OPS[op.name]?.seconds ?? 0.8,
-
-  during(before, after, op, progress) {
-    const arrows = newlyAppearing(before, after).map((connector) => ({ ...connectorDrawable(connector), draw: progress }));
-    return op.name === "put" ? [...arrows, ...putGlide(after, op, progress)] : arrows;
   },
 };

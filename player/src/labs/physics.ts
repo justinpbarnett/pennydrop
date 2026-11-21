@@ -1,4 +1,4 @@
-import { type Drawable, fail, type LabDef, type LabOp, lerp, type Paint, type Point, type Role, type Size } from "../lab";
+import { clamp01, type Drawable, fail, type LabDef, type LabOp, lerp, type OpDef, type Paint, type Point, readsWords, type Role, type Size, textDrawable } from "../lab";
 import { type Body, bodyAt, endTime, integrate, type Leg, legStart, SIM_STEP, type System, timesBetween, type Trajectory } from "../physics-sim";
 import { textWidth } from "../text-metrics";
 
@@ -110,15 +110,12 @@ const ARROW_MIN_PX = 28;
 const NET_MIN_PX = 44;
 const TICK_LABEL_DROP = 36;
 const VELOCITY_PX = 120;
-const MARK_SECONDS = 0.9;
-const OP_SECONDS: Record<string, number> = { set: 0.8, vectors: 0.6, trail: 0.5 };
 const RUN_MIN_SECONDS = 0.8;
 const RUN_MAX_SECONDS = 9;
 const ORBIT_SECONDS_PER_ORBIT = 4.5;
 const ORBIT_MIN_SECONDS = 1.5;
 const ORBIT_MAX_SECONDS = 14;
 
-const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 const rad = (degrees: number) => (degrees * Math.PI) / 180;
 const fmt = (value: number, digits = 1) => (Math.abs(value) < 0.5 * 10 ** -digits ? 0 : value).toFixed(digits);
 const sum = (points: Point[]): Point => ({ x: points.reduce((total, point) => total + point.x, 0), y: points.reduce((total, point) => total + point.y, 0) });
@@ -150,10 +147,6 @@ function circle(id: string, at: Point, r: number, fill: Paint, stroke: Paint, st
   return { id, kind: "circle", x: at.x, y: at.y, r, fill, stroke, strokeWidth, z, ...extra };
 }
 
-function label(id: string, at: Point, text: string, size: number, fill: Paint, z: number, extra: Partial<Drawable> = {}): Drawable {
-  return { id, kind: "text", x: at.x, y: at.y, text, size, font: "read", fill, z, ...extra };
-}
-
 function trace(id: string, points: Point[], stroke: Paint, strokeWidth: number, z: number, opacity = 1): Drawable[] {
   if (points.length < 2) return [];
   return [{ id, kind: "path", x: 0, y: 0, points: points.flatMap((point) => [point.x, point.y]), fill: "none", stroke, strokeWidth, opacity, z }];
@@ -181,7 +174,7 @@ function groundTicks(originX: number, scale: number, width: number, groundY: num
     const shown = reading && index > 0 && x + half <= width && !(busy && x + half > busy.from && x - half < busy.to);
     return [
       line(`tick-${index}`, { x, y: groundY }, { x, y: groundY + 12 }, "edge", 2.5, 2),
-      ...(shown ? [label(`tick-${index}-label`, { x, y: groundY + TICK_LABEL_DROP }, text, TICK_TEXT, "muted", 2)] : []),
+      ...(shown ? [textDrawable(`tick-${index}-label`, text, { x, y: groundY + TICK_LABEL_DROP }, { size: TICK_TEXT, fill: "muted", z: 2 })] : []),
     ];
   }).flat();
 }
@@ -195,7 +188,7 @@ function verticalRuler(x: number, groundY: number, topY: number, scale: number, 
       const y = groundY - index * step * scale;
       return [
         line(`ruler-${index}`, { x: x - 6, y }, { x: x + 12, y }, "edge", 2.5, 2),
-        ...(reading && index > 0 ? [label(`ruler-${index}-label`, { x: x - 14, y }, `${fmt(index * step, step < 1 ? 1 : 0)} m`, TICK_TEXT, "muted", 2, { anchor: "end" })] : []),
+        ...(reading && index > 0 ? [textDrawable(`ruler-${index}-label`, `${fmt(index * step, step < 1 ? 1 : 0)} m`, { x: x - 14, y }, { size: TICK_TEXT, fill: "muted", z: 2, anchor: "end" })] : []),
       ];
     }).flat(),
   ];
@@ -239,7 +232,7 @@ function arrows(prefix: string, view: { reading: boolean; vectors: string[] }, a
     if (view.reading) {
       const reach = Math.max(offset + span, style.clear) + 26;
       const lift = style.lift?.[name] ?? { x: 0, y: 0 };
-      out.push(label(`${prefix}vec-${name}-label`, { x: at.x + unit.x * reach + shift.x + lift.x, y: at.y + unit.y * reach + shift.y + lift.y }, symbols[name]!, LABEL_TEXT, role, 7, { font: "mark" }));
+      out.push(textDrawable(`${prefix}vec-${name}-label`, symbols[name]!, { x: at.x + unit.x * reach + shift.x + lift.x, y: at.y + unit.y * reach + shift.y + lift.y }, { size: LABEL_TEXT, fill: role, z: 7, font: "mark" }));
     }
     return out;
   });
@@ -387,7 +380,7 @@ const launch: Kind<LaunchParams, LaunchLayout> = {
         ...trace(`ghost-${index}`, pathOf(ghost.trajectory, 0, endTime(ghost.trajectory), 160, place), ghost.role, 5, 3, 0.55),
         circle(`ghost-${index}-landing`, landed, 11, ghost.role, "ground", 3, 4),
       );
-      if (view.reading) out.push(label(`ghost-${index}-range`, { x: landed.x, y: groundY + 92 }, `${fmt(landing.q[0]!)} m`, LABEL_TEXT, ghost.role, 4));
+      if (view.reading) out.push(textDrawable(`ghost-${index}-range`, `${fmt(landing.q[0]!)} m`, { x: landed.x, y: groundY + 92 }, { size: LABEL_TEXT, fill: ghost.role, z: 4 }));
     });
     out.push(...moving(view, place));
     out.push(circle("body", at, ball, view.role, "ink", 3, 6));
@@ -405,12 +398,12 @@ const launch: Kind<LaunchParams, LaunchLayout> = {
           circle("mark-apex-ring", top, ball + 12, "none", "ink", 4, 5),
           line("mark-apex-drop", { x: top.x, y: top.y + ball + 12 }, { x: top.x, y: groundY }, "muted", 2.5, 2),
         );
-        if (view.reading) out.push(label("mark-apex-label", { x: top.x, y: top.y - ball - 42 }, `apex ${fmt(apexAt.q[1]!)} m`, LABEL_TEXT, "ink", 5));
+        if (view.reading) out.push(textDrawable("mark-apex-label", `apex ${fmt(apexAt.q[1]!)} m`, { x: top.x, y: top.y - ball - 42 }, { size: LABEL_TEXT, z: 5 }));
       } else {
         const y = groundY + (view.reading ? 24 : 42);
         const end = originX + landing.q[0]! * scale;
         out.push(...dimension("mark-range", { x: originX, y }, { x: end, y }, "ink"));
-        if (view.reading) out.push(label("mark-range-label", { x: (originX + end) / 2, y: y + 28 }, `range ${fmt(landing.q[0]!)} m`, LABEL_TEXT, "ink", 5));
+        if (view.reading) out.push(textDrawable("mark-range-label", `range ${fmt(landing.q[0]!)} m`, { x: (originX + end) / 2, y: y + 28 }, { size: LABEL_TEXT, z: 5 }));
       }
     });
     return out;
@@ -529,12 +522,12 @@ const drop: Kind<DropParams, DropLayout> = {
         velocity: { x: 0, y: -body.v[index]! * vscale },
         gravity: { x: 0, y: view.params.gravity * LAUNCH_G_PX },
       }, { velocity: "v", gravity: "g" }, { clear: radii[index]! + 6 }));
-      if (view.reading) out.push(label(`mass-${index}`, { x: xs[index]!, y: groundY + 42 }, `${fmt(mass, mass < 10 ? 1 : 0)} kg`, LABEL_TEXT, role, 4));
+      if (view.reading) out.push(textDrawable(`mass-${index}`, `${fmt(mass, mass < 10 ? 1 : 0)} kg`, { x: xs[index]!, y: groundY + 42 }, { size: LABEL_TEXT, fill: role, z: 4 }));
     });
     if (view.marks.includes("height")) {
       const x = DROP_W - 60;
       out.push(...dimension("mark-height", { x, y: groundY }, { x, y: layout.top }, "ink"));
-      if (view.reading) out.push(label("mark-height-label", { x: DROP_W - 12, y: layout.top - 34 }, `height ${fmt(view.params.height)} m`, LABEL_TEXT, "ink", 5, { anchor: "end" }));
+      if (view.reading) out.push(textDrawable("mark-height-label", `height ${fmt(view.params.height)} m`, { x: DROP_W - 12, y: layout.top - 34 }, { size: LABEL_TEXT, z: 5, anchor: "end" }));
     }
     return out;
   },
@@ -691,7 +684,7 @@ const ramp: Kind<RampParams, RampLayout> = {
       const radius = 78;
       out.push({ id: "mark-angle-arc", kind: "path", x: 0, y: 0, points: timesBetween(0, theta, 16).flatMap((phi) => [bottom.x - radius * Math.cos(phi), bottom.y - radius * Math.sin(phi)]), fill: "none", stroke: "ink", strokeWidth: 5, z: 5 });
       const parked = (rampRunout(view.params.angle, view.reading) + block / 2) * Math.cos(theta);
-      if (view.reading) out.push(label("mark-angle-label", { x: bottom.x + (parked > 110 ? -60 : 60), y: bottom.y + 34 }, `${fmt(view.params.angle, 0)}°`, LABEL_TEXT + 4, "ink", 5));
+      if (view.reading) out.push(textDrawable("mark-angle-label", `${fmt(view.params.angle, 0)}°`, { x: bottom.x + (parked > 110 ? -60 : 60), y: bottom.y + 34 }, { size: LABEL_TEXT + 4, z: 5 }));
     }
     return out;
   },
@@ -818,14 +811,14 @@ const pendulum: Kind<PendulumParams, PendulumLayout> = {
       if (mark === "lowest") {
         const peak = Math.max(...Array.from({ length: view.trajectory.times.length }, (_, index) => Math.abs(view.trajectory.v[index]!))) * view.params.length;
         out.push(circle("mark-lowest-ring", lowest, ball + 12, "none", "ink", 4, 5));
-        if (view.reading) out.push(label("mark-lowest-label", { x: lowest.x, y: lowest.y + 72 }, `fastest ${fmt(peak)} m/s`, LABEL_TEXT, "ink", 5));
+        if (view.reading) out.push(textDrawable("mark-lowest-label", `fastest ${fmt(peak)} m/s`, { x: lowest.x, y: lowest.y + 72 }, { size: LABEL_TEXT, z: 5 }));
       } else if (mark === "highest") {
         const top = pendulumAnchor(pivot, length, start);
         out.push(circle("mark-highest-ring", top, ball + 12, "none", "ink", 4, 5));
-        if (view.reading) out.push(label("mark-highest-label", { x: top.x + ball + 24, y: top.y }, `${fmt(view.params.length * (1 - Math.cos(start)), 2)} m up`, LABEL_TEXT, "ink", 5, { anchor: "start" }));
+        if (view.reading) out.push(textDrawable("mark-highest-label", `${fmt(view.params.length * (1 - Math.cos(start)), 2)} m up`, { x: top.x + ball + 24, y: top.y }, { size: LABEL_TEXT, z: 5, anchor: "start" }));
       } else {
         out.push({ id: "mark-angle-arc", kind: "path", x: 0, y: 0, points: timesBetween(0, start, 16).flatMap((phi) => [pivot.x + 78 * Math.sin(phi), pivot.y + 78 * Math.cos(phi)]), fill: "none", stroke: "ink", strokeWidth: 5, z: 5 });
-        if (view.reading) out.push(label("mark-angle-label", { x: pivot.x + 124 * Math.sin(start / 2), y: pivot.y + 124 * Math.cos(start / 2) }, `${fmt(view.params.angle, 0)}°`, LABEL_TEXT + 4, "ink", 5));
+        if (view.reading) out.push(textDrawable("mark-angle-label", `${fmt(view.params.angle, 0)}°`, { x: pivot.x + 124 * Math.sin(start / 2), y: pivot.y + 124 * Math.cos(start / 2) }, { size: LABEL_TEXT + 4, z: 5 }));
       }
     });
     return out;
@@ -1023,7 +1016,7 @@ const orbit: Kind<OrbitParams, OrbitLayout> = {
         const outward = { x: (point.x - center.x) / Math.hypot(point.x - center.x, point.y - center.y), y: (point.y - center.y) / Math.hypot(point.x - center.x, point.y - center.y) };
         const reach = radius + 30;
         const spot = { x: point.x + outward.x * (reach + half * Math.abs(outward.x)), y: point.y + outward.y * reach };
-        out.push(label(`mark-${key}-label`, { x: Math.min(ORBIT_W - half - 8, Math.max(half + 8, spot.x)), y: spot.y }, text, LABEL_TEXT, "ink", 5));
+        out.push(textDrawable(`mark-${key}-label`, text, { x: Math.min(ORBIT_W - half - 8, Math.max(half + 8, spot.x)), y: spot.y }, { size: LABEL_TEXT, z: 5 }));
       }
     });
     return out;
@@ -1110,7 +1103,7 @@ function render(state: PhysicsState, time: number | "end"): Drawable[] {
   const plot = shifted(kind.scene(layout, view), composition.plotLeft, composition.headerHeight);
   if (composition.headerHeight === 0) return plot;
   const items = kind.header(view.params, bodyAt(view.trajectory, view.time), view.time);
-  return [...items.map((item, index) => label(`readout-${index}`, { x: composition.starts[index]!, y: composition.headerHeight / 2 - 4 }, item.text, HEADER_TEXT, "ink", 8, { anchor: "start", font: "read" })), ...plot];
+  return [...items.map((item, index) => textDrawable(`readout-${index}`, item.text, { x: composition.starts[index]!, y: composition.headerHeight / 2 - 4 }, { size: HEADER_TEXT, z: 8, anchor: "start" })), ...plot];
 }
 
 function lastLeg(state: PhysicsState): { span: number; start: number; end: number } {
@@ -1186,19 +1179,70 @@ function markOp(state: PhysicsState, op: LabOp): PhysicsState {
   return { ...state, marks: state.marks.includes(key) ? state.marks : [...state.marks, key] };
 }
 
-function describeOps(): Record<string, string> {
+function requireStartOp(state: PhysicsState, op: LabOp): void {
+  const kind = kindOf(state);
+  if (op.name !== kind.startOp) fail(`a ${state.setup} setup has no op "${op.name}"; its ops are ${opsOf(kind).join(", ")}`);
+}
+
+function runFrame(before: PhysicsState, after: PhysicsState, progress: number): Drawable[] {
+  const { start, end } = lastLeg(after);
+  const frame = render(after, lerp(start, end, clamp01(progress)));
+  const earlier = new Map(render(before, "end").map((item) => [item.id, item]));
+  const retired = frame.flatMap((item) => (item.kind === "text" && earlier.get(item.id)?.text !== undefined && earlier.get(item.id)!.text !== item.text ? [{ ...item, id: `${item.id}~out`, opacity: 0 }] : []));
+  return [...frame, ...retired];
+}
+
+function runOp(doc: string, resuming: boolean): OpDef<PhysicsState> {
+  const guard = (state: PhysicsState, op: LabOp) => {
+    if (!resuming) requireStartOp(state, op);
+  };
   return {
-    "launch": '{"until": "lands"|"apex"}; for a launch setup: fire the ball from the start and run until it lands (default) or reaches its highest point; a new launch keeps the earlier flights on screen as fainter trails with their landing spots',
-    "release": "no arguments; for a drop or a ramp setup: let go; the objects fall until they land, or the block slides to the bottom, or stays put when friction holds it",
-    "swing": '{"swings": 2}; for a pendulum setup: let go and run this many swings, out and back to the start side (halves like 0.5 allowed, 0.5 to 20, default 1)',
-    "orbit": '{"orbits": 1}; for an orbit setup: run until the first planet has gone round this many times (0.25 to 20, default 1); the other planets move for the same time, and the playback is sped up so one orbit takes about 4.5 s',
-    "resume": "same arguments as the run op of the setup (launch, swing or orbit); continues the current run from where it stopped, for example from the highest point on to the landing; not allowed once a run has ended",
-    "set": 'launch: angle, speed, height, gravity; drop: height, masses, gravity; ramp: angle, friction, length, gravity; pendulum: length, angle, damping, gravity; orbit: speed or distance, for every planet or one planet with "planet": "Mars"; puts the setup back to its start with the new values, ready for the next run',
-    "vectors": '{"show": ["velocity", "gravity"]} or {"show": "all"} or {"show": "none"}; shows exactly these arrows and hides the rest; velocity and gravity everywhere, normal, friction and net on a ramp, tension and net on a pendulum; arrows follow the body with one length scale for the whole object',
-    "trail": '{"on": true}; shows or hides the path the body has taken (a dotted record at equal time steps on a drop); on by default',
-    "mark": '{"what": "apex"|"range"|"height"|"angle"|"lowest"|"highest"|"perihelion"|"aphelion"}; draws a marker on the current run: launch: apex, range; drop: height; ramp: angle; pendulum: lowest, highest, angle; orbit: perihelion or aphelion of one planet ("planet": id)',
+    doc,
+    trueTime: true,
+    seconds(op, state) {
+      guard(state, op);
+      const after = run(state, op, resuming);
+      return kindOf(after).seconds(after.attempt!.params, lastLeg(after).span);
+    },
+    apply(state, op) {
+      guard(state, op);
+      return run(state, op, resuming);
+    },
+    during: (before, after, _op, progress) => runFrame(before, after, progress),
   };
 }
+
+const ops: Record<string, OpDef<PhysicsState>> = {
+  launch: runOp('{"until": "lands"|"apex"}; for a launch setup: fire the ball from the start and run until it lands (default) or reaches its highest point; a new launch keeps the earlier flights on screen as fainter trails with their landing spots', false),
+  release: runOp("no arguments; for a drop or a ramp setup: let go; the objects fall until they land, or the block slides to the bottom, or stays put when friction holds it", false),
+  swing: runOp('{"swings": 2}; for a pendulum setup: let go and run this many swings, out and back to the start side (halves like 0.5 allowed, 0.5 to 20, default 1)', false),
+  orbit: runOp('{"orbits": 1}; for an orbit setup: run until the first planet has gone round this many times (0.25 to 20, default 1); the other planets move for the same time, and the playback is sped up so one orbit takes about 4.5 s', false),
+  resume: runOp("same arguments as the run op of the setup (launch, swing or orbit); continues the current run from where it stopped, for example from the highest point on to the landing; not allowed once a run has ended", true),
+  set: {
+    doc: 'launch: angle, speed, height, gravity; drop: height, masses, gravity; ramp: angle, friction, length, gravity; pendulum: length, angle, damping, gravity; orbit: speed or distance, for every planet or one planet with "planet": "Mars"; puts the setup back to its start with the new values, ready for the next run',
+    seconds: 0.8,
+    apply: setOp,
+  },
+  vectors: {
+    doc: '{"show": ["velocity", "gravity"]} or {"show": "all"} or {"show": "none"}; shows exactly these arrows and hides the rest; velocity and gravity everywhere, normal, friction and net on a ramp, tension and net on a pendulum; arrows follow the body with one length scale for the whole object',
+    seconds: 0.6,
+    apply: vectorsOp,
+  },
+  trail: {
+    doc: '{"on": true}; shows or hides the path the body has taken (a dotted record at equal time steps on a drop); on by default',
+    seconds: 0.5,
+    apply: trailOp,
+  },
+  mark: {
+    doc: '{"what": "apex"|"range"|"height"|"angle"|"lowest"|"highest"|"perihelion"|"aphelion"}; draws a marker on the current run: launch: apex, range; drop: height; ramp: angle; pendulum: lowest, highest, angle; orbit: perihelion or aphelion of one planet ("planet": id)',
+    seconds: 0.9,
+    apply: markOp,
+    during(before, after, _op, progress) {
+      const added = after.marks.filter((key) => !before.marks.includes(key));
+      return render(after, "end").filter((item) => added.some((key) => item.id.startsWith(`mark-${key}`))).map((item) => ({ ...item, opacity: (item.opacity ?? 1) * clamp01(progress) }));
+    },
+  },
+};
 
 function specDocs(): Record<string, string> {
   return {
@@ -1215,11 +1259,10 @@ export function trajectoryOf(state: PhysicsState): Trajectory {
 export const lab: LabDef<Args, PhysicsState> = {
   id: "physics",
   title: "Physics",
-  linearOps: ["launch", "release", "swing", "orbit", "resume"],
+  reading: "optional",
   catalog: {
     summary: "Motion computed, not drawn: a fixed step integrator runs real Newtonian physics and every path on screen comes from it. Setups: launch (a ball fired at an angle and speed over a ground line), drop (objects of different mass falling from a height together), ramp (a block on a slope with friction that slides or stays), pendulum (a bob on a rod, optionally with drag), orbit (planets circling a fixed sun). You give intent (angle, speed, length, friction); the Lab owns the layout and every number. Set \"reading\": false for a small child: nothing on screen needs reading.",
     spec: specDocs(),
-    ops: describeOps(),
     example: [
       '{"step":1,"say":"A ball leaves the ground at forty five degrees. Watch where it lands, then see its top.","scene":{"shot":{"lab":"physics","setup":"launch","angle":45,"speed":20}},"do":[{"cue":"Watch","op":"launch","on":["shot"]},{"cue":"top","op":"mark","on":["shot"],"what":"apex"}]}',
       '{"step":2,"say":"Aim lower, at thirty degrees, and it lands nearer. Show the pull of gravity and the velocity.","do":[{"cue":"lower","op":"set","on":["shot"],"angle":30},{"cue":"lands","op":"launch","on":["shot"]},{"cue":"velocity","op":"vectors","on":["shot"],"show":["velocity","gravity"]}]}',
@@ -1232,49 +1275,13 @@ export const lab: LabDef<Args, PhysicsState> = {
     if (typeof setup !== "string" || !SETUP_NAMES.includes(setup as SetupName)) fail(`${objectId}: "setup" must be one of ${SETUP_NAMES.join(", ")}, got ${JSON.stringify(setup)}`);
     const kind = KINDS[setup as SetupName];
     onlyKeys(spec, [...Object.keys(kind.spec), "setup", "reading"], `${objectId}: setup "${setup}"`, ["lab"]);
-    const reading = spec.reading ?? true;
-    if (typeof reading !== "boolean") fail(`${objectId}: "reading" must be true or false`);
-    return { objectId, reading, setup: setup as SetupName, params: kind.init(spec, objectId), ghosts: [], attempt: null, started: 0, vectors: [], trail: true, marks: [] };
+    if (spec.reading != null && typeof spec.reading !== "boolean") fail(`${objectId}: "reading" must be true or false`);
+    return { objectId, reading: readsWords(spec), setup: setup as SetupName, params: kind.init(spec, objectId), ghosts: [], attempt: null, started: 0, vectors: [], trail: true, marks: [] };
   },
 
-  apply(state, op) {
-    const kind = kindOf(state);
-    if (op.name === kind.startOp) return run(state, op, false);
-    switch (op.name) {
-      case "resume": return run(state, op, true);
-      case "set": return setOp(state, op);
-      case "vectors": return vectorsOp(state, op);
-      case "trail": return trailOp(state, op);
-      case "mark": return markOp(state, op);
-      default: return fail(`a ${state.setup} setup has no op "${op.name}"; its ops are ${opsOf(kind).join(", ")}`);
-    }
-  },
+  ops,
 
   size: (state) => compose(state).composition.size,
 
   draw: (state) => render(state, "end"),
-
-  duration(op, state) {
-    const kind = kindOf(state);
-    if (op.name === kind.startOp || op.name === "resume") {
-      const after = run(state, op, op.name === "resume");
-      return kind.seconds(after.attempt!.params, lastLeg(after).span);
-    }
-    return op.name === "mark" ? MARK_SECONDS : OP_SECONDS[op.name] ?? 0.6;
-  },
-
-  during(before, after, op, progress) {
-    const kind = kindOf(after);
-    const eased = clamp01(progress);
-    if (op.name === kind.startOp || op.name === "resume") {
-      const { start, end } = lastLeg(after);
-      const frame = render(after, lerp(start, end, eased));
-      const earlier = new Map(render(before, "end").map((item) => [item.id, item]));
-      const retired = frame.flatMap((item) => (item.kind === "text" && earlier.get(item.id)?.text !== undefined && earlier.get(item.id)!.text !== item.text ? [{ ...item, id: `${item.id}~out`, opacity: 0 }] : []));
-      return [...frame, ...retired];
-    }
-    if (op.name !== "mark") return [];
-    const added = after.marks.filter((key) => !before.marks.includes(key));
-    return render(after, "end").filter((item) => added.some((key) => item.id.startsWith(`mark-${key}`))).map((item) => ({ ...item, opacity: (item.opacity ?? 1) * eased }));
-  },
 };

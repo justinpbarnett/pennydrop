@@ -226,7 +226,7 @@ async function contractOf(id: string, lessonText: string, mintedDir: string): Pr
   const usedByLab = lesson.steps.some((step) => Object.values(step.scene ?? {}).some((spec) => spec?.lab === id));
   const findings: Finding[] = [];
   if (!usedByLab) findings.push({ stage: "contract", message: `lesson.jsonl never puts an object with "lab": "${id}" in a scene` });
-  for (const op of Object.keys(entry.def.catalog.ops)) {
+  for (const op of Object.keys(entry.def.ops)) {
     if (!usedOps.has(op)) findings.push({ stage: "contract", message: `lesson.jsonl never uses the catalog op "${op}"; the example Lesson must exercise every op so it is proven to work` });
   }
   const { example } = entry.def.catalog;

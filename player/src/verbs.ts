@@ -17,7 +17,7 @@ export interface Touch {
   objectId: string;
   before: SceneObject | null;
   after: SceneObject | null;
-  action: { type: "lab"; name: string; parts: string[]; args: Record<string, unknown> } | { type: "effect"; effect: Effect } | { type: "scene" };
+  action: { type: "lab"; name: string; parts: string[]; args: Record<string, unknown>; seconds: number; trueTime: boolean } | { type: "effect"; effect: Effect } | { type: "scene" };
 }
 
 export interface ParsedOp {

@@ -1,5 +1,5 @@
 import { typeset } from "../typeset";
-import { fail, type LabDef, numberField, type Role, roleField, stringField } from "../lab";
+import { type LabDef, positiveField, type Role, roleField, stringField } from "../lab";
 
 interface MathState {
   latex: string;
@@ -15,19 +15,17 @@ function sizeOf(state: MathState) {
 export const primitive: LabDef<Record<string, unknown>, MathState> = {
   id: "math",
   title: "Math",
+  reading: "required",
   catalog: {
     summary: "A LaTeX expression typeset with MathJax.",
     spec: { latex: "LaTeX source such as a^2 + b^2 = c^2", size: "optional px, default 56", role: "optional color role, default ink" },
-    ops: {},
     example: ['{"scene":{"eq":{"kind":"math","latex":"\\\\frac{n(n-1)}{2}"}}}'],
   },
+  ops: {},
   init(spec, objectId) {
-    const state = { latex: stringField(spec, "latex", objectId), size: numberField(spec, "size", 56, objectId), role: roleField(spec, "role", "ink", objectId) };
+    const state = { latex: stringField(spec, "latex", objectId), size: positiveField(spec, "size", 56, objectId), role: roleField(spec, "role", "ink", objectId) };
     typeset(state.latex);
     return state;
-  },
-  apply(_state, op) {
-    return fail(`math has no op "${op.name}"; use morph to change the expression`);
   },
   size: sizeOf,
   draw(state) {

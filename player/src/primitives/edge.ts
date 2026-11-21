@@ -1,4 +1,4 @@
-import { type Drawable, fail, type Link, type LabDef, labelDrawable, type Point, type Role, roleField, segmentDrawable, stringField } from "../lab";
+import { type Drawable, type Link, type LabDef, labelDrawable, type Point, readsWords, type Role, roleField, segmentDrawable, stringField } from "../lab";
 
 interface EdgeState {
   from: string;
@@ -6,6 +6,7 @@ interface EdgeState {
   directed: boolean;
   label: string;
   role: Role;
+  reading: boolean;
 }
 
 const GAP = 10;
@@ -26,13 +27,14 @@ export function borderPoint(link: Link, toward: Point): Point {
 export const primitive: LabDef<Record<string, unknown>, EdgeState> = {
   id: "edge",
   title: "Edge",
+  reading: "optional",
   overlay: true,
   catalog: {
     summary: "A line or arrow between two other objects that follows them as they move. The connect verb makes one.",
     spec: { from: "object id", to: "object id", directed: "true for an arrow, default false", label: "optional text", role: "color role, default edge" },
-    ops: {},
     example: ['{"scene":{"ab":{"kind":"edge","from":"a","to":"b","directed":true}}}'],
   },
+  ops: {},
   init(spec, objectId) {
     return {
       from: stringField(spec, "from", objectId),
@@ -40,10 +42,8 @@ export const primitive: LabDef<Record<string, unknown>, EdgeState> = {
       directed: spec.directed === true,
       label: typeof spec.label === "string" ? spec.label : "",
       role: roleField(spec, "role", "edge", objectId),
+      reading: readsWords(spec),
     };
-  },
-  apply(_state, op) {
-    return fail(`edge has no op "${op.name}"`);
   },
   size: () => ({ w: 0, h: 0 }),
   draw(state, ctx) {
@@ -53,7 +53,7 @@ export const primitive: LabDef<Record<string, unknown>, EdgeState> = {
     const start = borderPoint(from, { x: to.x + to.w / 2, y: to.y + to.h / 2 });
     const end = borderPoint(to, { x: from.x + from.w / 2, y: from.y + from.h / 2 });
     const out: Drawable[] = [{ ...segmentDrawable(state.directed ? "arrow" : "line", start, end, state.role, 1.8, -2), id: "line" }];
-    if (state.label) out.push(labelDrawable(state.label, { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 22 }, 24, "read", "muted", -1));
+    if (state.reading && state.label) out.push(labelDrawable(state.label, { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 22 }, 24, "read", "muted", -1));
     return out;
   },
 };

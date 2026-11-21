@@ -1,5 +1,6 @@
 import type { HighlighterCore } from "shiki/core";
-import { fail, type Role, type Span } from "./lab";
+import { type Drawable, fail, type Role, type Span, stringField, textDrawable } from "./lab";
+import { textWidth } from "./text-metrics";
 
 const SENTINELS: Record<string, Role> = {
   "#000001": "ink",
@@ -46,8 +47,61 @@ export async function loadHighlighter(): Promise<void> {
 
 export const CODE_LANGUAGES = ["python", "javascript", "typescript", "c"];
 
+export function languageField(spec: Record<string, unknown>, objectId: string): string {
+  const language = stringField(spec, "language", objectId, "python");
+  if (!CODE_LANGUAGES.includes(language)) fail(`${objectId}: language "${language}" is not available; use one of ${CODE_LANGUAGES.join(", ")}`);
+  return language;
+}
+
 export function tokenizeCode(source: string, language: string): Span[][] {
   if (!highlighter) return fail("the code highlighter is not loaded; await prepareStepAssets(step) before adding a Step that uses code");
   const lines = highlighter.codeToTokensBase(source, { lang: language, theme: "pennydrop-roles" });
   return lines.map((line) => line.map((token) => ({ text: token.content, role: SENTINELS[(token.color ?? "").toLowerCase().slice(0, 7)] ?? "ink" })));
+}
+
+const ELLIPSIS = "…";
+
+export function fitted(text: string, size: number, width: number): string {
+  if (textWidth(text, size, "code") <= width) return text;
+  let kept = text.length;
+  while (kept > 0 && textWidth(text.slice(0, kept) + ELLIPSIS, size, "code") > width) kept -= 1;
+  return text.slice(0, kept) + ELLIPSIS;
+}
+
+function fittedSpans(spans: Span[], size: number, width: number): Span[] {
+  const text = spans.map((span) => span.text).join("");
+  if (textWidth(text, size, "code") <= width) return spans;
+  const kept = fitted(text, size, width).length - ELLIPSIS.length;
+  const out: Span[] = [];
+  let used = 0;
+  for (const span of spans) {
+    if (used >= kept) break;
+    out.push({ ...span, text: span.text.slice(0, kept - used) });
+    used += span.text.length;
+  }
+  return [...out, { text: ELLIPSIS, role: "muted" }];
+}
+
+export const NUMBER_SCALE = 0.72;
+
+export interface ListingLook {
+  left: number;
+  top: number;
+  size: number;
+  lineHeight: number;
+  gutter: number;
+  lineWidth?: number;
+  opacityOf?: (line: number) => number;
+}
+
+export function codeListing(lines: Span[][], look: ListingLook): Drawable[] {
+  return lines.flatMap((spans, index) => {
+    const y = look.top + (index + 0.5) * look.lineHeight;
+    const opacity = look.opacityOf ? { opacity: look.opacityOf(index + 1) } : {};
+    const shown = look.lineWidth === undefined ? spans : fittedSpans(spans, look.size, look.lineWidth);
+    return [
+      textDrawable(`number-${index + 1}`, String(index + 1), { x: look.left, y }, { size: look.size * NUMBER_SCALE, font: "code", anchor: "start", fill: "muted", z: 2, ...opacity }),
+      { id: `line-${index + 1}`, kind: "code" as const, x: look.left + look.gutter, y, spans: shown.length ? shown : [{ text: " ", role: "ink" as const }], size: look.size, font: "code" as const, anchor: "start" as const, z: 2, ...opacity },
+    ];
+  });
 }

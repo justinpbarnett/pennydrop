@@ -190,9 +190,35 @@ function swappedSlots(before: ArrayState, after: ArrayState): { cell: Cell; from
   });
 }
 
+function tickingCounters(before: ArrayState, after: ArrayState, progress: number): Drawable[] {
+  const ticking = new Map<string, string>();
+  after.counters.forEach((counter, index) => {
+    const previous = before.counters[index]?.value ?? counter.value;
+    if (previous !== counter.value) ticking.set(counter.name, String(Math.round(lerp(previous, counter.value, progress))));
+  });
+  return ticking.size > 0 ? counterDrawables(after, ticking) : [];
+}
+
+function swapArcs(before: ArrayState, after: ArrayState, progress: number): Drawable[] {
+  const y = cellCenterY(after);
+  const lift = Math.sin(Math.PI * progress);
+  return swappedSlots(before, after).flatMap(({ cell, from, to }) => {
+    const distance = Math.abs(slotCenterX(after, to) - slotCenterX(after, from));
+    const arc = Math.min(90, distance * 0.42) * lift * (to > from ? -1 : 1);
+    return cellDrawables(after, cell, to, { x: lerp(slotCenterX(after, from), slotCenterX(after, to), progress), y: y + arc, scale: 1 + 0.08 * lift }).map((drawable) => ({ ...drawable, z: (drawable.z ?? 0) + (to > from ? 10 : 0) }));
+  });
+}
+
+function compareLift(after: ArrayState, op: LabOp, progress: number): Drawable[] {
+  const y = cellCenterY(after);
+  const lift = Math.sin(Math.PI * progress);
+  return expandParts(after, op.parts).flatMap((slot) => cellDrawables(after, after.cells[slot]!, slot, { x: slotCenterX(after, slot), y, scale: 1 + 0.07 * lift }));
+}
+
 export const lab: LabDef<ArraySpec, ArrayState> = {
   id: "array",
   title: "Array",
+  reading: "required",
   catalog: {
     summary: "A row of cells with pointers, a window bracket and counters. Cell parts are slot indices: arr[3].",
     spec: {
@@ -201,16 +227,6 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
       pointers: 'optional {"i": slot} named pointers under cells',
       sorted: "optional slot indices already marked sorted",
       window: "optional [from, to] bracket over cells",
-    },
-    ops: {
-      compare: 'on two cells; both become the active pair; optional "count": "<counter>" adds one to that counter',
-      swap: 'on two cells; they trade places on arcs; optional "count": "<counter>"',
-      sorted: 'on cells or ranges like arr[5-7], or {"from": index} through the last cell; marks them done',
-      pointer: '{"name": "i", "to": slot or null} or on arr[slot] with "name"; slides a named pointer, null removes it',
-      window: 'on arr[a] and arr[b], or {"from","to"}; no cells clears the bracket',
-      counter: '{"name": "comparisons", "add": 1} or {"to": 12}',
-      set: 'on one cell with {"value": 9} changes its value',
-      clear: '{"what": "roles"|"pointers"|"window"|"all"} default "roles" clears compare and swap highlights',
     },
     example: [
       '{"step":1,"say":"Compare the first pair. Four and three swap.","scene":{"arr":{"lab":"array","values":[4,3,2,1],"counters":["comparisons"]}},"do":[{"cue":"Compare","op":"compare","on":["arr[0]","arr[1]"],"count":"comparisons"},{"cue":"swap","op":"swap","on":["arr[0]","arr[1]"]}]}',
@@ -233,26 +249,39 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
     return { ...state, pointers, window, slotRoles: state.slotRoles.map((_, slot) => (sorted.includes(slot) ? "done" : null)) };
   },
 
-  apply(state, op) {
-    switch (op.name) {
-      case "compare": {
-        const pair = pairOf(state, op);
-        return withCounted(withRoles(state, pair, "compare"), op);
-      }
-      case "swap": {
+  ops: {
+    compare: {
+      doc: 'on two cells; both become the active pair; optional "count": "<counter>" adds one to that counter',
+      seconds: 0.6,
+      apply: (state, op) => withCounted(withRoles(state, pairOf(state, op), "compare"), op),
+      during: (before, after, op, progress) => [...tickingCounters(before, after, progress), ...compareLift(after, op, progress)],
+    },
+    swap: {
+      doc: 'on two cells; they trade places on arcs; optional "count": "<counter>"',
+      seconds: 1.0,
+      apply(state, op) {
         const [first, second] = pairOf(state, op);
         const cells = [...state.cells];
         [cells[first], cells[second]] = [cells[second]!, cells[first]!];
         return withCounted({ ...withRoles(state, [first, second], "swap"), cells }, op);
-      }
-      case "sorted": {
+      },
+      during: (before, after, _op, progress) => [...tickingCounters(before, after, progress), ...swapArcs(before, after, progress)],
+    },
+    sorted: {
+      doc: 'on cells or ranges like arr[5-7], or {"from": index} through the last cell; marks them done',
+      seconds: 0.6,
+      apply(state, op) {
         const from = op.args.from;
         const slots = typeof from === "number" ? Array.from({ length: state.cells.length - checkedSlot(state, from) }, (_, offset) => from + offset) : expandParts(state, op.parts);
         if (slots.length === 0) fail(`op "sorted" needs cells in "on" or a "from" index`);
         const slotRoles = state.slotRoles.map((role, slot) => (slots.includes(slot) ? "done" : role));
         return { ...state, slotRoles };
-      }
-      case "pointer": {
+      },
+    },
+    pointer: {
+      doc: '{"name": "i", "to": slot or null} or on arr[slot] with "name"; slides a named pointer, null removes it',
+      seconds: 0.75,
+      apply(state, op) {
         const name = stringArg(op.args, "name", "pointer");
         const target = op.parts.length > 0 ? expandParts(state, op.parts)[0]! : op.args.to;
         const others = state.pointers.filter((pointer) => pointer.name !== name);
@@ -263,26 +292,43 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
         const slot = checkedSlot(state, target);
         const exists = state.pointers.some((pointer) => pointer.name === name);
         return { ...state, pointers: exists ? state.pointers.map((pointer) => (pointer.name === name ? { name, slot } : pointer)) : [...others, { name, slot }] };
-      }
-      case "window": {
+      },
+    },
+    window: {
+      doc: 'on arr[a] and arr[b], or {"from","to"}; no cells clears the bracket',
+      seconds: 0.75,
+      apply(state, op) {
         if (typeof op.args.from === "number" && typeof op.args.to === "number") return { ...state, window: [checkedSlot(state, op.args.from), checkedSlot(state, op.args.to)] };
         const slots = expandParts(state, op.parts);
         if (slots.length === 0) return { ...state, window: null };
         return { ...state, window: [Math.min(...slots), Math.max(...slots)] };
-      }
-      case "counter": {
+      },
+    },
+    counter: {
+      doc: '{"name": "comparisons", "add": 1} or {"to": 12}',
+      seconds: 0.5,
+      apply(state, op) {
         const name = stringArg(op.args, "name", "counter");
         if (typeof op.args.to === "number") return addToCounter(state, name, op.args.to, true);
         return addToCounter(state, name, numberArg(op.args, "add", "counter"));
-      }
-      case "set": {
+      },
+      during: (before, after, _op, progress) => tickingCounters(before, after, progress),
+    },
+    set: {
+      doc: 'on one cell with {"value": 9} changes its value',
+      seconds: 0.7,
+      apply(state, op) {
         const [slot] = expandParts(state, op.parts);
         if (slot === undefined) fail(`op "set" needs one cell in "on", such as ["${state.objectId}[2]"]`);
         const value = op.args.value;
         if (typeof value !== "number" && typeof value !== "string") fail(`op "set" needs "value" as a number or text`);
         return { ...state, cells: state.cells.map((cell, index) => (index === slot ? { ...cell, value } : cell)) };
-      }
-      case "clear": {
+      },
+    },
+    clear: {
+      doc: '{"what": "roles"|"pointers"|"window"|"all"} default "roles" clears compare and swap highlights',
+      seconds: 0.4,
+      apply(state, op) {
         const what = op.args.what ?? "roles";
         if (!["roles", "pointers", "window", "all"].includes(what as string)) fail(`op "clear" arg "what" must be roles, pointers, window or all`);
         const clearRoles = what === "roles" || what === "all";
@@ -292,10 +338,8 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
           pointers: what === "pointers" || what === "all" ? [] : state.pointers,
           window: what === "window" || what === "all" ? null : state.window,
         };
-      }
-      default:
-        return fail(`array has no op "${op.name}"`);
-    }
+      },
+    },
   },
 
   size(state) {
@@ -311,34 +355,5 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
       text: String(slot), size: 22, font: "read", fill: "muted",
     }));
     return [...cells, ...indices, ...pointerDrawables(state), ...windowDrawable(state), ...counterDrawables(state, new Map())];
-  },
-
-  duration(op) {
-    return ({ compare: 0.6, swap: 1.0, sorted: 0.6, pointer: 0.75, window: 0.75, counter: 0.5, set: 0.7, clear: 0.4 } as Record<string, number>)[op.name] ?? 0.7;
-  },
-
-  during(before, after, op, progress) {
-    const out: Drawable[] = [];
-    const ticking = new Map<string, string>();
-    after.counters.forEach((counter, index) => {
-      const previous = before.counters[index]?.value ?? counter.value;
-      if (previous !== counter.value) ticking.set(counter.name, String(Math.round(lerp(previous, counter.value, progress))));
-    });
-    if (ticking.size > 0) {
-      out.push(...counterDrawables(after, ticking));
-    }
-    const y = cellCenterY(after);
-    const lift = Math.sin(Math.PI * progress);
-    if (op.name === "swap") {
-      for (const { cell, from, to } of swappedSlots(before, after)) {
-        const distance = Math.abs(slotCenterX(after, to) - slotCenterX(after, from));
-        const arc = Math.min(90, distance * 0.42) * lift * (to > from ? -1 : 1);
-        out.push(...cellDrawables(after, cell, to, { x: lerp(slotCenterX(after, from), slotCenterX(after, to), progress), y: y + arc, scale: 1 + 0.08 * lift }).map((drawable) => ({ ...drawable, z: (drawable.z ?? 0) + (to > from ? 10 : 0) })));
-      }
-    }
-    if (op.name === "compare") {
-      expandParts(after, op.parts).forEach((slot) => out.push(...cellDrawables(after, after.cells[slot]!, slot, { x: slotCenterX(after, slot), y, scale: 1 + 0.07 * lift })));
-    }
-    return out;
   },
 };

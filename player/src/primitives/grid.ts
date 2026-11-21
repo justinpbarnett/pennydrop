@@ -1,4 +1,4 @@
-import { type Drawable, fail, type LabDef, numberField, type Role, roleField, stringArg } from "../lab";
+import { type Drawable, fail, type LabDef, positiveField, readsWords, type Role, roleField, stringArg } from "../lab";
 
 interface GridCell {
   value: string;
@@ -9,6 +9,7 @@ interface GridState {
   objectId: string;
   cells: GridCell[][];
   cell: number;
+  reading: boolean;
 }
 
 function cellAt(state: GridState, part: string): [number, number] {
@@ -30,29 +31,41 @@ function updateCells(state: GridState, parts: string[], change: (cell: GridCell)
 export const primitive: LabDef<Record<string, unknown>, GridState> = {
   id: "grid",
   title: "Grid",
+  reading: "optional",
   catalog: {
     summary: "A table of cells. Parts are row,col: grid[1,2].",
     spec: { cells: "list of rows, each a list of numbers or text", cell: "optional cell size px, default 96" },
-    ops: { set: '{"value": 7} on cells', mark: '{"role": "active"} on cells; role "none" clears' },
     example: ['{"scene":{"g":{"kind":"grid","cells":[[1,2],[3,4]]}}}'],
+  },
+  ops: {
+    set: {
+      doc: '{"value": 7} on cells',
+      seconds: 0.6,
+      apply(state, op) {
+        const value = String(op.args.value ?? stringArg(op.args, "value", "set"));
+        return updateCells(state, op.parts, (cell) => ({ ...cell, value }));
+      },
+    },
+    mark: {
+      doc: '{"role": "active"} on cells; role "none" clears',
+      seconds: 0.6,
+      apply(state, op) {
+        const role = op.args.role === "none" ? null : roleField(op.args, "role", "active", state.objectId);
+        return updateCells(state, op.parts, (cell) => ({ ...cell, role }));
+      },
+    },
   },
   init(spec, objectId) {
     const rows = spec.cells;
     if (!Array.isArray(rows) || rows.length === 0 || !rows.every((row) => Array.isArray(row) && row.length === rows[0].length && row.length > 0)) {
       fail(`${objectId}: "cells" must be a non-empty list of equal length rows`);
     }
-    return { objectId, cell: numberField(spec, "cell", 96, objectId), cells: (rows as unknown[][]).map((row) => row.map((value) => ({ value: String(value), role: null }))) };
-  },
-  apply(state, op) {
-    if (op.name === "set") {
-      const value = String(op.args.value ?? stringArg(op.args, "value", "set"));
-      return updateCells(state, op.parts, (cell) => ({ ...cell, value }));
-    }
-    if (op.name === "mark") {
-      const role = op.args.role === "none" ? null : roleField(op.args, "role", "active", state.objectId);
-      return updateCells(state, op.parts, (cell) => ({ ...cell, role }));
-    }
-    return fail(`grid has no op "${op.name}"`);
+    return {
+      objectId,
+      cell: positiveField(spec, "cell", 96, objectId),
+      cells: (rows as unknown[][]).map((row) => row.map((value) => ({ value: String(value), role: null }))),
+      reading: readsWords(spec),
+    };
   },
   size: (state) => ({ w: state.cells[0]!.length * state.cell, h: state.cells.length * state.cell }),
   draw(state) {
@@ -60,12 +73,9 @@ export const primitive: LabDef<Record<string, unknown>, GridState> = {
     state.cells.forEach((row, r) => row.forEach((cell, c) => {
       const x = (c + 0.5) * state.cell;
       const y = (r + 0.5) * state.cell;
-      out.push(
-        { id: `cell-${r}-${c}`, kind: "rect", x, y, w: state.cell, h: state.cell, fill: cell.role ? "fill2" : "fill", stroke: cell.role ?? "rule", strokeWidth: cell.role ? 1.8 : 1, radius: 0.5, part: `${state.objectId}[${r},${c}]` },
-        { id: `value-${r}-${c}`, kind: "text", x, y, text: cell.value, size: state.cell * 0.4, font: "mark", fill: "ink", z: 1 },
-      );
+      out.push({ id: `cell-${r}-${c}`, kind: "rect", x, y, w: state.cell, h: state.cell, fill: cell.role ? "fill2" : "fill", stroke: cell.role ?? "rule", strokeWidth: cell.role ? 1.8 : 1, radius: 0.5, part: `${state.objectId}[${r},${c}]` });
+      if (state.reading) out.push({ id: `value-${r}-${c}`, kind: "text", x, y, text: cell.value, size: state.cell * 0.4, font: "mark", fill: "ink", z: 1 });
     }));
     return out;
   },
-  duration: () => 0.6,
 };

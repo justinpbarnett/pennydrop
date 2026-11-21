@@ -1,4 +1,5 @@
 import type { Frame, Painted } from "./frame";
+import type { DrawableKind } from "./lab";
 import { ARROW_HEAD_ANGLE, arrowHeadLength } from "./ink";
 import { STAGE } from "./layout";
 import { cssRgba, parseHex, type Theme, type ThemeId } from "./theme";
@@ -61,13 +62,140 @@ interface Live {
   clip: SVGClipPathElement | null;
 }
 
+const imagesInFrame = new Set<string>();
+
+interface KindRenderer {
+  create(): SVGElement;
+  update(element: SVGElement, item: Painted, live: Live): void;
+}
+
+const strokeOf = (item: Painted) => ({ fill: paintCss(item.fill), stroke: paintCss(item.stroke), "stroke-width": item.strokeWidth });
+
+function dashOf(item: Painted) {
+  return item.draw !== undefined && item.draw < 1
+    ? { pathLength: 1, "stroke-dasharray": 1, "stroke-dashoffset": 1 - Math.max(0, item.draw) }
+    : { pathLength: null, "stroke-dasharray": null, "stroke-dashoffset": null };
+}
+
+function fontOf(item: Painted) {
+  return { "font-size": item.size, "font-family": item.fontFamily, "font-weight": item.fontWeight, "letter-spacing": `${item.tracking}em`, "text-anchor": item.anchor };
+}
+
+function createPath(): SVGElement {
+  return svg("path", { "stroke-linecap": "round", "stroke-linejoin": "round" });
+}
+
+function updateImage(holder: SVGElement, item: Painted): void {
+  const [w, h] = [item.w ?? 0, item.h ?? 0];
+  const href = item.href ?? "";
+  const { crop } = item;
+  setAttributes(holder, {
+    x: item.x - w / 2,
+    y: item.y - h / 2,
+    width: w,
+    height: h,
+    viewBox: crop ? `${crop.x} ${crop.y} ${crop.w} ${crop.h}` : `0 0 ${w} ${h}`,
+    preserveAspectRatio: "none",
+  });
+  const picture = holder.firstElementChild!;
+  setAttributes(picture, crop
+    ? { x: 0, y: 0, width: 1, height: 1, href, preserveAspectRatio: "none" }
+    : { x: 0, y: 0, width: w, height: h, href, preserveAspectRatio: "xMidYMid meet" });
+  imagesInFrame.add(href);
+  if (decoded.has(href)) {
+    holder.removeAttribute("visibility");
+    return;
+  }
+  holder.setAttribute("visibility", "hidden");
+  decodeImage(href).then(() => {
+    if (picture.getAttribute("href") === href) holder.removeAttribute("visibility");
+  }, () => undefined);
+}
+
+const DRAWABLE_KINDS: Record<DrawableKind, KindRenderer> = {
+  rect: {
+    create: () => svg("rect"),
+    update(element, item) {
+      const [w, h] = [item.w ?? 0, item.h ?? 0];
+      setAttributes(element, { x: item.x - w / 2, y: item.y - h / 2, width: w, height: h, rx: Math.min(item.radius, Math.min(w, h) / 2), ...strokeOf(item) });
+    },
+  },
+  circle: {
+    create: () => svg("circle"),
+    update: (element, item) => setAttributes(element, { cx: item.x, cy: item.y, r: Math.max(0, item.r ?? 0), ...strokeOf(item) }),
+  },
+  line: {
+    create: () => svg("line", { "stroke-linecap": "round" }),
+    update: (element, item) => setAttributes(element, { x1: item.x, y1: item.y, x2: item.x2!, y2: item.y2!, ...strokeOf(item), fill: "none", ...dashOf(item) }),
+  },
+  arrow: {
+    create: createPath,
+    update: (element, item) => setAttributes(element, { d: arrowPath(item), ...strokeOf(item), fill: "none", ...dashOf(item) }),
+  },
+  path: {
+    create: createPath,
+    update: (element, item) => setAttributes(element, { d: polyline(item.points ?? [], Boolean(item.closed)), ...strokeOf(item), ...dashOf(item) }),
+  },
+  text: {
+    create: () => svg("text", { "dominant-baseline": "central" }),
+    update(element, item) {
+      element.textContent = item.text ?? "";
+      setAttributes(element, { x: item.x, y: item.y, ...fontOf(item), fill: paintCss(item.fill) });
+      element.style.fontVariantNumeric = "lining-nums tabular-nums";
+    },
+  },
+  code: {
+    create: () => svg("text", { "dominant-baseline": "central", style: "white-space:pre" }),
+    update(element, item, live) {
+      const signature = JSON.stringify(item.spans);
+      if (signature !== live.signature) {
+        live.signature = signature;
+        element.replaceChildren(...(item.spans ?? []).map((span) => {
+          const tspan = svg("tspan", { fill: cssRgba(span.color) });
+          tspan.textContent = span.text;
+          return tspan;
+        }));
+      }
+      setAttributes(element, { x: item.x, y: item.y, ...fontOf(item) });
+    },
+  },
+  math: {
+    create() {
+      const object = svg("foreignObject");
+      const holder = document.createElement("div");
+      holder.style.cssText = "display:flex;align-items:center;justify-content:center;width:100%;height:100%;white-space:nowrap";
+      object.append(holder);
+      return object;
+    },
+    update(element, item, live) {
+      const [w, h] = [item.w ?? 400, item.h ?? 100];
+      setAttributes(element, { x: item.x - w / 2, y: item.y - h / 2, width: w, height: h });
+      const holder = element.firstElementChild as HTMLElement;
+      if (live.signature !== item.latex) {
+        live.signature = item.latex ?? "";
+        holder.innerHTML = typeset(item.latex ?? "").svg;
+      }
+      const svgElement = holder.firstElementChild;
+      if (svgElement) setAttributes(svgElement as SVGElement, { width: w, height: h });
+      holder.style.color = paintCss(item.fill);
+    },
+  },
+  image: {
+    create() {
+      const holder = svg("svg", { overflow: "hidden" });
+      holder.append(svg("image"));
+      return holder;
+    },
+    update: updateImage,
+  },
+};
+
 export class StageRenderer {
   private readonly camera = svg("g");
   private readonly backdrop = svg("g");
   private readonly defs = svg("defs");
   private readonly clips = svg("defs");
   private readonly live = new Map<string, Live>();
-  private readonly imagesInFrame = new Set<string>();
   private clipCount = 0;
   private grainSeed: SVGElement | null = null;
   private backdropTheme: ThemeId | null = null;
@@ -85,7 +213,7 @@ export class StageRenderer {
     this.camera.setAttribute("transform", `translate(${STAGE.w / 2} ${STAGE.h / 2}) scale(${zoom}) translate(${-cx} ${-cy})`);
 
     const wanted = new Set<string>();
-    this.imagesInFrame.clear();
+    imagesInFrame.clear();
     frame.items.forEach((item, index) => {
       wanted.add(item.id);
       const live = this.elementFor(item);
@@ -159,7 +287,7 @@ export class StageRenderer {
     const existing = this.live.get(item.id);
     if (existing && existing.kind === item.kind) return existing;
     if (existing) this.discard(existing);
-    const element = this.create(item);
+    const element = DRAWABLE_KINDS[item.kind].create();
     const live = { element, kind: item.kind, signature: "", clip: null };
     this.live.set(item.id, live);
     return live;
@@ -188,124 +316,14 @@ export class StageRenderer {
     setAttributes(live.clip.firstElementChild!, { x: clip.x, y: clip.y, width: clip.w, height: clip.h });
   }
 
-  private create(item: Painted): SVGElement {
-    switch (item.kind) {
-      case "rect": return svg("rect");
-      case "circle": return svg("circle");
-      case "line": return svg("line", { "stroke-linecap": "round" });
-      case "arrow": case "path": return svg("path", { "stroke-linecap": "round", "stroke-linejoin": "round" });
-      case "text": return svg("text", { "dominant-baseline": "central" });
-      case "code": return svg("text", { "dominant-baseline": "central", style: "white-space:pre" });
-      case "math": {
-        const object = svg("foreignObject");
-        const holder = document.createElement("div");
-        holder.style.cssText = "display:flex;align-items:center;justify-content:center;width:100%;height:100%;white-space:nowrap";
-        object.append(holder);
-        return object;
-      }
-      case "image": {
-        const holder = svg("svg", { overflow: "hidden" });
-        holder.append(svg("image"));
-        return holder;
-      }
-    }
-  }
-
   private update(live: Live, item: Painted): void {
-    const { element } = live;
-    const common = {
+    setAttributes(live.element, {
       opacity: Math.max(0, Math.min(1, item.opacity)),
       transform: item.rotation ? `rotate(${item.rotation} ${item.x} ${item.y})` : null,
       "data-part": item.part ?? null,
-    };
-    setAttributes(element, common);
-    this.clipTo(live, item.clip);
-    const stroke = { fill: paintCss(item.fill), stroke: paintCss(item.stroke), "stroke-width": item.strokeWidth };
-    const dash = item.draw !== undefined && item.draw < 1
-      ? { pathLength: 1, "stroke-dasharray": 1, "stroke-dashoffset": 1 - Math.max(0, item.draw) }
-      : { pathLength: null, "stroke-dasharray": null, "stroke-dashoffset": null };
-    const font = { "font-size": item.size, "font-family": item.fontFamily, "font-weight": item.fontWeight, "letter-spacing": `${item.tracking}em`, "text-anchor": item.anchor };
-
-    switch (item.kind) {
-      case "rect": {
-        const [w, h] = [item.w ?? 0, item.h ?? 0];
-        setAttributes(element, { x: item.x - w / 2, y: item.y - h / 2, width: w, height: h, rx: Math.min(item.radius, Math.min(w, h) / 2), ...stroke });
-        break;
-      }
-      case "circle":
-        setAttributes(element, { cx: item.x, cy: item.y, r: Math.max(0, item.r ?? 0), ...stroke });
-        break;
-      case "line":
-        setAttributes(element, { x1: item.x, y1: item.y, x2: item.x2!, y2: item.y2!, ...stroke, fill: "none", ...dash });
-        break;
-      case "arrow":
-        setAttributes(element, { d: arrowPath(item), ...stroke, fill: "none", ...dash });
-        break;
-      case "path":
-        setAttributes(element, { d: polyline(item.points ?? [], Boolean(item.closed)), ...stroke, ...dash });
-        break;
-      case "text":
-        element.textContent = item.text ?? "";
-        setAttributes(element, { x: item.x, y: item.y, ...font, fill: paintCss(item.fill) });
-        element.style.fontVariantNumeric = "lining-nums tabular-nums";
-        break;
-      case "code": {
-        const signature = JSON.stringify(item.spans);
-        if (signature !== live.signature) {
-          live.signature = signature;
-          element.replaceChildren(...(item.spans ?? []).map((span) => {
-            const tspan = svg("tspan", { fill: cssRgba(span.color) });
-            tspan.textContent = span.text;
-            return tspan;
-          }));
-        }
-        setAttributes(element, { x: item.x, y: item.y, ...font });
-        break;
-      }
-      case "math": {
-        const [w, h] = [item.w ?? 400, item.h ?? 100];
-        setAttributes(element, { x: item.x - w / 2, y: item.y - h / 2, width: w, height: h });
-        const holder = element.firstElementChild as HTMLElement;
-        if (live.signature !== item.latex) {
-          live.signature = item.latex ?? "";
-          holder.innerHTML = typeset(item.latex ?? "").svg;
-        }
-        const svgElement = holder.firstElementChild;
-        if (svgElement) setAttributes(svgElement as SVGElement, { width: w, height: h });
-        holder.style.color = paintCss(item.fill);
-        break;
-      }
-      case "image":
-        this.updateImage(element, item);
-        break;
-    }
-  }
-
-  private updateImage(holder: SVGElement, item: Painted): void {
-    const [w, h] = [item.w ?? 0, item.h ?? 0];
-    const href = item.href ?? "";
-    const { crop } = item;
-    setAttributes(holder, {
-      x: item.x - w / 2,
-      y: item.y - h / 2,
-      width: w,
-      height: h,
-      viewBox: crop ? `${crop.x} ${crop.y} ${crop.w} ${crop.h}` : `0 0 ${w} ${h}`,
-      preserveAspectRatio: "none",
     });
-    const picture = holder.firstElementChild!;
-    setAttributes(picture, crop
-      ? { x: 0, y: 0, width: 1, height: 1, href, preserveAspectRatio: "none" }
-      : { x: 0, y: 0, width: w, height: h, href, preserveAspectRatio: "xMidYMid meet" });
-    this.imagesInFrame.add(href);
-    if (decoded.has(href)) {
-      holder.removeAttribute("visibility");
-      return;
-    }
-    holder.setAttribute("visibility", "hidden");
-    decodeImage(href).then(() => {
-      if (picture.getAttribute("href") === href) holder.removeAttribute("visibility");
-    }, () => undefined);
+    this.clipTo(live, item.clip);
+    DRAWABLE_KINDS[item.kind].update(live.element, item, live);
   }
 
   private invalidateEverything(): void {
@@ -315,7 +333,7 @@ export class StageRenderer {
   }
 
   async imagesReady(): Promise<void> {
-    await Promise.all([...this.imagesInFrame].map(decodeImage));
+    await Promise.all([...imagesInFrame].map(decodeImage));
     this.invalidateEverything();
     await nextPaint();
   }

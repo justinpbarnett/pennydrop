@@ -34,6 +34,19 @@ export function definitionByKey(key: string): AnyLabDef {
   return def;
 }
 
+export function definitionIfRegistered(key: string): AnyLabDef | undefined {
+  return definitions.get(key);
+}
+
+export function specText(key: string): string {
+  const [type, id] = key.split(":");
+  return `"${type === "lab" ? "lab" : "kind"}": "${id}"`;
+}
+
+export function wordlessKeys(): string[] {
+  return allDefinitions().filter(({ def }) => def.reading === "optional").map(({ key }) => specText(key));
+}
+
 function known(prefix: string): string {
   return [...definitions.keys()].filter((key) => key.startsWith(prefix)).map((key) => key.slice(prefix.length)).join(", ");
 }

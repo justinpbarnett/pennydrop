@@ -1,4 +1,4 @@
-import { type Drawable, fail, type FontRole, labelDrawable, type LabDef, type LabOp, lerp, numberArg, type Paint, type Point, type Role, segmentDrawable, stringArg } from "../lab";
+import { boxDrawable, clamp01, type Drawable, fail, fitText, type LabDef, type LabOp, lerp, numberArg, type Paint, type Point, type Role, segmentDrawable, stringArg, textDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
 interface Process {
@@ -102,10 +102,6 @@ const BAR_LABEL_PADDING = 14;
 
 function formatTime(value: number): string {
   return String(Math.round(value * 10) / 10);
-}
-
-function clamp01(value: number): number {
-  return Math.min(1, Math.max(0, value));
 }
 
 function positiveNumber(value: unknown, what: string, objectId: string): number {
@@ -279,8 +275,6 @@ function boost(state: SchedulerState): SchedulerState {
   return { ...state, lanes, processes: boosted };
 }
 
-const OPS: Record<string, (state: SchedulerState, op: LabOp) => SchedulerState> = { arrive, run, idle, preempt, block, wake, finish, boost };
-
 function geometry(levels: number) {
   const lanesBottom = LANES_TOP + levels * LANE_HEIGHT + (levels - 1) * LANE_GAP;
   const bandTop = lanesBottom + BAND_GAP;
@@ -328,22 +322,20 @@ function lerpFrame(from: CardFrame, to: CardFrame, progress: number): CardFrame 
   };
 }
 
-function fittedSize(text: string, maxSize: number, room: number, font: FontRole): number {
-  return Math.min(maxSize, (room / textWidth(text, 100, font)) * 100);
-}
-
 function cardDrawables(state: SchedulerState, id: string, frame: CardFrame, remaining: number): Drawable[] {
   const process = processOf(state, id);
   const part = `${state.objectId}[${id}]`;
   const room = frame.w - 16;
   const card: Drawable = { id: `card-${id}`, kind: "rect", x: frame.x, y: frame.y, w: frame.w, h: frame.h, fill: frame.running ? "fill2" : "fill", stroke: process.color, strokeWidth: frame.running ? 4 : 2.5, radius: 1, z: frame.running ? 6 : 4, part };
+  const textZ = frame.running ? 7 : 5;
   if (frame.compact) {
-    return [card, { id: `card-${id}-name`, kind: "text", x: frame.x, y: frame.y, text: id, size: fittedSize(id, 24, room, "mark"), font: "mark", fill: process.color, z: frame.running ? 7 : 5, part }];
+    return [card, textDrawable(`card-${id}-name`, id, frame, { size: fitText(id, 24, room, "mark"), font: "mark", fill: process.color, z: textZ, part })];
   }
+  const left = `${formatTime(remaining)} left`;
   return [
     card,
-    { id: `card-${id}-name`, kind: "text", x: frame.x, y: frame.y - 14, text: id, size: fittedSize(id, 34, room, "mark"), font: "mark", fill: process.color, z: frame.running ? 7 : 5, part },
-    { id: `card-${id}-left`, kind: "text", x: frame.x, y: frame.y + 20, text: `${formatTime(remaining)} left`, size: fittedSize(`${formatTime(remaining)} left`, 22, room, "read"), font: "read", fill: "muted", z: frame.running ? 7 : 5, part },
+    textDrawable(`card-${id}-name`, id, { x: frame.x, y: frame.y - 14 }, { size: fitText(id, 34, room, "mark"), font: "mark", fill: process.color, z: textZ, part }),
+    textDrawable(`card-${id}-left`, left, { x: frame.x, y: frame.y + 20 }, { size: fitText(left, 22, room, "read"), fill: "muted", z: textZ, part }),
   ];
 }
 
@@ -352,16 +344,16 @@ function named(id: string, drawable: Drawable): Drawable {
 }
 
 function areaBox(id: string, left: number, top: number, w: number, h: number): Drawable {
-  return { id, kind: "rect", x: left + w / 2, y: top + h / 2, w, h, fill: "fill", stroke: "rule", strokeWidth: 1, radius: 1, z: 0 };
+  return boxDrawable(id, { x: left, y: top, w, h }, { fill: "fill", stroke: "rule", strokeWidth: 1, radius: 1, z: 0 });
 }
 
 function areaLabel(id: string, text: string, at: Point): Drawable {
-  return { ...named(id, labelDrawable(text, at, 22, "mark", "muted", 1)), anchor: "start" };
+  return textDrawable(id, text, at, { size: 22, font: "mark", fill: "muted", z: 1, anchor: "start" });
 }
 
 function clockDrawables(state: SchedulerState, time: number): Drawable[] {
-  const header: Drawable[] = [{ id: "clock", kind: "text", x: 0, y: HEADER_HEIGHT / 2, text: `t = ${formatTime(time)}`, size: 40, font: "read", anchor: "start", fill: "ink", z: 1 }];
-  if (state.policy) header.push({ id: "policy", kind: "text", x: 250, y: HEADER_HEIGHT / 2, text: state.policy, size: 26, font: "read", anchor: "start", fill: "muted", z: 1 });
+  const header = [textDrawable("clock", `t = ${formatTime(time)}`, { x: 0, y: HEADER_HEIGHT / 2 }, { size: 40, anchor: "start", z: 1 })];
+  if (state.policy) header.push(textDrawable("policy", state.policy, { x: 250, y: HEADER_HEIGHT / 2 }, { size: 26, anchor: "start", fill: "muted", z: 1 }));
   return header;
 }
 
@@ -381,10 +373,10 @@ function areaDrawables(state: SchedulerState): Drawable[] {
     areaBox("finished-box", SIDE_LEFT, bandTop, SIDE_WIDTH, BAND_HEIGHT),
     areaLabel("finished-label", "Done", { x: SIDE_LEFT + AREA_LEFT_MARGIN, y: bandTop + BAND_HEIGHT / 2 }),
   ];
-  if (state.cpu === null) areas.push({ id: "cpu-idle", kind: "text", x: cpuCenter.x, y: cpuCenter.y, text: "idle", size: 28, font: "read", fill: "muted", z: 1 });
+  if (state.cpu === null) areas.push(textDrawable("cpu-idle", "idle", cpuCenter, { size: 28, fill: "muted", z: 1 }));
   if (state.incoming.length > 0) {
     const stagedCount = state.processes.filter((process) => process.arrive > 0).length;
-    areas.push({ id: "incoming-label", kind: "text", x: WIDTH - COMPACT_SIZE - (stagedCount - 1) * INCOMING_PITCH - 16, y: HEADER_HEIGHT / 2, text: "Not yet arrived", size: 22, font: "read", anchor: "end", fill: "muted", z: 1 });
+    areas.push(textDrawable("incoming-label", "Not yet arrived", { x: WIDTH - COMPACT_SIZE - (stagedCount - 1) * INCOMING_PITCH - 16, y: HEADER_HEIGHT / 2 }, { size: 22, anchor: "end", fill: "muted", z: 1 }));
   }
   return [...lanes, ...areas];
 }
@@ -404,8 +396,8 @@ function sliceDrawables(state: SchedulerState, index: number, slice: Slice, end:
   const center = { x: left + width / 2, y: trackTop + TRACK_HEIGHT / 2 };
   const fill: Paint = process?.color ?? "fill2";
   return [
-    { id: `slice-${index}`, kind: "rect", x: center.x, y: center.y, w: width, h: TRACK_HEIGHT - 2 * BAR_INSET, fill, stroke: "ground", strokeWidth: 2, radius: 0.5, z: 2 },
-    { id: `slice-${index}-label`, kind: "text", x: center.x, y: center.y, text: labelText, size: BAR_LABEL_SIZE, font: "mark", fill: process ? "ground" : "muted", opacity: fits, z: 3 },
+    boxDrawable(`slice-${index}`, { x: left, y: trackTop + BAR_INSET, w: width, h: TRACK_HEIGHT - 2 * BAR_INSET }, { fill, stroke: "ground", strokeWidth: 2, radius: 0.5, z: 2 }),
+    textDrawable(`slice-${index}-label`, labelText, center, { size: BAR_LABEL_SIZE, font: "mark", fill: process ? "ground" : "muted", opacity: fits, z: 3 }),
   ];
 }
 
@@ -415,12 +407,12 @@ function ganttDrawables(state: SchedulerState): Drawable[] {
   const ticks = Array.from({ length: state.axis.end / state.axis.step + 1 }, (_, index) => index * state.axis.step);
   return [
     areaLabel("gantt-label", "CPU", { x: 0, y: trackTop + TRACK_HEIGHT / 2 }),
-    { id: "track", kind: "rect", x: TRACK_LEFT + TRACK_WIDTH / 2, y: trackTop + TRACK_HEIGHT / 2, w: TRACK_WIDTH, h: TRACK_HEIGHT, fill: "fill", stroke: "rule", strokeWidth: 1, radius: 0.5, z: 0 },
+    boxDrawable("track", { x: TRACK_LEFT, y: trackTop, w: TRACK_WIDTH, h: TRACK_HEIGHT }, { fill: "fill", stroke: "rule", strokeWidth: 1, radius: 0.5, z: 0 }),
     ...ticks.flatMap((time): Drawable[] => {
       const x = TRACK_LEFT + time * scale;
       return [
         { id: `tick-${time}`, kind: "line", x, y: trackBottom, x2: x, y2: trackBottom + TICK_LENGTH, stroke: "edge", strokeWidth: 1.5, z: 1 },
-        { id: `tick-${time}-label`, kind: "text", x, y: trackBottom + TICK_LABEL_OFFSET, text: String(time), size: 22, font: "read", fill: "muted", z: 1 },
+        textDrawable(`tick-${time}-label`, String(time), { x, y: trackBottom + TICK_LABEL_OFFSET }, { size: 22, fill: "muted", z: 1 }),
         ...(time === 0 || time === state.axis.end ? [] : [{ id: `grid-${time}`, kind: "line" as const, x, y: trackTop, x2: x, y2: trackBottom, stroke: "rule" as const, strokeWidth: 1, z: 1 }]),
       ];
     }),
@@ -434,27 +426,29 @@ function runSeconds(op: LabOp, state: SchedulerState): number {
   return Math.min(3.4, 0.9 + 0.3 * span);
 }
 
-const OP_SECONDS: Record<string, number> = { arrive: 0.8, preempt: 0.9, block: 0.9, wake: 0.9, finish: 0.8, boost: 1.2 };
+function clockAdvance(before: SchedulerState, after: SchedulerState, _op: LabOp, progress: number): Drawable[] {
+  const growth = clamp01(progress);
+  const grown = lerp(before.clock, after.clock, growth);
+  const slice = after.slices[after.slices.length - 1]!;
+  const out = [...clockDrawables(after, grown), ...sliceDrawables(after, after.slices.length - 1, slice, grown)];
+  if (slice.process !== null) {
+    const id = slice.process;
+    const remaining = lerp(processOf(before, id).remaining, processOf(after, id).remaining, growth);
+    out.push(...cardDrawables(after, id, lerpFrame(cardFrame(before, id), cardFrame(after, id), progress), remaining));
+  }
+  return out;
+}
 
 export const lab: LabDef<SchedulerSpec, SchedulerState> = {
   id: "scheduler",
   title: "Scheduler",
+  reading: "required",
   catalog: {
     summary: "A CPU scheduler: ready queue lanes (one per MLFQ level), a CPU, an I/O area, a Done area and a Gantt chart with a clock. You say which process moves and the Lab checks it is legal; every process keeps one color.",
     spec: {
       processes: 'list of up to 6 {"id":"P1","burst":5,"arrive":0,"io":2}; burst is CPU time needed; arrive > 0 holds the process off stage until an arrive op, otherwise it starts ready in queue 0 in list order; io is how long its I/O takes, so wake is legal only that long after block',
       queues: "optional number of ready queues, 1 to 4 (default 1); 2 or more draws MLFQ levels Q0 (top) down",
       policy: 'optional label shown on screen only, such as "Round robin, quantum 2"',
-    },
-    ops: {
-      arrive: '{"p": "P3", "level": 0}; a staged process (arrive > 0) joins the back of a ready queue; legal once the clock has reached its arrive time',
-      run: '{"p": "P1", "until": 4}; a ready process moves to the CPU and the Gantt bar grows from the clock to "until"; until must be later than the clock and no more than its burst left',
-      idle: '{"until": 6}; nothing is on the CPU and the clock moves on, drawn as an idle gap',
-      preempt: '{"p": "P1", "level": 1}; the process on the CPU goes to the back of a ready queue; optional level demotes or promotes it, default its current level',
-      block: '{"p": "P2"}; the process on the CPU goes to the I/O area',
-      wake: '{"p": "P2", "level": 0}; an I/O process goes to the back of a ready queue once its io time has passed',
-      finish: '{"p": "P1"}; the process on the CPU with no burst left moves to Done',
-      boost: "no args; every unfinished process returns to queue 0, queue order kept",
     },
     example: [
       '{"step":1,"say":"Two jobs share the CPU with a quantum of two. P1 runs two ticks, then goes to the back so P2 gets a turn.","scene":{"sched":{"lab":"scheduler","policy":"Round robin, quantum 2","processes":[{"id":"P1","burst":3},{"id":"P2","burst":2}]}},"do":[{"cue":"P1 runs","op":"run","on":["sched"],"p":"P1","until":2},{"cue":"goes to the back","op":"preempt","on":["sched"],"p":"P1"},{"cue":"P2 gets a turn","op":"run","on":["sched"],"p":"P2","until":4},{"cue":"P2 gets a turn","op":"finish","on":["sched"],"p":"P2"}]}',
@@ -483,10 +477,49 @@ export const lab: LabDef<SchedulerSpec, SchedulerState> = {
     };
   },
 
-  apply(state, op) {
-    const handler = OPS[op.name];
-    if (!handler) return fail(`scheduler has no op "${op.name}"; ops: ${Object.keys(OPS).join(", ")}`);
-    return handler(state, op);
+  ops: {
+    arrive: {
+      doc: '{"p": "P3", "level": 0}; a staged process (arrive > 0) joins the back of a ready queue; legal once the clock has reached its arrive time',
+      seconds: 0.8,
+      apply: arrive,
+    },
+    run: {
+      doc: '{"p": "P1", "until": 4}; a ready process moves to the CPU and the Gantt bar grows from the clock to "until"; until must be later than the clock and no more than its burst left',
+      seconds: runSeconds,
+      apply: run,
+      during: clockAdvance,
+    },
+    idle: {
+      doc: '{"until": 6}; nothing is on the CPU and the clock moves on, drawn as an idle gap',
+      seconds: runSeconds,
+      apply: idle,
+      during: clockAdvance,
+    },
+    preempt: {
+      doc: '{"p": "P1", "level": 1}; the process on the CPU goes to the back of a ready queue; optional level demotes or promotes it, default its current level',
+      seconds: 0.9,
+      apply: preempt,
+    },
+    block: {
+      doc: '{"p": "P2"}; the process on the CPU goes to the I/O area',
+      seconds: 0.9,
+      apply: block,
+    },
+    wake: {
+      doc: '{"p": "P2", "level": 0}; an I/O process goes to the back of a ready queue once its io time has passed',
+      seconds: 0.9,
+      apply: wake,
+    },
+    finish: {
+      doc: '{"p": "P1"}; the process on the CPU with no burst left moves to Done',
+      seconds: 0.8,
+      apply: finish,
+    },
+    boost: {
+      doc: "no args; every unfinished process returns to queue 0, queue order kept",
+      seconds: 1.2,
+      apply: boost,
+    },
   },
 
   size(state) {
@@ -500,23 +533,5 @@ export const lab: LabDef<SchedulerSpec, SchedulerState> = {
       ...state.processes.flatMap((process) => cardDrawables(state, process.id, cardFrame(state, process.id), process.remaining)),
       ...ganttDrawables(state),
     ];
-  },
-
-  duration(op, state) {
-    return op.name === "run" || op.name === "idle" ? runSeconds(op, state) : OP_SECONDS[op.name] ?? 0.9;
-  },
-
-  during(before, after, op, progress) {
-    if (op.name !== "run" && op.name !== "idle") return [];
-    const growth = clamp01(progress);
-    const grown = lerp(before.clock, after.clock, growth);
-    const slice = after.slices[after.slices.length - 1]!;
-    const out = [...clockDrawables(after, grown), ...sliceDrawables(after, after.slices.length - 1, slice, grown)];
-    if (slice.process !== null) {
-      const id = slice.process;
-      const remaining = lerp(processOf(before, id).remaining, processOf(after, id).remaining, growth);
-      out.push(...cardDrawables(after, id, lerpFrame(cardFrame(before, id), cardFrame(after, id), progress), remaining));
-    }
-    return out;
   },
 };

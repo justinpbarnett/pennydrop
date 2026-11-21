@@ -1,8 +1,7 @@
 import { createInterface } from "node:readline";
-import { usesCode } from "../src/assets";
+import { prepareStepAssets } from "../src/assets";
 import type { Step } from "../src/format";
 import { renderFrame } from "../src/frame";
-import { loadHighlighter } from "../src/highlight";
 import { LabError } from "../src/lab";
 import { crowdedSceneError } from "../src/layout";
 import { EMPTY_SCENE, type SceneState, startSceneOf } from "../src/scene";
@@ -24,7 +23,7 @@ interface StepResult {
 }
 
 async function checkStep(timeline: Timeline, step: Step): Promise<StepResult> {
-  if (usesCode(step)) await loadHighlighter();
+  await prepareStepAssets(step);
   const span = timeline.addStep(step);
   const errors = [...span.errors];
   if (errors.length === 0) {
@@ -48,7 +47,9 @@ function isScene(value: unknown): value is SceneState {
 
 async function validateFile(path: string): Promise<boolean> {
   const lesson = await readLessonFile(path);
-  const timeline = new Timeline(startSceneOf(lesson.lesson));
+  const start = startSceneOf(lesson.lesson);
+  await prepareStepAssets(start);
+  const timeline = new Timeline(start);
   let allOk = true;
   for (const step of lesson.steps) {
     const result = await checkStep(timeline, step);
@@ -63,7 +64,9 @@ async function answer(request: Request): Promise<object> {
   const start = request.scene ?? EMPTY_SCENE;
   if (!step) return { id, ok: false, errors: ['request needs a "step"; send {"id": "...", "scene": <SceneState or null>, "step": {...}}'], scene: start };
   if (!isScene(start)) return { id, step: step.step, ok: false, errors: ['"scene" must be null or a SceneState with "objects" and "focus", as an earlier reply returned it'], scene: null };
-  const timeline = new Timeline(request.reading === undefined ? start : { ...start, reading: request.reading });
+  const scene = request.reading === undefined ? start : { ...start, reading: request.reading };
+  await prepareStepAssets(scene);
+  const timeline = new Timeline(scene);
   const result = await checkStep(timeline, step);
   return { id, ...result, scene: result.ok ? timeline.finalScene : start };
 }
