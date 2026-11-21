@@ -115,9 +115,12 @@ function inkOf(markup: string): Ink {
   const ink: Ink = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
   const stack: Transform[] = [IDENTITY];
   for (const [tag] of markup.matchAll(/<\/?(?:g|path|rect)\b[^>]*>/g)) {
-    const current = stack[stack.length - 1]!;
-    if (tag.startsWith("</g")) stack.pop();
-    else if (tag.startsWith("<g")) stack.push(compose(current, /transform="([^"]*)"/.exec(tag)?.[1] ?? ""));
+    if (tag.startsWith("</g")) {
+      stack.pop();
+      continue;
+    }
+    const current = compose(stack[stack.length - 1]!, /transform="([^"]*)"/.exec(tag)?.[1] ?? "");
+    if (tag.startsWith("<g")) stack.push(current);
     else if (tag.startsWith("<path")) includePath(ink, current, /\sd="([^"]*)"/.exec(tag)![1]!);
     else {
       const attribute = (name: string) => Number(new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1] ?? 0);
