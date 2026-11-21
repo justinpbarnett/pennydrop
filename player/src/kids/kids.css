@@ -1,0 +1,71 @@
+:root { color-scheme: light; --big: clamp(96px, 26vmin, 220px); --mid: calc(var(--big) * 0.72); }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: manipulation; background: var(--ground); -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+#kids { position: fixed; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+@media (orientation: portrait) {
+  #kids { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+}
+
+.kstage-area { display: grid; place-items: center; min-width: 0; min-height: 0; }
+.kstage-frame { position: relative; width: var(--stage-width, 100%); aspect-ratio: 16 / 9; border-radius: 36px; overflow: hidden; background: var(--ground); border: 6px solid var(--rule); transition: box-shadow 0.3s; }
+#stage { display: block; width: 100%; height: 100%; }
+.kstage-frame.awaiting { animation: awaiting 1.1s ease-in-out infinite; }
+.kstage-frame.right { animation: right 1.2s ease-out; }
+.kstage-frame.wrong { animation: wrong 0.5s ease-in-out; }
+@keyframes awaiting { 50% { box-shadow: 0 0 0 14px color-mix(in srgb, var(--accent) 45%, transparent); } }
+@keyframes right { 0% { box-shadow: 0 0 0 0 var(--ok); } 40% { box-shadow: 0 0 0 12px color-mix(in srgb, var(--ok) 55%, transparent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes wrong { 0%, 100% { transform: translateX(0); box-shadow: 0 0 0 8px color-mix(in srgb, var(--fault) 50%, transparent); } 20% { transform: translateX(-8px); } 40% { transform: translateX(7px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(3px); } }
+
+.dock { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 16px; }
+@media (orientation: portrait) {
+  .dock { flex-direction: row; }
+}
+.dock button { flex: none; display: grid; place-items: center; width: var(--mid); height: var(--mid); padding: 0; border: 0; border-radius: 50%; color: #fff; cursor: pointer; box-shadow: 0 8px 0 color-mix(in srgb, currentColor 0%, rgba(42, 26, 77, 0.28)), inset 0 -6px 0 rgba(42, 26, 77, 0.18); transition: transform 0.08s, box-shadow 0.08s, opacity 0.2s; }
+.dock button:active:not(:disabled) { transform: translateY(6px); box-shadow: 0 2px 0 rgba(42, 26, 77, 0.28), inset 0 -3px 0 rgba(42, 26, 77, 0.18); }
+.dock button:disabled { opacity: 0.35; cursor: default; }
+.dock svg { width: 56%; height: 56%; }
+.why { background: var(--compare); }
+.play { background: var(--done); }
+.mic { width: var(--big) !important; height: var(--big) !important; background: var(--accent); position: relative; }
+.mic[aria-pressed="true"] { background: var(--fault); animation: listening 1.1s ease-in-out infinite; }
+.mic[aria-pressed="true"]::before { content: ""; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 min(8px, calc(var(--level, 0) * 70px)) color-mix(in srgb, var(--fault) 40%, transparent); transition: box-shadow 0.08s; }
+@keyframes listening { 50% { transform: scale(1.04); } }
+
+.face-layer { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4%; }
+.face-layer[hidden] { display: none; }
+.face-layer:not([data-mood="idle"]) { background: color-mix(in srgb, var(--ground) 74%, transparent); }
+.mascot { width: min(44vh, 34vw); max-width: 100%; max-height: 62%; aspect-ratio: 1; overflow: visible; }
+.coin-edge { fill: var(--warn); }
+.coin-face { fill: var(--highlight); }
+.coin-shine { fill: none; stroke: #fff; stroke-width: 10; stroke-linecap: round; opacity: 0.8; }
+.coin-eye { fill: var(--ink); }
+.coin-mouth { fill: none; stroke: var(--ink); stroke-width: 9; stroke-linecap: round; }
+.coin-mouth.sad, .coin-mouth.open { display: none; }
+.coin-mouth.open { fill: var(--ink); stroke: none; }
+[data-mood="sad"] .coin-mouth.happy, [data-mood="listen"] .coin-mouth.happy { display: none; }
+[data-mood="sad"] .coin-mouth.sad, [data-mood="listen"] .coin-mouth.open { display: inline; }
+[data-mood="idle"] .mascot { animation: bob 1.8s ease-in-out infinite; }
+[data-mood="think"] .mascot { animation: sway 1.3s ease-in-out infinite; }
+[data-mood="listen"] .mascot { animation: bob 0.7s ease-in-out infinite; }
+[data-mood="sad"] .mascot { animation: droop 0.9s ease-out both; }
+@keyframes bob { 50% { transform: translateY(-6%) scale(1.03); } }
+@keyframes sway { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
+@keyframes droop { from { transform: translateY(-8%); } to { transform: translateY(4%) rotate(-6deg); } }
+.dots { display: none; gap: 22px; }
+[data-mood="think"] .dots { display: flex; }
+.dots i { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); animation: dot 1s ease-in-out infinite; }
+.dots i:nth-child(2) { background: var(--compare); animation-delay: 0.15s; }
+.dots i:nth-child(3) { background: var(--swap); animation-delay: 0.3s; }
+@keyframes dot { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-22px); } }
+
+.burst { position: absolute; width: 0; height: 0; pointer-events: none; }
+.burst i { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; border-radius: 50%; background: var(--series1); animation: spray 1s ease-out forwards; }
+.burst i[style*="--hue:1"] { background: var(--series2); }
+.burst i[style*="--hue:2"] { background: var(--series6); }
+@keyframes spray { from { transform: rotate(var(--angle)) translateY(0) scale(1); opacity: 1; } to { transform: rotate(var(--angle)) translateY(-110px) scale(0.3); opacity: 0; } }
+
+.avatars { position: fixed; inset: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4vmin; padding: 6vmin; background: var(--ground); }
+.avatars[hidden] { display: none; }
+.avatar-choice { flex: none; width: clamp(120px, 28vmin, 240px); height: clamp(120px, 28vmin, 240px); padding: 10px; border: 0; border-radius: 50%; background: #fff; cursor: pointer; box-shadow: 0 10px 0 rgba(42, 26, 77, 0.2); }
+.avatar-choice:active { transform: translateY(6px); }
+.avatar-choice svg { width: 100%; height: 100%; overflow: visible; }

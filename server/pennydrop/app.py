@@ -18,6 +18,7 @@ from .intake import IntakeError
 from .mint import minted_labs_router
 from .mint.paths import MintPaths
 from .services import Services
+from .system_lines import SYSTEM_LINES
 from .tts import MEDIA_PREFIX, TtsError
 
 
@@ -103,6 +104,13 @@ def create_app(services: Services) -> FastAPI:
         voice = await services.speaker.voice(body.text, provider=body.provider, voice=body.voice)
         return {**voice.for_player(), "cache_hit": voice.cache_hit}
 
+    @app.get("/api/system-lines/{name}")
+    async def system_line(name: str):
+        if name not in SYSTEM_LINES:
+            raise LookupError(f"no system line '{name}', known lines: {', '.join(SYSTEM_LINES)}")
+        voice = await services.speaker.voice(SYSTEM_LINES[name])
+        return voice.for_player()
+
     @app.post("/api/transcribe")
     async def transcribe(audio: UploadFile):
         return {"text": await services.transcriber.transcribe(await audio.read())}
@@ -123,6 +131,26 @@ def create_app(services: Services) -> FastAPI:
     @app.get("/api/profiles/{profile_id}/log")
     async def profile_log(profile_id: int):
         return services.store.profile_log(profile_id)
+
+    @app.get("/kids/manifest.webmanifest", include_in_schema=False)
+    async def kids_manifest(profile: int | None = None):
+        start = "/kids/" if profile is None else f"/kids/?profile={profile}"
+        manifest = {
+            "name": "Pennydrop",
+            "short_name": "Pennydrop",
+            "start_url": start,
+            "scope": "/kids/",
+            "display": "standalone",
+            "orientation": "any",
+            "background_color": "#FFF4DA",
+            "theme_color": "#FFF4DA",
+            "icons": [
+                {"src": "/kids/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": "/kids/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                {"src": "/kids/icon.svg", "sizes": "any", "type": "image/svg+xml"},
+            ],
+        }
+        return JSONResponse(manifest, media_type="application/manifest+json")
 
     services.settings.tts_cache_dir.mkdir(parents=True, exist_ok=True)
     app.mount(MEDIA_PREFIX, StaticFiles(directory=services.settings.tts_cache_dir), name="tts-media")
@@ -163,4 +191,6 @@ def _mount_player(app: FastAPI, services: Services) -> None:
         candidate = (dist / path).resolve()
         if path and candidate.is_file() and dist.resolve() in candidate.parents:
             return FileResponse(candidate)
+        if path.rstrip("/") == "kids":
+            return FileResponse(dist / "kids.html")
         return FileResponse(dist / "index.html")

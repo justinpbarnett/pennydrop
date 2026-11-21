@@ -1,0 +1,13 @@
+body.log { overflow: auto; height: auto; }
+#log { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; display: grid; gap: 28px; }
+#log header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+#log h1 { margin: 0; font: var(--weight-mark) 24px/1 var(--font-mark); letter-spacing: var(--tracking-mark); text-transform: var(--mark-case); flex: 1; }
+#log h2 { margin: 0 0 10px; font: var(--weight-mark) 16px/1 var(--font-mark); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+#log select { font: 15px var(--font-read); color: var(--ink); background: var(--fill); border: 1px solid var(--rule); padding: 8px 12px; }
+#log a { color: var(--ink); text-decoration-color: var(--rule); text-underline-offset: 3px; }
+#log a:hover { text-decoration-color: var(--accent); }
+#log .back { color: var(--muted); }
+#log table { width: 100%; border-collapse: collapse; font-size: 14px; }
+#log th { text-align: left; color: var(--muted); font-weight: 400; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--rule); }
+#log td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; font-variant-numeric: lining-nums tabular-nums; }
+#log .none { margin: 0; color: var(--muted); font-size: 14px; }

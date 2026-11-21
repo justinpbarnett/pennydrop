@@ -24,13 +24,12 @@ export class Playback {
   private theme: Theme = THEMES.pattern;
   private wantsToPlay = false;
   private readonly answered = new Set<number>();
-  private readonly audio = new Audio();
   private audioStep = -1;
   private lastTick = 0;
   private listeners: (() => void)[] = [];
   private arrivals: Promise<void> = Promise.resolve();
 
-  constructor() {
+  constructor(private readonly audio: HTMLAudioElement = new Audio()) {
     this.audio.preload = "auto";
   }
 

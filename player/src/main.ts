@@ -10,32 +10,12 @@ import { Playback } from "./playback";
 import { Recorder } from "./recorder";
 import { StageRenderer } from "./render";
 import { firstProfileId, listLessons, loadLesson, postAnswer } from "./source";
-import { isThemeId, THEME_IDS, THEMES, type ThemeId } from "./theme";
+import { THEMES, type ThemeId } from "./theme";
+import { applyThemeVars } from "./theme-css";
+import { buildSwatches, markSwatches, rememberedTheme, rememberTheme } from "./theme-picker";
 
 const query = new URLSearchParams(location.search);
 const requestedProfile = query.has("profile") ? Number(query.get("profile")) : null;
-const THEME_KEY = "pennydrop.theme";
-
-function storedTheme(): string | null {
-  try {
-    return localStorage.getItem(THEME_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function storeTheme(id: ThemeId): void {
-  try {
-    localStorage.setItem(THEME_KEY, id);
-  } catch {
-    return;
-  }
-}
-
-function remembered(): ThemeId {
-  const wanted = query.get("theme") ?? storedTheme();
-  return isThemeId(wanted) ? wanted : "pattern";
-}
 
 const $ = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const renderer = new StageRenderer($<SVGSVGElement>("#stage"));
@@ -59,7 +39,7 @@ let playback = new Playback();
 let lessonId = "";
 let profileId: number | null = null;
 let loading = new AbortController();
-let themeId: ThemeId = remembered();
+let themeId: ThemeId = rememberedTheme();
 let challengeView: ChallengeView | null = null;
 let shownChallenge = -1;
 let captionStep = -1;
@@ -70,32 +50,11 @@ let scrubbing = false;
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
 function applyTheme(id: ThemeId): void {
-  const theme = THEMES[id];
-  const root = document.documentElement;
   themeId = id;
-  root.dataset.theme = id;
-  for (const [role, value] of Object.entries(theme.colors)) root.style.setProperty(`--${role}`, value);
-  root.style.setProperty("--font-mark", theme.fonts.mark.family);
-  root.style.setProperty("--font-read", theme.fonts.read.family);
-  root.style.setProperty("--weight-mark", String(theme.fonts.mark.weight));
-  root.style.setProperty("--tracking-mark", `${theme.fonts.mark.tracking}em`);
-  root.style.setProperty("--corner", `${theme.corner}px`);
-  root.style.setProperty("--mark-case", theme.capitalMarks ? "uppercase" : "none");
-  root.style.setProperty("--stroke", `${theme.stroke}px`);
+  applyThemeVars(id);
   playback.setTheme(id);
-  storeTheme(id);
-  document.querySelectorAll<HTMLButtonElement>(".swatch").forEach((swatch) => swatch.setAttribute("aria-checked", String(swatch.dataset.theme === id)));
-}
-
-function buildSwatches(): void {
-  $("#themes").replaceChildren(...THEME_IDS.map((id) => {
-    const theme = THEMES[id];
-    const swatch = h("button", { class: "swatch", type: "button", role: "radio", "data-theme": id, title: theme.name, "aria-label": `${theme.name} theme` },
-      h("span", { class: "chip", style: `background:${theme.colors.ground};border-color:${theme.colors.rule}` }, h("i", { style: `background:${theme.colors.accent}` })),
-      h("span", { class: "label" }, theme.name));
-    swatch.addEventListener("click", () => applyTheme(id));
-    return swatch;
-  }));
+  rememberTheme(id);
+  markSwatches(id);
 }
 
 function renderCaption(): void {
@@ -256,6 +215,7 @@ async function toggleRecording(): Promise<void> {
 
 function wireControls(): void {
   $(".top").insertBefore(askBar.element, $("#themes"));
+  $(".stage-frame").append(askBar.note);
   playButton.addEventListener("click", () => playback.toggle());
   scrub.addEventListener("input", () => { scrubbing = true; playback.seek(Number(scrub.value)); });
   scrub.addEventListener("change", () => { scrubbing = false; });
@@ -282,9 +242,9 @@ function loop(now: number): void {
   requestAnimationFrame(loop);
 }
 
-buildSwatches();
+buildSwatches($("#themes"), applyTheme);
 wireControls();
-applyTheme(remembered());
+applyTheme(rememberedTheme());
 requestAnimationFrame(loop);
 profileId = await firstProfileId(requestedProfile);
 await loadMintedLabs();
@@ -292,7 +252,7 @@ const lessons = await listLessons();
 picker.replaceChildren(...lessons.map((lesson) => h("option", { value: lesson.id }, lesson.title)));
 const first = query.get("lesson") ?? lessons[0]?.id;
 if (first) {
-  picker.value = first;
+  addPickerOption(first, first);
   void open(first);
   await loadFonts();
 } else {

@@ -7,6 +7,7 @@ export interface AskBarHandlers {
 
 export interface AskBar {
   element: HTMLElement;
+  note: HTMLElement;
   setRecording(recording: boolean): void;
   setLevel(level: number): void;
   setBusy(busy: boolean): void;
@@ -21,7 +22,7 @@ export function buildAskBar(handlers: AskBarHandlers): AskBar {
   const meter = h("i", { class: "meter" });
   const mic = h("button", { id: "ask-mic", class: "mic", type: "button", "aria-label": "Ask with your voice", "aria-pressed": "false" }, meter);
   const note = h("p", { class: "ask-note", role: "status", hidden: true });
-  const form = h("form", { class: "ask", role: "search" }, input, mic, note);
+  const form = h("form", { class: "ask", role: "search" }, input, mic);
   let noteTimer = 0;
 
   form.addEventListener("submit", (event) => {
@@ -41,6 +42,7 @@ export function buildAskBar(handlers: AskBarHandlers): AskBar {
 
   return {
     element: form,
+    note,
     setRecording(recording) {
       mic.setAttribute("aria-pressed", String(recording));
       mic.setAttribute("aria-label", recording ? "Stop recording and ask" : "Ask with your voice");
