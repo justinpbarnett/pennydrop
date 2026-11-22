@@ -18,6 +18,7 @@ from .jev import Answer, Choice, ChoiceAnswer, JevRoute, Question, Score, ScoreA
 from .types import Completion, GatewayError, Image, Request, RouteError, Thinking, Usage
 
 MAX_HEDGED_ATTEMPTS = 5
+MAX_HEDGES_IN_FLIGHT = 4
 LOG = logging.getLogger("pennydrop.gateway")
 
 __all__ = [
@@ -68,6 +69,7 @@ class Gateway:
             RouteKind.OPENROUTER: OpenRouterRoute(settings),
         }
         self._jev = JevRoute(settings)
+        self._hedges_in_flight = 0
 
     async def complete(self, job: Job, prompt: str, **options: Unpack[RequestOptions]) -> Completion:
         pieces: list[str] = []
@@ -154,7 +156,11 @@ class Gateway:
 
         def spawn(index: int) -> asyncio.Task[None]:
             starts[index] = time.monotonic()
-            return asyncio.create_task(pump(index))
+            task = asyncio.create_task(pump(index))
+            if index:
+                self._hedges_in_flight += 1
+                task.add_done_callback(self._hedge_landed)
+            return task
 
         async def pump(index: int) -> None:
             try:
@@ -164,25 +170,31 @@ class Gateway:
             except GatewayError as error:
                 await queue.put((index, error))
 
+        def hedge() -> None:
+            nonlocal latest, next_hedge
+            next_hedge = time.monotonic() + request.hedge_after
+            if self._hedges_in_flight < MAX_HEDGES_IN_FLIGHT:
+                latest += 1
+                tasks[latest] = spawn(latest)
+
         tasks = {0: spawn(0)}
         latest = 0
+        next_hedge = time.monotonic() + request.hedge_after
         winner: int | None = None
         lost: list[int] = []
         stats: CallStats | None = None
         try:
             while True:
-                hedge_due = request.hedge_after - (time.monotonic() - starts[latest]) if winner is None and latest + 1 < MAX_HEDGED_ATTEMPTS else None
+                may_hedge = winner is None and latest + 1 < MAX_HEDGED_ATTEMPTS
                 try:
-                    index, item = await asyncio.wait_for(queue.get(), None if hedge_due is None else max(hedge_due, 0))
+                    index, item = await asyncio.wait_for(queue.get(), max(next_hedge - time.monotonic(), 0) if may_hedge else None)
                 except TimeoutError:
-                    latest += 1
-                    tasks[latest] = spawn(latest)
+                    hedge()
                     continue
                 if isinstance(item, Thinking):
-                    if index == latest and winner is None and latest + 1 < MAX_HEDGED_ATTEMPTS:
-                        LOG.warning("hedge: %s attempt %d began thinking %.1fs in, so attempt %d starts now", route, index + 1, time.monotonic() - starts[index], index + 2)
-                        latest += 1
-                        tasks[latest] = spawn(latest)
+                    if index == latest and may_hedge:
+                        LOG.warning("hedge: %s attempt %d began thinking %.1fs in, so another attempt starts now", route, index + 1, time.monotonic() - starts[index])
+                        hedge()
                     continue
                 if winner is None and isinstance(item, str):
                     winner = index
@@ -206,6 +218,9 @@ class Gateway:
             await _cancel(tasks.values())
             for other in lost:
                 self._log_hedge_loser(job, route, request, starts[other], stats)
+
+    def _hedge_landed(self, _: asyncio.Task[None]) -> None:
+        self._hedges_in_flight -= 1
 
     async def _attempt(self, job: Job, route: RouteSpec, request: Request) -> AsyncIterator[str | CallStats | Thinking]:
         started = time.monotonic()
