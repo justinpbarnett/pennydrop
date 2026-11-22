@@ -241,13 +241,12 @@ function placeClusters(clusters: Cluster[], breaks: number): Map<string, Rect> {
   const areaTop = topEdge;
   const areaBottom = bottomEdge;
   const centeredY = (cluster: Cluster) => areaTop + (areaBottom - areaTop - cluster.h) / 2;
-  for (const cluster of centers) origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: centeredY(cluster) });
 
   const flowWidth = rows.length > 0 ? Math.max(...rows.map(rowWidth)) : 0;
-  const bandParts = [...lefts.map((cluster) => cluster.w), ...(rows.length > 0 ? [flowWidth] : []), ...rights.map((cluster) => cluster.w)];
+  const bandParts = [...lefts.map((cluster) => cluster.w), ...centers.map((cluster) => cluster.w), ...(rows.length > 0 ? [flowWidth] : []), ...rights.map((cluster) => cluster.w)];
   const bandWidth = bandParts.reduce((sum, width) => sum + width, 0) + FLOW_GAP * (bandParts.length - 1);
   let x = (STAGE.w - bandWidth) / 2;
-  for (const cluster of lefts) {
+  for (const cluster of [...lefts, ...centers]) {
     origins.set(cluster, { x, y: centeredY(cluster) });
     x += cluster.w + FLOW_GAP;
   }

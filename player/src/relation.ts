@@ -34,7 +34,7 @@ interface GroupEntry {
 }
 
 const REGION_ENTRIES: Record<Region, RegionEntry> = {
-  center: { doc: "the middle of the stage, on its own" },
+  center: { doc: "the middle of the stage, between any left and right objects" },
   top: { doc: "a band along the top edge, centered; several top objects stack downward" },
   bottom: { doc: "a band along the bottom edge, centered; several bottom objects stack upward" },
   left: { doc: "a column on the left of the stage" },
