@@ -105,10 +105,8 @@ interface PointerLook {
 
 const SERIES: Role[] = ["series1", "series2", "series3", "series4", "series5", "series6"];
 const MAX_FRAMES = 3;
-const MAX_ROWS = 6;
 const MAX_VARS = 4;
 const MAX_BYTES = 8;
-const MAX_BLOCKS = 4;
 const MAX_POINTERS = SERIES.length;
 const MAX_NAME = 8;
 const POINTER_BYTES = 8;
@@ -161,6 +159,7 @@ const APPROACH = ARROW_GAP + ARROW_LENGTH + MAX_LEVEL * LEVEL_STEP + 12;
 const FREED_WORD = "(freed)";
 const CAPTION_GAP = 44;
 const BLOCK_LABEL_BAND = CAPTION_GAP + LABEL_SIZE;
+const MAX_BLOCKS = Math.floor(HEAP_ROOM.h / blockBand(MIN_CELL));
 const FREED_STROKE = 3;
 const DASHES_PER_SIDE = 4;
 const DASH_SHARE = 0.5;
@@ -290,7 +289,9 @@ function pointerColor(state: MemoryState, name: string): Role {
 function checked(state: MemoryState, subject: string): MemoryState {
   const variables = allVariables(state);
   if (state.frames.length > MAX_FRAMES) fail(`${subject}: the stack holds at most ${MAX_FRAMES} frames; start a new scene for a deeper call chain`);
-  if (variables.length > MAX_ROWS) fail(`${subject}: the stack holds at most ${MAX_ROWS} variables across all frames, got ${variables.length}; drop some`);
+  const capacity = stackCapacity(state.frames.length);
+  if (variables.length > capacity) fail(`${subject}: ${state.frames.length} stack frames hold at most ${capacity} variables in all, got ${variables.length}; drop some or start a new scene`);
+  if (stackExtent(state, MIN_CELL).w > stackRoom(state).w) fail(`${subject}: the stack is too wide to draw; shorten the variable names or give the variables fewer bytes`);
   if (pointerNames(state).length > MAX_POINTERS) fail(`${subject}: at most ${MAX_POINTERS} pointer variables fit; drop some`);
   if (state.heap.length > MAX_BLOCKS) fail(`${subject}: the heap holds at most ${MAX_BLOCKS} blocks, freed ones included; start a new scene for more`);
   const names = [...variables.map((variable) => variable.name), ...state.heap.map((block) => block.name)];
@@ -496,6 +497,11 @@ function frameWidth(state: MemoryState, frame: Frame, cell: number): number {
   return 2 * FRAME_PAD + Math.max(wordWidth(state, frame.name, LABEL_SIZE, "code"), rows);
 }
 
+function stackCapacity(frameCount: number): number {
+  const chrome = frameCount * (FRAME_HEAD + FRAME_PAD - ROW_GAP) + (frameCount - 1) * FRAME_GAP;
+  return Math.min(frameCount * MAX_VARS, Math.floor((ROOM_HEIGHT - chrome) / (MIN_CELL + ROW_GAP)));
+}
+
 function frameHeight(frame: Frame, cell: number): number {
   return FRAME_HEAD + frame.vars.length * cell + (frame.vars.length - 1) * ROW_GAP + FRAME_PAD;
 }
@@ -554,7 +560,7 @@ function placeFrames(state: MemoryState, cell: number): FramePlace[] {
   const extent = stackExtent(state, cell);
   const room = stackRoom(state);
   const contentWidth = extent.w - 2 * FRAME_PAD;
-  let top = CONTENT_TOP + (room.h - extent.h) / 2;
+  let top = CONTENT_TOP + room.h - extent.h;
   return state.frames.map((frame) => {
     const rect = { x: stackPanel(state).left + PANEL_PAD, y: top, w: room.w, h: frameHeight(frame, cell) };
     top += rect.h + FRAME_GAP;
@@ -569,11 +575,9 @@ function placeFrames(state: MemoryState, cell: number): FramePlace[] {
 }
 
 function placeBlocks(state: MemoryState, cell: number): BlockPlace[] {
-  const extent = heapExtent(state, cell);
   const left = HEAP_LEFT + PANEL_PAD + (HEAP_ROOM.w - widestBlock(state) * cell) / 2;
-  const top = CONTENT_TOP + (HEAP_ROOM.h - extent.h) / 2;
   return state.heap.map((block, index) => {
-    const cellsTop = top + index * blockBand(cell) + APPROACH;
+    const cellsTop = CONTENT_TOP + index * blockBand(cell) + APPROACH;
     const label = { x: left + (block.bytes.length * cell) / 2, y: cellsTop + cell + CAPTION_GAP + LABEL_SIZE / 2 };
     return { block, cells: { x: left, y: cellsTop }, label };
   });
@@ -813,7 +817,7 @@ export const lab: LabDef<MemorySpec, MemoryState> = {
       "C memory: a Stack panel of call frames (newest on top) holding variables as rows of byte cells, a Heap panel of malloc'd blocks (omitted when the spec says \"heap\": false), pointer arrows from a pointer variable to the heap byte it holds, and bytes written into a buffer that run past its end into the neighbour, outlined in red. Teaches pointers, stack frames, malloc and free, dangling pointers and buffer overflow. Memory order runs top to bottom: within a frame vars are listed from low address to high, and below a frame sits its caller, so an overflow runs down into the next variable, then into the caller's frame; in the heap it runs into the next block. Put the object alone in \"on\"; names of variables and blocks are unique.",
     spec: {
       frames:
-        'optional list of frames, oldest (main) first, at most 3, each {"name":"main","vars":[...]}; vars, 1 to 4 per frame and at most 6 in all, are {"name":"buf","bytes":8,"text":"hi"} (1 to 8 bytes; optional text fills the first bytes, one printable ASCII character each, or optional "values" such as [2,1] fills them with byte numbers 0 to 255 drawn as two hex digits, 02 and 01; not both) or {"name":"p","pointer":true} (starts NULL; each pointer keeps its own color). Default: an empty stack',
+        `optional list of frames, oldest (main) first, at most 3, each {"name":"main","vars":[...]}; vars, 1 to 4 per frame and at most ${stackCapacity(2)} in all across 2 frames or ${stackCapacity(3)} across 3, are {"name":"buf","bytes":8,"text":"hi"} (1 to 8 bytes; optional text fills the first bytes, one printable ASCII character each, or optional "values" such as [2,1] fills them with byte numbers 0 to 255 drawn as two hex digits, 02 and 01; not both) or {"name":"p","pointer":true} (starts NULL; each pointer keeps its own color). Default: an empty stack`,
       heap: 'optional boolean, default true; false draws the Stack panel alone, wider and with bigger cells, and rejects malloc, free and pointer aims; use it for a Lesson that never mallocs, such as a stack buffer overflow',
       reading: "optional boolean, default true; false draws no names or characters, written bytes show as dots",
     },
@@ -833,7 +837,7 @@ export const lab: LabDef<MemorySpec, MemoryState> = {
       apply: pushFrame,
     },
     malloc: {
-      doc: '{"block":"blk","bytes":6,"pointer":"p"}; adds a heap block of 1 to 8 empty bytes below the others (at most 4 blocks, freed ones included); optional "pointer" names a pointer variable that is aimed at its first byte',
+      doc: `{"block":"blk","bytes":6,"pointer":"p"}; adds a heap block of 1 to 8 empty bytes below the others (at most ${MAX_BLOCKS} blocks, freed ones included); optional "pointer" names a pointer variable that is aimed at its first byte`,
       seconds: 0.9,
       apply: malloc,
       during: (_before, after, op, progress) => revealRoute(after, op.args.pointer, progress),
