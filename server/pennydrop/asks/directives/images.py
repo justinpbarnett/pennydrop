@@ -9,7 +9,7 @@ from . import locate
 from ._support import DirectiveError, DirectiveTools, parse_spec
 
 TARGETS = ("picture",)
-PICTURE_WAIT = 12.0
+PICTURE_WAIT = 90.0
 BRIEF = "Show the {lab} Lab with the images and locate directives in Step 1: they set its src, w, h, credit and parts, so never copy those from the Lab's example. You still write its operations: show, point, zoom, label, unzoom and clear. The id after \"on\" is one word with no spaces, such as owl, used the same way in every Step. Step 1 has no \"scene\" at all, and looks like {{\"say\": \"...\", \"images\": {{\"on\": \"owl\", \"query\": \"owl\"}}, \"locate\": {{\"on\": \"owl\", \"parts\": [\"eyes\", \"beak\"]}}, \"do\": [{{\"cue\": \"...\", \"op\": \"show\", \"on\": [\"owl\"]}}]}}. Write at least four Steps: Step 1 shows the picture, and each later Step points at, zooms to or labels one more part."
 
 GUIDE = "\n".join([
