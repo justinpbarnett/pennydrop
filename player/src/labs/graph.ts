@@ -337,7 +337,7 @@ const ops: Record<string, OpDef<GraphState>> = {
     },
   },
   insert: {
-    doc: '{"node","parent","side"?:"left"|"right","label"?} adds a leaf to a tree and it slides out of its parent; no parent only for the first root',
+    doc: '{"node","parent","side"?:"left"|"right","label"?} adds a leaf to a tree, which slides out of its parent and becomes current; no parent only for the first root',
     seconds: 1.0,
     apply(state, { args, name: opName }) {
       requireTree(state, opName);
@@ -348,13 +348,13 @@ const ops: Record<string, OpDef<GraphState>> = {
       const grown: GraphState = { ...state, nodes, radius: radiusFor(state.layout, nodes) };
       if (args.parent === undefined) {
         if (state.root) fail(`op "insert" needs "parent"; the tree already has root "${state.root}"`);
-        return { ...grown, root: node };
+        return visitNode({ ...grown, root: node }, node);
       }
       const parent = nodeArg(state, args, "parent", opName);
       const side = oneOf(args.side, SIDES, "side", state.objectId, null);
       const occupant = side && state.edges.find((edge) => edge.from === parent && edge.side === side);
       if (occupant) fail(`op "insert": ${side} child of "${parent}" is already "${occupant.to}"; pick the other side or insert under "${occupant.to}"`);
-      return treeEdgesAfter(grown, [...state.edges, { from: parent, to: node, weight: null, side }], state.root);
+      return visitNode(treeEdgesAfter(grown, [...state.edges, { from: parent, to: node, weight: null, side }], state.root), node);
     },
     during: travelDuring,
   },

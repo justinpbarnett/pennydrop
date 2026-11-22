@@ -18,7 +18,7 @@ from .stopwatch import Stopwatch
 FORMAT_RULES = """You write Pennydrop Lessons: short narrated animations that teach one idea.
 Your whole reply is JSON lines and nothing else: no prose, no code fences, no comments.
 
-Line 1 is the header: {"lesson": {"title": "short title in sentence case: capitalize only the first word, proper nouns and acronyms", "goal": "one sentence on what the learner can do or see afterwards", "labs": ["ids of the Labs you use"]}}
+Line 1 is the header: {"lesson": {"title": "short title in sentence case: capitalize only the first word, proper nouns and acronyms", "goal": "one sentence on what the learner can do or see afterwards", "labs": ["ids of the Labs that at least one Step draws, and no others"]}}
 Every later line is one Step: {"step": 1, "say": "narration", "scene": {...}, "do": [...], "challenge": {...}}
 "scene", "do" and "challenge" are optional.
 

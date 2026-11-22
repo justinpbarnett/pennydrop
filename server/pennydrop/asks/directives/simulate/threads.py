@@ -7,11 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from .._support import Simulation
 
 LOCK = "m"
+COUNT_OBJECT = "count"
 COUNTER_STEPS = ("read", "add", "write")
 
 GUIDE = "\n".join([
     '`{"lab": "threads", "threads": ["A", "B"], "lock": false, "increments": 1, "interleave": true}` runs the threads that each do `count++` on one shared counter that starts at 0. Each `count++` is three separate steps: read, add one, write.',
     "`increments` is 1 or 2 and never more. `lock: true` wraps every increment in acquire and release of one lock, so a thread that finds it held blocks. `interleave: true` switches thread after every step, the worst case for a race, and `false` lets each thread finish before the next starts.",
+    "The directive also draws the shared counter as a text object named `count`, which shows its value after every write, so the lost update is visible; never write a second counter yourself.",
     "Values: `final` (what the counter ends at), `expected` (threads times increments) and `lost` (the increments that vanished), such as `{simulate.final}`.",
 ])
 
@@ -65,6 +67,7 @@ def simulate(spec: Spec) -> Simulation:
         elif action == "write":
             counter = local[name]
             operations.append({"op": "run", "t": name, "label": f"write {counter}"})
+            operations.append({"op": "write", "on": [COUNT_OBJECT], "text": f"count = {counter}"})
         else:
             operations.append({"op": "release", "t": name, "lock": LOCK})
             owner = queue.pop(0) if queue else None
@@ -73,7 +76,8 @@ def simulate(spec: Spec) -> Simulation:
                 position[owner] += 1
     expected = len(spec.threads) * spec.increments
     scene = {"lab": "threads", "threads": spec.threads, **({"locks": [LOCK]} if spec.lock else {})}
-    return Simulation("th", scene, operations, {"final": counter, "expected": expected, "lost": expected - counter})
+    shared = {COUNT_OBJECT: {"kind": "text", "text": "count = 0", "size": 36, "at": "bottom"}}
+    return Simulation("th", scene, operations, {"final": counter, "expected": expected, "lost": expected - counter}, shared)
 
 
 def _program(spec: Spec) -> list[str]:

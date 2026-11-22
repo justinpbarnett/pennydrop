@@ -247,7 +247,7 @@ class LessonRun:
         validator = self._kit.validator
         self._stage.lost_runs = self._stage.lost_runs or _ran_something(written)
         answerable = not self._stage.unran_values(step, False)
-        for kept_fields in (("scene", "challenge"), ("scene",), ()):
+        for kept_fields in (("scene", "challenge"), ("challenge",), ("scene",), ()):
             if "challenge" in kept_fields and not answerable:
                 continue
             candidate = {"step": number, "say": say, **{field: step[field] for field in kept_fields if field in step}}
@@ -303,8 +303,9 @@ class LessonRun:
 
     def _finish(self) -> None:
         marks = self._stopwatch.marks
+        drawn = [lab for lab in self._record.labs if lab in self._stage.drawn_labs]
         record = replace(
-            self._record, status="ready", first_step_seconds=marks["first_step_published"], done_seconds=self._stopwatch.elapsed(),
+            self._record, labs=drawn, header={**(self._record.header or {}), "labs": drawn}, status="ready", first_step_seconds=marks["first_step_published"], done_seconds=self._stopwatch.elapsed(),
             cost_usd=self._kit.store.lesson_cost(self._record.id), timings=marks, repairs=self._repairs,
         )
         self._kit.store.save_lesson(record)

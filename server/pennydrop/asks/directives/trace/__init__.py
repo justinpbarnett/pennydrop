@@ -70,6 +70,7 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     written = {name: obj for name, obj in (step.get("scene") or {}).items() if isinstance(obj, dict)}
     kept = {name: obj for name, obj in tools.staged.items() if name not in (step.get("scene") or {})}
     spec = _with_shown_source(_aligned(parse_spec(TraceSpec, raw, "trace")), {**kept, **written})
+    _require_the_array_shown(spec, {**kept, **written})
     step = _with_traced_object(step, {**kept, **written}, spec)
     written = {name: obj for name, obj in (step.get("scene") or {}).items() if isinstance(obj, dict)}
     object_id = _traced_object(written, kept, spec)
@@ -92,6 +93,17 @@ def _require_a_search_worth_watching(spec: TraceSpec, run: TracedRun) -> None:
     values = spec.input.get("array") if isinstance(spec.input, dict) else None
     if spec.code == "binary_search" and isinstance(values, list) and len(values) >= 7 and run.trace.counters.comparisons < 3:
         raise DirectiveError(f"trace directive: binary_search found its target in {run.trace.counters.comparisons} comparisons, which shows no halving; to fix it, pick a \"target\" that sits near an end of the sorted array (not the middle value), so the search takes at least 3 comparisons")
+
+
+def _require_the_array_shown(spec: TraceSpec, pool: dict[str, Any]) -> None:
+    values = _traced_values(spec.input)
+    arrays = {name: obj for name, obj in pool.items() if obj.get("lab") == "array" and isinstance(obj.get("values"), list)}
+    if spec.code not in ALGORITHMS or spec.code in getattr(TARGETS["graph"], "LIBRARY", ()) or values is None or not arrays:
+        return
+    if any(TARGETS["array"].holds_input(obj, spec.input) for obj in arrays.values()):
+        return
+    name, shown = next(iter(arrays.items()))
+    raise DirectiveError(f"trace directive: the array '{name}' on stage holds {shown['values']}, but the trace runs {spec.code} on {values}, so the picture and the counts would tell different stories; set the trace input to {shown['values']} so the run plays on '{name}', or set '{name}' to {values} in this Step's scene")
 
 
 def _with_code_following(step: dict[str, Any], played: int, data_id: str, target: Any, run: TracedRun) -> dict[str, Any]:

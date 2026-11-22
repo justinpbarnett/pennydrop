@@ -11,6 +11,7 @@ GUIDE = "\n".join([
     '`{"lab": "address", "bits": 16, "fields": {"L1": 4, "L2": 4}, "offsetBits": 8, "entryBytes": 2, "tables": {"T0": {"base": "0x1000", "entries": {"3": "T1"}}, "T1": {"base": "0x2000", "entries": {"10": "0x2B"}}}, "tlb": {"slots": 2, "entries": []}, "freeFrames": ["0x30"], "addresses": ["0x3A5C"]}` translates each virtual address in `addresses` (1 to 3) through the page tables.',
     "The fields are the page table index fields from the top level down, `offsetBits` is the offset below them, and fields plus offset add up to `bits`. Upper level entries name the next table and last level entries are frame numbers. An index that is not listed is invalid, and a last level miss is filled from `freeFrames` in order.",
     "Omit `tlb` for no TLB. Each access plays split, TLB lookup, one walk per level or a hit, a fault when the last entry is invalid, the physical address, and a TLB fill after a miss.",
+    "A simulation plays its whole run in the Step that carries it. To teach in stages, give each Step its own start: for a TLB, one address with an empty `tlb` shows the miss, the walk and the fill; the next Step carries the same address with the page and frame now in `tlb.entries`, which shows the hit. Never repeat one simulation in two Steps.",
     "Values for access number k from 1: `virtual_k_hex`, `page_k`, `offset_k`, `offset_k_hex`, `index_k_<field>` such as `index_1_L1`, `entry_k_<field>_hex` (where that entry sits in memory), `frame_k`, `frame_k_hex`, `physical_k`, `physical_k_hex`, and `tlb_k` (hit or miss).",
 ])
 

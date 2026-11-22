@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -32,6 +33,36 @@ def _holds_nothing(spec: dict[str, Any]) -> bool:
     return bool(lists) and not any(lists)
 
 
+FRONTIER_OPERATIONS = ("push", "pop", "relax")
+
+
+ASKS_TO_PREDICT = re.compile(r"(?:^|[.!?]\s+|\b(?:can you|try to|pause and|stop and|take a (?:moment|second) to|go ahead and|now)\s+|,\s*)(?:predict|guess)\b|\bmake a (?:prediction|guess)\b|\bwhat (?:do|would|will) you (?:predict|guess)\b|\byour (?:prediction|guess)\b", re.IGNORECASE)
+
+
+def _prediction_without_challenge(step: dict[str, Any]) -> list[str]:
+    say = step.get("say")
+    if not isinstance(say, str) or step.get("challenge") or not ASKS_TO_PREDICT.search(say):
+        return []
+    return [f'step {step.get("step")} say: the narration asks the learner to predict, but this Step has no "challenge"; add a predict Challenge whose answer the narration and the scene do not show, or take the request to predict out of the narration']
+
+
+def _simulation_key(raw: Any) -> str:
+    return json.dumps(raw, sort_keys=True, default=str)
+
+
+def _without_addresses(spec: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in spec.items() if key != "addresses"}
+
+
+def _replays(earlier: str, later: Any) -> bool:
+    before = json.loads(earlier)
+    if not isinstance(before, dict) or not isinstance(later, dict):
+        return earlier == _simulation_key(later)
+    first, second = before.get("addresses"), later.get("addresses")
+    prefix = isinstance(first, list) and isinstance(second, list) and second[: len(first)] == first
+    return _without_addresses(before) == _without_addresses(later) and (before == later or prefix)
+
+
 class Stage:
     def __init__(self, snapshot: Any = None):
         self.specs: dict[str, dict[str, Any]] = {}
@@ -40,6 +71,8 @@ class Stage:
         self.trace_counters: dict[str, set[str]] = {}
         self.in_flight: set[str] = set()
         self.lost_runs = False
+        self.drawn_labs: set[str] = set()
+        self.simulations: set[str] = set()
         self.retired: dict[str, dict[str, Any]] = {}
         for thing in (snapshot or {}).get("objects", []):
             key = str(thing.get("defKey", ""))
@@ -47,6 +80,8 @@ class Stage:
                 self.labs[thing["id"]] = key.removeprefix(LAB_KEY_PREFIX)
 
     def remember_trace(self, written: Any, settled: dict[str, Any]) -> None:
+        if isinstance(written, dict) and "simulate" in written:
+            self.simulations.add(_simulation_key(written["simulate"]))
         key = trace_key(written.get("trace")) if isinstance(written, dict) else None
         if key is None:
             return
@@ -57,6 +92,30 @@ class Stage:
                 self.trace_counters[name] = {str(counter) for counter in counters}
 
     def errors_in_written(self, written: Any) -> list[str]:
+        return self._graph_played_by_hand(written) + self._simulation_replayed(written) + self._counters_owned_by_trace(written)
+
+    def _simulation_replayed(self, written: Any) -> list[str]:
+        if not isinstance(written, dict) or "simulate" not in written or not any(_replays(earlier, written["simulate"]) for earlier in self.simulations):
+            return []
+        return ["simulate: this exact simulation already played in an earlier Step, so it would only repeat it; to show the next part of the story, change what the simulation starts from (for a TLB, an earlier miss then the same address with its page now in the TLB entries), or leave out \"simulate\" and talk over the finished run"]
+
+    def _graph_played_by_hand(self, written: Any) -> list[str]:
+        if not isinstance(written, dict) or "trace" in written:
+            return []
+        scene = written.get("scene") if isinstance(written.get("scene"), dict) else {}
+        graphs = {name: {**self.specs.get(name, {}), **(scene[name] if isinstance(scene.get(name), dict) else {})} for name, lab in self.labs.items() if lab == "graph"}
+        graphs |= {name: spec for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") == "graph"}
+        by_hand = sorted({
+            name
+            for operation in written.get("do", [])
+            if isinstance(operation, dict)
+            for target in operation.get("on", [])
+            if isinstance(target, str) and (name := target.split("[")[0]) in graphs
+            and (operation.get("op") in FRONTIER_OPERATIONS or (operation.get("op") == "visit" and graphs[name].get("frontier")))
+        })
+        return [f'{name}: a graph search written by hand with push, pop, relax or visit over a frontier goes wrong as soon as one neighbor is missed; when a library algorithm fits (breadth_first_search, depth_first_search, dijkstra), carry a "trace" in this Step and write none of those operations; for a tree you build or walk by hand, leave out "frontier" and use visit only to point at the node being compared' for name in by_hand]
+
+    def _counters_owned_by_trace(self, written: Any) -> list[str]:
         operations = written.get("do") if isinstance(written, dict) else None
         if not isinstance(operations, list) or not self.trace_counters:
             return []
@@ -92,6 +151,7 @@ class Stage:
             self.specs[name] = spec
             if isinstance(spec.get("lab"), str):
                 self.labs[name] = spec["lab"]
+                self.drawn_labs.add(spec["lab"])
             else:
                 self.labs.pop(name, None)
 
@@ -102,7 +162,7 @@ class Stage:
                 self.specs[name] = {**self.specs[name], "parts": operation.get("parts", [])}
 
     def errors_in(self, step: dict[str, Any], ran: bool = False) -> list[str]:
-        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + self.unran_values(step, ran)
+        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + _prediction_without_challenge(step) + self.unran_values(step, ran)
 
     def _empty_figures(self, step: dict[str, Any]) -> list[str]:
         scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}

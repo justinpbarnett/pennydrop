@@ -47,6 +47,7 @@ class Simulation:
     scene: dict[str, Any]
     operations: list[dict[str, Any]]
     values: dict[str, int | float | str]
+    objects: dict[str, Any] = field(default_factory=dict)
 
 
 def trace_key(raw: Any) -> str | None:

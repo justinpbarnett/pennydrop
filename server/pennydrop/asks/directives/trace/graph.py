@@ -17,6 +17,7 @@ GUIDE = "\n".join([
     'DFS: `"trace": {"code": "depth_first_search", "input": {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A", "E"], "D": ["B"], "E": ["C", "F"], "F": ["E"]}, "start": "A"}}`',
     'Dijkstra: `"trace": {"code": "dijkstra", "input": {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}}`, with 4 or 5 nodes.',
     'In-order: `"trace": {"code": "tree_inorder", "input": {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [null, "I"], "A": [null, null], "D": [null, null], "I": [null, null]}, "root": "F"}}`. Pre-order and post-order take the same input.',
+    "Carry the `trace` in the first Step that moves the graph, and let the later Steps talk over the finished run: write no visit, push, pop or relax by hand, because a hand-written walk misses neighbors.",
     "The scene object has just `lab`, with no nodes or edges. Keep a graph to about 6 nodes and a tree to 7 nodes, because a Step plays at most 40 operations.",
 ])
 
