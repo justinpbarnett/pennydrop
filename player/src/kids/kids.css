@@ -31,10 +31,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: non
 .mic[aria-pressed="true"]::before { content: ""; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 min(8px, calc(var(--level, 0) * 70px)) color-mix(in srgb, var(--fault) 40%, transparent); transition: box-shadow 0.08s; }
 @keyframes listening { 50% { transform: scale(1.04); } }
 
-.face-layer { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 4%; }
+.face-layer { position: absolute; inset: 0; container-type: size; display: grid; place-content: center; justify-items: center; gap: 4cqh; }
 .face-layer[hidden] { display: none; }
 .face-layer:not([data-mood="idle"]) { background: color-mix(in srgb, var(--ground) 74%, transparent); }
-.mascot { width: min(44vh, 34vw); max-width: 100%; max-height: 62%; aspect-ratio: 1; overflow: visible; }
+.mascot { width: min(44vh, 34vw, 62cqh, 100cqw); aspect-ratio: 1; overflow: visible; }
 .coin-edge { fill: var(--warn); }
 .coin-face { fill: var(--highlight); }
 .coin-shine { fill: none; stroke: #fff; stroke-width: 10; stroke-linecap: round; opacity: 0.8; }
