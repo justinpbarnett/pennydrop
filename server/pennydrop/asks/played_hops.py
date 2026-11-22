@@ -8,6 +8,7 @@ SHAPES_LAB = "shapes"
 LINE_FIGURE = "line"
 BLOCKS_FIGURE = "blocks"
 HOP = "hop"
+PILE_SUMS = ("add", "take")
 SPOT = re.compile(r"^(?P<line>[\w-]+)\[(?P<spot>-?\d+)\]$")
 
 
@@ -39,12 +40,14 @@ class PlayedHops:
         self._warm_up_only_one = warm_up_only_one
         self._hoppers: dict[str, Hopper] = {}
         self._piles: set[str] = set()
+        self._challenged = False
         self._asked: AskedLanding | None = None
 
     def remember(self, step: dict[str, Any]) -> None:
         revealed = self._asked
         self._hoppers = self._play(step)
         self._piles = self._piles_after(step)
+        self._challenged = self._challenged or isinstance(step.get("challenge"), dict)
         if revealed and revealed.line in self._hoppers:
             settled = self._hoppers[revealed.line]
             self._hoppers[revealed.line] = Hopper(settled.at, settled.at, (), asked=True)
@@ -53,7 +56,16 @@ class PlayedHops:
             self._hoppers[self._asked.line] = replace(self._hoppers[self._asked.line], asked=True)
 
     def errors_in(self, step: dict[str, Any]) -> list[str]:
-        return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step) + self._block_tapped(step)
+        return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step) + self._block_tapped(step) + self._pile_sum_too_early(step)
+
+    def _pile_sum_too_early(self, step: dict[str, Any]) -> list[str]:
+        if not self._warm_up_only_one or self._challenged:
+            return []
+        piles = self._piles_after(step)
+        summed = next((target for operation in step.get("do") or [] if isinstance(operation, dict) and operation.get("op") in PILE_SUMS for target in operation.get("on") or [] if target in piles), None)
+        if summed is None:
+            return []
+        return [f'step {step.get("step")}: the pile {summed} plays the sum before the child predicts it, so the child counts the answer instead of predicting where it lands; tell the sum on a number line first: in this Step\'s "scene" set {summed} to null and bring in {{"lab": "{SHAPES_LAB}", "figure": "{LINE_FIGURE}", "from": 0, "to": 10, "start": <the first number of the sum>}}, play at most one hop of one, and show the pile only after the Challenge\'s reveal']
 
     def _block_tapped(self, step: dict[str, Any]) -> list[str]:
         challenge = step.get("challenge")
@@ -79,8 +91,13 @@ class PlayedHops:
         for name, hopper in self._play(step).items():
             earlier = self._hoppers.get(name)
             far = [spot for spot, _ in hopper.landed[len(earlier.landed) :] if abs(spot - hopper.base) > 1] if earlier and not earlier.asked else []
-            if far:
-                errors.append(f'step {step.get("step")}: before its Challenge, a sum on {name} plays only one hop of one away from where it starts, {hopper.base}, and back, so the hops the Challenge asks about stay unplayed; this Step takes the hopper to {far[-1]}. Hop it at most to {hopper.base + 1} or {hopper.base - 1}, then back to {hopper.base} before the Challenge, and narrate only those hops')
+            if not far:
+                continue
+            if earlier.at == hopper.base:
+                fix = f'make this Step\'s "do" one hop of one, {{"op": "{HOP}", "on": ["{name}"], "by": 1, "each": 1}}, or "by": -1 for a take away, and narrate only that hop'
+            else:
+                fix = f'make this Step\'s "do" only {{"op": "{HOP}", "on": ["{name}"], "by": {hopper.base - earlier.at}, "each": 1}}, which hops the hopper from {earlier.at} back to {hopper.base}, and narrate only that hop back'
+            errors.append(f'step {step.get("step")}: before its Challenge, a sum on {name} plays only one hop of one away from where it starts, {hopper.base}, and back, so the hops the Challenge asks about stay unplayed; this Step takes the hopper to {far[-1]}; {fix}')
         return errors
 
     def _reveal_errors(self, step: dict[str, Any]) -> list[str]:
