@@ -90,11 +90,11 @@ def build_mix(manifest: dict, spoken: list[SpokenLine], kit: SoundKit, directory
     for name, signal in (("voice", stereo_voice), ("bed", bed), ("mix", mix)):
         soundfile.write(paths[name], signal.astype(numpy.float32), SAMPLE_RATE, subtype="FLOAT")
     loudness.normalize(paths["mix"], paths["master"])
-    return MixReport(loudness.measure(paths["voice"]), loudness.measure(paths["bed"]), loudness.measure(paths["master"]), seconds)
+    return MixReport(loudness.measure(paths["voice"]), loudness.measure(paths["bed"]), loudness.delivered(paths["master"]), seconds)
 
 
 def mux(video: Path, master: Path, output: Path) -> None:
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", str(video), "-i", str(master), "-map", "0:v", "-map", "1:a", "-shortest", "-c:v", "copy", "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-movflags", "+faststart", str(output)],
+        ["ffmpeg", "-y", "-v", "error", "-i", str(video), "-i", str(master), "-map", "0:v", "-map", "1:a", "-shortest", "-c:v", "copy", *loudness.DELIVERY_CODEC, "-movflags", "+faststart", str(output)],
         check=True,
     )

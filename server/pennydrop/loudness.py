@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +12,7 @@ LOUDNESS_TOLERANCE = 0.3
 LIMITER_MARGIN_DB = 0.3
 OVERSAMPLE_HZ = 192000
 MAX_PASSES = 6
+DELIVERY_CODEC = ["-c:a", "aac", "-b:a", "256k", "-ar", "48000"]
 
 
 @dataclass(frozen=True)
@@ -36,17 +38,26 @@ def measure(path: Path) -> Loudness:
 
 def normalize(source: Path, target: Path) -> Loudness:
     gain = TARGET_LUFS - measure(source).integrated
+    margin = LIMITER_MARGIN_DB
     for _ in range(MAX_PASSES):
-        _run(["-y", "-i", str(source), "-af", _limited_gain(gain), "-ar", "48000", "-c:a", "pcm_s24le", str(target)])
-        reached = measure(target)
+        _run(["-y", "-i", str(source), "-af", _limited_gain(gain, margin), "-ar", "48000", "-c:a", "pcm_s24le", str(target)])
+        reached = delivered(target)
         if abs(reached.integrated - TARGET_LUFS) <= LOUDNESS_TOLERANCE and reached.true_peak <= TARGET_TRUE_PEAK:
             return reached
         gain += TARGET_LUFS - reached.integrated
+        margin += max(0.0, reached.true_peak - TARGET_TRUE_PEAK)
     raise RuntimeError(
         f"could not reach {TARGET_LUFS} LUFS under {TARGET_TRUE_PEAK} dBTP for {source}: got {reached.integrated} LUFS, {reached.true_peak} dBTP"
     )
 
 
-def _limited_gain(gain: float) -> str:
-    ceiling = 10 ** ((TARGET_TRUE_PEAK - LIMITER_MARGIN_DB) / 20)
+def delivered(master: Path) -> Loudness:
+    with tempfile.TemporaryDirectory() as directory:
+        encoded = Path(directory) / "delivery.m4a"
+        _run(["-y", "-i", str(master), *DELIVERY_CODEC, str(encoded)])
+        return measure(encoded)
+
+
+def _limited_gain(gain: float, margin: float) -> str:
+    ceiling = 10 ** ((TARGET_TRUE_PEAK - margin) / 20)
     return f"volume={gain}dB,aresample={OVERSAMPLE_HZ},alimiter=limit={ceiling:.4f}:attack=5:release=50:level=disabled,aresample=48000"
