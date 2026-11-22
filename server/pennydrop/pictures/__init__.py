@@ -219,11 +219,8 @@ class PictureFinder:
         images = tuple(Image(f"image/{'jpeg' if option.shape.extension == 'jpg' else option.shape.extension}", option.data) for option in options)
         prompt = CHOOSE_PROMPT.format(count=len(options), query=query, widths=", ".join(str(option.candidate.width) for option in options), most=MOST_PARTS)
         completion = await self._gateway.complete(Job.VISION_CHOOSE, prompt, system=CHOOSE_SYSTEM, images=images, lesson_id=lesson_id, effort="low")
-        try:
-            answer = json.loads(completion.text[completion.text.find("{"):completion.text.rfind("}") + 1])
-        except json.JSONDecodeError:
-            answer = {}
-        best = answer.get("best") if isinstance(answer, dict) else None
+        answer = completion.json_object or {}
+        best = answer.get("best")
         if not isinstance(best, int) or not 1 <= best <= len(options):
             raise PictureNotFound(query)
         named = answer.get("parts") if isinstance(answer.get("parts"), list) else []

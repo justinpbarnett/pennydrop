@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
-import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ..gateway import json_object
 from ..services import Services
 from ..settings import Job
 from ..store import CallStats
@@ -14,7 +13,6 @@ from .workspace import Workspace
 
 PROMPTS = Path(__file__).parent / "prompts"
 SEARCH_TOOLS = "WebSearch,WebFetch"
-JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 ROUNDS = 3
 
 
@@ -36,14 +34,9 @@ def armature() -> str:
 
 
 def json_in(text: str) -> dict:
-    blocks = JSON_BLOCK.findall(text)
-    candidate = blocks[-1] if blocks else text[text.find("{") : text.rfind("}") + 1]
-    try:
-        parsed = json.loads(candidate)
-    except json.JSONDecodeError as error:
-        raise FilmError(f"the answer holds no valid JSON object: {error}") from error
-    if not isinstance(parsed, dict):
-        raise FilmError("the answer's JSON is not an object")
+    parsed = json_object(text)
+    if parsed is None:
+        raise FilmError("the answer holds no valid JSON object")
     return parsed
 
 

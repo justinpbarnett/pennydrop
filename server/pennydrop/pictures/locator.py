@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -114,7 +113,7 @@ class PartLocator:
         completion = await self._gateway.complete(
             Job.VISION, CHECK_PROMPT.format(name=name, grid=GRID), system=SYSTEM, images=(Image("image/jpeg", data.getvalue()),), lesson_id=lesson_id, effort="low",
         )
-        answer = _json_object(completion.text)
+        answer = completion.json_object or {}
         if answer.get("present") is False:
             return None
         inner = _fractions(answer.get("box"))
@@ -137,7 +136,7 @@ class PartLocator:
         completion = await self._gateway.complete(
             Job.VISION, prompt, system=SYSTEM, images=(Image.from_file(self._media_dir / file),), lesson_id=lesson_id, effort="low",
         )
-        answer = _json_object(completion.text)
+        answer = completion.json_object or {}
         if answer.get("usable") is False:
             raise PartsNotFound(str(answer.get("reason") or "it is not a clear photo of the whole subject"))
         located: dict[str, dict[str, float]] = {}
@@ -154,15 +153,6 @@ def _overlap(first: dict[str, float], second: dict[str, float]) -> float:
     down = min(first["y"] + first["h"], second["y"] + second["h"]) - max(first["y"], second["y"])
     shared = max(across, 0.0) * max(down, 0.0)
     return shared / (first["w"] * first["h"] + second["w"] * second["h"] - shared)
-
-
-def _json_object(text: str) -> dict[str, Any]:
-    start, end = text.find("{"), text.rfind("}")
-    try:
-        answer = json.loads(text[start:end + 1])
-    except json.JSONDecodeError:
-        return {}
-    return answer if isinstance(answer, dict) else {}
 
 
 def _fractions(raw: Any) -> dict[str, float] | None:

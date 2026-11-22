@@ -1,14 +1,30 @@
 from __future__ import annotations
 
 import base64
+import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..store import CallStats
 
 
+JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.DOTALL)
+
+
 class GatewayError(RuntimeError):
     pass
+
+
+def json_object(text: str) -> dict[str, Any] | None:
+    blocks = JSON_BLOCK.findall(text)
+    candidate = blocks[-1] if blocks else text[text.find("{") : text.rfind("}") + 1]
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 class RouteError(GatewayError):
@@ -67,3 +83,7 @@ class Thinking:
 class Completion:
     text: str
     stats: CallStats
+
+    @property
+    def json_object(self) -> dict[str, Any] | None:
+        return json_object(self.text)
