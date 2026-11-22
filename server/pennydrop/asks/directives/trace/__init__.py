@@ -11,6 +11,7 @@ from ....tracer import ALGORITHMS, TraceError, Tracer
 from . import _stages as stages
 from . import code
 from ._stages import Window
+from .array import PROBE_POINTER
 from .code import shown_source
 from .._support import MAX_STEP_OPERATIONS, DirectiveError, DirectiveTools, TracedRun, discover, limit_operations, operation_targets, parse_spec, trace_key, values_said, with_answer_from, with_nested_trace_lifted
 
@@ -21,6 +22,7 @@ ALGORITHM_MOVES = ("compare", "swap")
 MAIN_RUN = "main"
 CONTRAST_RUN = "contrast"
 SEARCHES = ("binary_search", "linear_search")
+CELL_INDEX = re.compile(r"\[(\d+)\]")
 CODE_ONLY = ("two_pointers_pair_sum", "sliding_window_max_sum")
 TARGETS = discover(sys.modules[__name__])
 
@@ -140,6 +142,7 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     elif code_id:
         expanded = _with_code_following(expanded, played, code_id, by_event, run, window)
     _require_within_a_step(expanded.get("do", [])[played:], bool(turns))
+    _require_one_middle_check(spec, expanded.get("do", [])[played:], pool[object_id])
     return _settled(expanded, spec, run, window, object_id)
 
 
@@ -201,6 +204,17 @@ def _require_totals_unsaid(step: dict[str, Any], until: int | None, object_id: s
     said = values_said(step, [f"trace.{prefix}{name}" for name in TRACE_TOTALS for prefix in ("", f"{object_id}.")])
     if said:
         raise DirectiveError(f'trace directive: {{{said[0]}}} is a total of the whole run, and this Step stops it after turn {until}, so the stage does not show it yet; leave the number out of the narration here, and say it in the Step that plays the run to its end, which carries the trace without "until". A predict Challenge here may still name it as its "answer"')
+
+
+def _require_one_middle_check(spec: TraceSpec, operations: list[dict[str, Any]], traced: dict[str, Any]) -> None:
+    if spec.code != "binary_search":
+        return
+    probed = [int(found[1]) for probe, counted in zip(operations, operations[1:]) if probe.get("name") == PROBE_POINTER and counted.get("op") == "counter" and (found := CELL_INDEX.search(str(probe.get("on")))) is not None]
+    if len(probed) < 2:
+        return
+    values = traced.get("values") if isinstance(traced.get("values"), list) else []
+    middles = ", ".join(str(values[index]) for index in probed if index < len(values))
+    raise DirectiveError(f'trace directive: this Step plays {len(probed)} middle checks of binary_search ({middles}), and the learner follows the search one halving at a time; give this Step an "until" one turn later than the Step before ("until": 1 in the Step that starts the search), narrate only that check and the half it keeps, and play each later check in its own Step with the same trace')
 
 
 def _require_a_search_worth_watching(spec: TraceSpec, run: TracedRun) -> None:

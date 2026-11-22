@@ -372,6 +372,10 @@ OPERATION_AGREEMENT = (
 )
 NOTHING_COLLIDED = re.compile(r'^op "(?:chain|probe)" on \w+: no key is waiting on a collision;')
 KEY_STILL_WAITING = re.compile(r'still waits outside bucket \d+ after a collision; use "(?P<resolve>chain|probe)" first')
+RESOLVE_TOLD = {
+    "chain": re.compile(r"\b(?:chain(?:s|ed|ing)?|linked|list|joins?|hangs?)\b", re.IGNORECASE),
+    "probe": re.compile(r"\b(?:prob(?:e|es|ed|ing)|next (?:free |empty |open )?(?:bucket|slot)|moves? on|slides?)\b", re.IGNORECASE),
+}
 
 
 def _with_rewritten_operations(step: dict[str, Any], errors: list[str]) -> dict[str, Any] | None:
@@ -392,7 +396,7 @@ def _with_rewritten_operations(step: dict[str, Any], errors: list[str]) -> dict[
             rewritten[index] = {**operation, "op": agreed}
         elif NOTHING_COLLIDED.search(message):
             dropped.add(index)
-        elif waiting := KEY_STILL_WAITING.search(message):
+        elif (waiting := KEY_STILL_WAITING.search(message)) and RESOLVE_TOLD[waiting["resolve"]].search(str(step.get("say", ""))):
             resolving[index] = {"op": waiting["resolve"], "on": operation["on"]}
         elif found["op"] == "compare" and "needs exactly two cells" in message:
             rewritten[index] = {**operation, "op": "highlight"}

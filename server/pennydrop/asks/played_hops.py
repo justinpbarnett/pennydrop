@@ -15,6 +15,7 @@ SPOT = re.compile(r"^(?P<line>[\w-]+)\[(?P<spot>-?\d+)\]$")
 NUMBER_NAMES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split()
 NOT_A_SPOT = r"(?!\s+(?:more|hops?|times|steps?|blocks?)\b)"
 STANDING_CLAIM = re.compile(r"\b(?:stands?|is|sits?|starts?|waits?)\s+(?:on|at)\s+(?P<number>\w+)\b" + NOT_A_SPOT, re.IGNORECASE)
+SUM_CLAIM = re.compile(r"\b(?P<first>\w+)\s+(?:take away|minus|and|plus)\s+(?P<second>\w+)(?:\s+more)?\s+(?:is|makes?|leaves?|lands? on|equals?)\s+(?P<result>\w+)\b", re.IGNORECASE)
 HOPPING_CLAIM = re.compile(r"\b(?P<preposition>on|at|to)\s+(?P<number>\w+)\b" + NOT_A_SPOT, re.IGNORECASE)
 
 
@@ -99,6 +100,10 @@ class PlayedHops:
         start = before[name].at
         landed = {spot for spot, _ in hopper.landed[len(before[name].landed) :]} | {hopper.at}
         hopping = hopper.landed != before[name].landed
+        for claim in SUM_CLAIM.finditer(say) if hopping else ():
+            told = [_spoken_whole(claim[part]) for part in ("first", "second", "result")]
+            if None not in told and told[2] != hopper.at:
+                return [f'step {step.get("step")}: the narration says {claim[0]}, but this Step\'s hop takes the hopper on {name} from {start} to {hopper.at}; tell the hop the stage plays, which ends on {hopper.at}']
         claims = HOPPING_CLAIM.finditer(say) if hopping else STANDING_CLAIM.finditer(say)
         for claim in claims:
             spot = _spoken_whole(claim["number"])

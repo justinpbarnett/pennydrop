@@ -46,6 +46,7 @@ ANSWER_TOLD = 'challenge: the narration so far, this Step\'s "say" included, alr
 STILL_STAGE = 'this Step plays nothing on the stage and asks nothing, so the learner hears new words over a still picture; add to "do" the operations that show what "say" tells, such as the next part of the run, the next line of a plot or a highlight on what the narration names, and keep the narration'
 END_TOLD_EARLY = 'say: the narration gives {value}, where the {line} line ends, but the {plot} plot has not drawn that line to its end yet, so the narration tells the result before the stage shows it; leave that number out of "say" here and tell it in the Step that graphs the {line} line to its end and marks it'
 STILL_SIDE_RUN = "; the contrast run is not played yet, so carry its trace in this Step exactly as the brief gives it, and play it here"
+ASKED_AT_THE_CLOSE = 'challenge: this is the last Step, which closes the story on the point, and a Challenge here comes after the reveal, with nothing left to show its answer; leave "challenge" out of this Step and make "say" state the point'
 STILL_RUN = 'this Step plays nothing on the stage and asks nothing: its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
 CHALLENGE_FLAW = re.compile(r"^(step \d+ )?challenge:")
@@ -304,11 +305,12 @@ class LessonRun:
         arrays, figures = array_plays(scene, step), shapes_plays(scene, step)
         plays: list[StagePlay] = [*arrays, *figures]
         plots = plot_views(scene, step)
-        fine_for_child, keeps_honor_code, restates_point, claims_agree, *further_advice = await asyncio.gather(
+        fine_for_child, keeps_honor_code, restates_point, claims_agree, asked_at_the_close, *further_advice = await asyncio.gather(
             self._fine_for_child(step),
             self._keeps_honor_code(step),
             self._restates_point(step, number, pending.followed),
             self._claims_agree(step, written, known, facts),
+            _asked_at_the_close(step, number, pending.followed),
             self._missing_hinge(step, number, pending.last_after),
             self._narration_off_stage(step, arrays, figures),
             self._answer_on_stage(step, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines]),
@@ -320,6 +322,8 @@ class LessonRun:
             self._run_left_unfinished(written, values, pending.followed),
         )
         errors = [coached(error) for error in verdict.errors] + self._stage.errors_in(step, written, values)
+        if asked_at_the_close:
+            errors.append(ASKED_AT_THE_CLOSE)
         if not keeps_honor_code:
             errors.append(HONOR_CODE_ERROR)
         if not fine_for_child:
@@ -627,6 +631,10 @@ def _claims_disagree(claimed: str, facts: list[str]) -> str:
         " The computed values are right, so rewrite the claim, in \"say\" or in the Challenge\'s \"answer\", so every number and comparison in it matches them, such as which run is lower or which job finishes sooner;"
         " when the facts hold several runs, name the run each value comes from, such as \"with the lock\" or \"in the round robin run\", and leave out any claim they do not bear out"
     )
+
+
+async def _asked_at_the_close(step: dict[str, Any], number: int, followed: asyncio.Future[bool]) -> bool:
+    return number > 1 and "challenge" in step and not await followed
 
 
 def _plays_something(step: dict[str, Any], written: dict[str, Any] | Malformed) -> bool:

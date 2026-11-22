@@ -163,7 +163,7 @@ class Stage:
             f'scene: {name} is declared again with the spec it had before {" and ".join(dict.fromkeys(self.moved[name]))} were played on it, so it would show a state the story has moved past and the narration would contradict the stage; '
             f'keep {name} on stage and continue it with "do", or give a spec that shows its state now, such as the change those operations made, because a spec sets the object to exactly what it describes'
             for name, spec in scene.items()
-            if isinstance(spec, dict) and self.moved.get(name) and self.declared.get(name) == spec
+            if isinstance(spec, dict) and self.moved.get(name) and _without_counters(self.declared.get(name)) == _without_counters(spec)
         ]
 
     def _graph_played_by_hand(self, written: Any) -> list[str]:
@@ -291,6 +291,10 @@ class Stage:
             if self.finished_traces - self.side_runs and value not in already
         ]
         return shown_errors + replayed
+
+
+def _without_counters(spec: Any) -> Any:
+    return {key: value for key, value in spec.items() if key != "counters"} if isinstance(spec, dict) else spec
 
 
 def ran_something(written: Any) -> bool:
