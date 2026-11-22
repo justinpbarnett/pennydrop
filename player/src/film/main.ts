@@ -2,6 +2,7 @@ import "./film.css";
 import { loadFonts } from "../boot";
 import { loadMintedLabs } from "../minted";
 import { registerModules } from "../registry";
+import { layOutFor } from "../text-metrics";
 import { THEMES } from "../theme";
 import { PERSPECTIVE, project } from "./camera";
 import { buildFilm, type CueRecord, type Film, frameAt, framedRegion, holdEnd, type PlaneFrame, unfilledAt } from "./film";
@@ -64,6 +65,7 @@ window.film = {
   ready: Promise.all([loadFonts(), loadMintedLabs(), loadLand()]).then(() => undefined),
   async load(text) {
     const source = parseFilm(text);
+    layOutFor([THEMES[source.header.theme]]);
     const draft = await buildFilm(source);
     view = new FilmView(document.body, draft.bounds);
     film = await buildFilm(source, measureInks(draft, view));

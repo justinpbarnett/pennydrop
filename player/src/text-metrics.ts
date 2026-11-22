@@ -1,7 +1,7 @@
 import type { FontRole } from "./lab";
 import metrics from "./font-metrics.json";
 import inks from "./font-ink.json";
-import { shownText, THEMES, type ThemeFont } from "./theme";
+import { shownText, type Theme, THEMES, type ThemeFont } from "./theme";
 
 const advancesByFont = metrics as Record<string, Record<string, number>>;
 
@@ -13,6 +13,12 @@ interface FontInk {
 }
 
 const inkByFont = inks as unknown as Record<string, FontInk>;
+
+let shownIn: readonly Theme[] = Object.values(THEMES);
+
+export function layOutFor(themes: readonly Theme[]): void {
+  shownIn = themes;
+}
 
 function familyName(font: ThemeFont): string {
   return font.family.split(",")[0]!.trim().replace(/^['"]|['"]$/g, "");
@@ -40,7 +46,7 @@ function measure(text: string, size: number, font: ThemeFont): number {
 }
 
 export function textWidth(text: string, size: number, role: FontRole): number {
-  return Math.max(...Object.values(THEMES).map((theme) => measure(shownText({ text, font: role }, theme)!, size, theme.fonts[role])));
+  return Math.max(...shownIn.map((theme) => measure(shownText({ text, font: role }, theme)!, size, theme.fonts[role])));
 }
 
 export interface TextInk {
@@ -76,5 +82,5 @@ export function textInk(text: string, size: number, font: ThemeFont): TextInk {
 }
 
 export function inkBelow(text: string, size: number, role: FontRole): number {
-  return Math.max(...Object.values(THEMES).map((theme) => textInk(text, size, theme.fonts[role]).below));
+  return Math.max(...shownIn.map((theme) => textInk(text, size, theme.fonts[role]).below));
 }

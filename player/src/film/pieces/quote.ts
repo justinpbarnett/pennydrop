@@ -13,7 +13,8 @@ const TEXT_LEFT = 190;
 const TEXT_SIZE = 72;
 const LINE_HEIGHT = 96;
 const TOP = 130;
-const TEXT_ROOM = WIDTH - TEXT_LEFT - 110;
+const TEXT_ROOM = 1000;
+const BY_ROOM = WIDTH - TEXT_LEFT - 110;
 const BY_SIZE = 42;
 const BY_LINE = 56;
 const BY_GAP = 62;
@@ -27,7 +28,7 @@ export const primitive: LabDef<Record<string, unknown>, QuoteState> = {
   title: "Quote card",
   reading: "required",
   catalog: {
-    summary: "A short quotation, large, with who said it. The code wraps the lines.",
+    summary: "A short quotation, large, with who said it. Only words a person said or wrote, as a source records them; a term, a paraphrase or the Film's own question goes on another piece. The code wraps the lines.",
     spec: { text: "the quotation without quote marks", by: "optional who said it", role: "optional color role, default ink" },
     example: ['{"scene":{"saying":{"kind":"quote","text":"Premature optimization is the root of all evil.","by":"Donald Knuth"}}}'],
   },
@@ -35,7 +36,7 @@ export const primitive: LabDef<Record<string, unknown>, QuoteState> = {
     const by = stringField(spec, "by", objectId, "");
     return {
       lines: wrapText(stringField(spec, "text", objectId), TEXT_SIZE, "read", TEXT_ROOM),
-      by: by ? wrapText(`– ${by}`, BY_SIZE, "mark", TEXT_ROOM) : [],
+      by: by ? wrapText(`– ${by}`, BY_SIZE, "mark", BY_ROOM) : [],
       role: roleField(spec, "role", "ink", objectId),
     };
   },
