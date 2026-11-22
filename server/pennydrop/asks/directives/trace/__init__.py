@@ -117,7 +117,7 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     step = _with_traced_object(step, {**kept, **written}, spec, tools.young_child)
     written = {name: obj for name, obj in (step.get("scene") or {}).items() if isinstance(obj, dict)}
     object_id = _traced_object(written, kept, spec)
-    pool = {**tools.staged, **written}
+    pool = {**kept, **written}
     target = TARGETS[pool[object_id]["lab"]]
     library = getattr(target, "LIBRARY", None)
     if library and spec.code not in library:
