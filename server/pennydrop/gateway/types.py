@@ -55,6 +55,7 @@ class Usage:
     cached_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float | None = None
+    stop_reason: str | None = None
 
 
 @dataclass(frozen=True)

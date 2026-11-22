@@ -53,6 +53,7 @@ class ClaudeRoute:
                         cached_tokens=usage.get("cache_read_input_tokens", 0),
                         output_tokens=usage["output_tokens"],
                         cost_usd=event.get("total_cost_usd"),
+                        stop_reason=event.get("stop_reason"),
                     )
                     return
             raise RouteError("claude ended without a result event")

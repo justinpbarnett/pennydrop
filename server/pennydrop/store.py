@@ -201,6 +201,9 @@ SCHEMA = [
     drop table profiles;
     alter table profiles_rebuilt rename to profiles;
     """,
+    """
+    alter table model_calls add column stop_reason text;
+    """,
 ]
 
 
@@ -271,6 +274,7 @@ class CallStats:
     cost_usd: float
     error: str | None = None
     lesson_id: str | None = None
+    stop_reason: str | None = None
 
 
 class MintStatus(StrEnum):
@@ -621,12 +625,12 @@ class Store:
     def log_model_call(self, call: CallStats) -> None:
         self._connection.execute(
             """
-            insert into model_calls (at, job, route, seconds, first_token_seconds, input_tokens, cached_tokens, output_tokens, cost_usd, error, lesson_id)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            insert into model_calls (at, job, route, seconds, first_token_seconds, input_tokens, cached_tokens, output_tokens, cost_usd, error, lesson_id, stop_reason)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _iso(_now()), str(call.job), call.route, call.seconds, call.first_token_seconds,
-                call.input_tokens, call.cached_tokens, call.output_tokens, call.cost_usd, call.error, call.lesson_id,
+                call.input_tokens, call.cached_tokens, call.output_tokens, call.cost_usd, call.error, call.lesson_id, call.stop_reason,
             ),
         )
 

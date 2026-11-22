@@ -228,7 +228,7 @@ class Gateway:
     def _log(self, job: Job, route: RouteSpec, started: float, first_token_seconds: float | None, usage: Usage, error: Exception | None, lesson_id: str | None) -> CallStats:
         stats = CallStats(
             job, str(route), time.monotonic() - started, first_token_seconds, usage.input_tokens, usage.cached_tokens,
-            usage.output_tokens, self._cost(route, usage), str(error) if error else None, lesson_id,
+            usage.output_tokens, self._cost(route, usage), str(error) if error else None, lesson_id, usage.stop_reason,
         )
         self._store.log_model_call(stats)
         return stats
