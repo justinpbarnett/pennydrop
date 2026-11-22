@@ -1,4 +1,5 @@
 import { type Drawable, fail, type LabDef, positiveField, readsWords, type Role, roleField } from "../lab";
+import { textWidth } from "../text-metrics";
 
 interface Series {
   id: string;
@@ -20,6 +21,11 @@ interface AxesState {
 
 const PAD = { left: 90, right: 30, top: 30, bottom: 70 };
 const TICKS = 5;
+const TICK_SIZE = 22;
+const TICK_GAP = 16;
+const Y_LABEL_BAND = 46;
+const SERIES_LABEL_SIZE = 24;
+const SERIES_LABEL_GAP = 8;
 
 function range(value: unknown, name: string, objectId: string): [number, number] {
   if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== "number" || typeof value[1] !== "number" || value[0] >= value[1]) {
@@ -40,6 +46,16 @@ function readSeries(list: unknown, objectId: string, offset = 0): Series[] {
 
 function niceTick(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function tickValues(range: [number, number]): number[] {
+  return Array.from({ length: TICKS + 1 }, (_, tick) => range[0] + ((range[1] - range[0]) * tick) / TICKS);
+}
+
+function plotLeft(state: AxesState): number {
+  if (!state.reading) return PAD.left;
+  const widestTick = Math.max(...tickValues(state.y).map((value) => textWidth(niceTick(value), TICK_SIZE, "read")));
+  return (state.yLabel ? Y_LABEL_BAND : 0) + widestTick + TICK_GAP;
 }
 
 export const primitive: LabDef<Record<string, unknown>, AxesState> = {
@@ -80,7 +96,7 @@ export const primitive: LabDef<Record<string, unknown>, AxesState> = {
   },
   size: (state) => ({ w: state.w, h: state.h }),
   draw(state) {
-    const left = PAD.left;
+    const left = plotLeft(state);
     const right = state.w - PAD.right;
     const top = PAD.top;
     const bottom = state.h - PAD.bottom;
@@ -90,17 +106,17 @@ export const primitive: LabDef<Record<string, unknown>, AxesState> = {
       { id: "axis-x", kind: "line", x: left, y: bottom, x2: right, y2: bottom, stroke: "ink", strokeWidth: 1.4 },
       { id: "axis-y", kind: "line", x: left, y: bottom, x2: left, y2: top, stroke: "ink", strokeWidth: 1.4 },
     ];
-    for (let tick = 0; tick <= TICKS; tick++) {
-      const xv = state.x[0] + ((state.x[1] - state.x[0]) * tick) / TICKS;
-      const yv = state.y[0] + ((state.y[1] - state.y[0]) * tick) / TICKS;
+    const yTicks = tickValues(state.y);
+    for (const [tick, xv] of tickValues(state.x).entries()) {
+      const yv = yTicks[tick]!;
       out.push(
         { id: `grid-x-${tick}`, kind: "line", x: px(xv), y: bottom, x2: px(xv), y2: top, stroke: "rule", strokeWidth: 0.6, z: -1 },
         { id: `grid-y-${tick}`, kind: "line", x: left, y: py(yv), x2: right, y2: py(yv), stroke: "rule", strokeWidth: 0.6, z: -1 },
       );
       if (state.reading) {
         out.push(
-          { id: `tick-x-${tick}`, kind: "text", x: px(xv), y: bottom + 28, text: niceTick(xv), size: 22, font: "read", fill: "muted" },
-          { id: `tick-y-${tick}`, kind: "text", x: left - 16, y: py(yv), text: niceTick(yv), size: 22, font: "read", fill: "muted", anchor: "end" },
+          { id: `tick-x-${tick}`, kind: "text", x: px(xv), y: bottom + 28, text: niceTick(xv), size: TICK_SIZE, font: "read", fill: "muted" },
+          { id: `tick-y-${tick}`, kind: "text", x: left - TICK_GAP, y: py(yv), text: niceTick(yv), size: TICK_SIZE, font: "read", fill: "muted", anchor: "end" },
         );
       }
     }
@@ -110,7 +126,9 @@ export const primitive: LabDef<Record<string, unknown>, AxesState> = {
       out.push({ id: `series-${series.id}`, kind: "path", x: 0, y: 0, points: series.points.flatMap(([xv, yv]) => [px(xv), py(yv)]), fill: "none", stroke: series.role, strokeWidth: 2.4, z: 2 });
       if (state.reading && series.label) {
         const last = series.points.at(-1)!;
-        out.push({ id: `series-${series.id}-label`, kind: "text", x: px(last[0]) - 8, y: py(last[1]) - 20, text: series.label, size: 24, font: "mark", fill: series.role, anchor: "end", z: 2 });
+        const width = Math.max(textWidth(series.label, SERIES_LABEL_SIZE, "mark"), textWidth(series.label.toUpperCase(), SERIES_LABEL_SIZE, "mark"));
+        const before = px(last[0]) - SERIES_LABEL_GAP - width >= left;
+        out.push({ id: `series-${series.id}-label`, kind: "text", x: px(last[0]) + (before ? -SERIES_LABEL_GAP : SERIES_LABEL_GAP), y: py(last[1]) - 20, text: series.label, size: SERIES_LABEL_SIZE, font: "mark", fill: series.role, anchor: before ? "end" : "start", z: 2 });
       }
     }
     return out;
