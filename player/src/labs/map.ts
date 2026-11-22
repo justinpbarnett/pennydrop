@@ -24,7 +24,6 @@ interface Place {
   name: string;
   lat: number;
   lon: number;
-  at: Point;
 }
 
 interface Route {
@@ -66,10 +65,24 @@ interface MapState {
   routes: Route[];
   eras: Era[];
   events: MapEvent[];
-  labels: PlaceLabel[];
   axis: Axis;
+  trail: Layout[];
+}
+
+interface Layout {
+  shown: number;
+  routes: number;
+  timeline: boolean;
+}
+
+interface Geometry {
+  places: (Place & { at: Point })[];
   land: Point[][];
   coast: CoastGrid;
+}
+
+interface Laid extends Omit<MapState, "places">, Geometry {
+  labels: PlaceLabel[];
 }
 
 interface MapSpec {
@@ -208,7 +221,7 @@ function yearText(year: number, axis: Axis): string {
   return axis.bc && year > 0 ? `AD ${year}` : String(year);
 }
 
-function readPlaces(raw: unknown, objectId: string): Omit<Place, "at">[] {
+function readPlaces(raw: unknown, objectId: string): Place[] {
   const example = '"places": [{"name": "Rome", "lat": 41.9, "lon": 12.5}]';
   if (!Array.isArray(raw) || raw.length === 0) fail(`${objectId}: "places" must be a non-empty list such as ${example}`);
   if (raw.length > MAX_PLACES) fail(`${objectId}: at most ${MAX_PLACES} places fit on one map, got ${raw.length}; drop some`);
@@ -240,7 +253,7 @@ function readReading(spec: MapSpec, objectId: string): boolean {
   return readsWords({ ...spec });
 }
 
-function projectionFor(places: Omit<Place, "at">[], map: Size): Projection {
+function projectionFor(places: Place[], map: Size): Projection {
   const lats = places.map((place) => place.lat);
   const lons = places.map((place) => place.lon);
   const latPad = Math.max((Math.max(...lats) - Math.min(...lats)) * EXTENT_PAD, MIN_PAD_DEGREES);
@@ -400,20 +413,53 @@ function mapSize(state: MapState): Size {
   return hasTimeline(state) ? MAP_ABOVE_TIMELINE : MAP_ALONE;
 }
 
-function fitted(state: MapState): MapState {
-  const map = mapSize(state);
-  const projection = projectionFor(state.places, map);
-  const rings = landRings(projection, map);
-  const places = state.places.map((place) => ({ ...place, at: project(projection, place.lon, place.lat) }));
-  return { ...state, places, land: rings, coast: coastGrid(rings, map), labels: [] };
+const MAX_CACHED = 200;
+const geometries = new Map<string, Geometry>();
+const labelings = new Map<string, PlaceLabel[]>();
+const laidStates = new WeakMap<MapState, Laid>();
+
+function remembered<T>(cache: Map<string, T>, key: string, make: () => T): T {
+  const known = cache.get(key);
+  if (known) return known;
+  if (cache.size >= MAX_CACHED) cache.clear();
+  const made = make();
+  cache.set(key, made);
+  return made;
 }
 
-function withTimelineRoom(before: MapState, after: MapState): MapState {
-  return hasTimeline(before) ? after : fitted(after);
+function geometryOf(places: Place[], timeline: boolean): Geometry {
+  return remembered(geometries, JSON.stringify([places, timeline]), () => {
+    const map = timeline ? MAP_ABOVE_TIMELINE : MAP_ALONE;
+    const projection = projectionFor(places, map);
+    const land = landRings(projection, map);
+    return { places: places.map((place) => ({ ...place, at: project(projection, place.lon, place.lat) })), land, coast: coastGrid(land, map) };
+  });
 }
 
-function relabelled(state: MapState): MapState {
-  return { ...state, labels: placeLabels(state) };
+function labelsAfter(state: MapState, step: number): PlaceLabel[] {
+  if (step < 0) return [];
+  const layout = state.trail[step]!;
+  const trail = state.trail.slice(0, step + 1);
+  const shown = state.shown.slice(0, layout.shown);
+  const routes = state.routes.slice(0, layout.routes);
+  return remembered(labelings, JSON.stringify([state.places, trail, shown, routes]), () => {
+    const earlier = state.trail[step - 1];
+    const previous = earlier && earlier.timeline !== layout.timeline ? [] : labelsAfter(state, step - 1);
+    const view = { ...state, ...geometryOf(state.places, layout.timeline), shown, routes, eras: layout.timeline ? state.eras : [], events: layout.timeline ? state.events : [], labels: previous };
+    return placeLabels(view);
+  });
+}
+
+function laidOut(state: MapState): Laid {
+  const known = laidStates.get(state);
+  if (known) return known;
+  const laid = { ...state, ...geometryOf(state.places, hasTimeline(state)), labels: labelsAfter(state, state.trail.length - 1) };
+  laidStates.set(state, laid);
+  return laid;
+}
+
+function played(state: MapState): MapState {
+  return { ...state, trail: [...state.trail, { shown: state.shown.length, routes: state.routes.length, timeline: hasTimeline(state) }] };
 }
 
 function yearArg(state: MapState, op: LabOp, key: string): number {
@@ -423,7 +469,7 @@ function yearArg(state: MapState, op: LabOp, key: string): number {
   return year;
 }
 
-function routeLegs(state: MapState, route: Route): [Point, Point][] {
+function routeLegs(state: Laid, route: Route): [Point, Point][] {
   return route.through.slice(1).map((place, index) => [state.places[route.through[index]!]!.at, state.places[place]!.at]);
 }
 
@@ -431,11 +477,11 @@ function pointToward(from: Point, to: Point, distance: number): Point {
   return lerpPoint(from, to, distance / Math.hypot(to.x - from.x, to.y - from.y));
 }
 
-function drawnLegs(state: MapState, route: Route): [Point, Point][] {
+function drawnLegs(state: Laid, route: Route): [Point, Point][] {
   return routeLegs(state, route).map(([from, to], index, all) => [pointToward(from, to, ROUTE_CLEAR), pointToward(to, from, index === all.length - 1 ? ARROW_STOP : ROUTE_CLEAR)]);
 }
 
-function arrowHeads(state: MapState): [Point, Point][] {
+function arrowHeads(state: Laid): [Point, Point][] {
   return state.routes.map((route) => {
     const legs = drawnLegs(state, route);
     const tip = legs[legs.length - 1]![1];
@@ -447,7 +493,7 @@ function legLength([from, to]: [Point, Point]): number {
   return Math.hypot(to.x - from.x, to.y - from.y);
 }
 
-function checkedRoute(state: MapState, through: number[]): number[] {
+function checkedRoute(state: Laid, through: number[]): number[] {
   if (through.length < 2) fail(`op "routes" needs at least two places in "through", such as ["New Carthage", "Alps pass"]`);
   through.slice(1).forEach((place, index) => {
     const before = through[index]!;
@@ -619,7 +665,7 @@ function leaderAlongLeg(legs: [Point, Point][], at: Point, leader: [Point, Point
   return legDirectionsAt(legs, at).some((leg) => angleBetween(aim, leg) < degrees(limit));
 }
 
-function labelOrder(state: MapState, freedom: (place: number) => number): number[] {
+function labelOrder(state: Laid, freedom: (place: number) => number): number[] {
   const kept = state.labels.map((label) => label.place).filter((place) => state.shown.includes(place));
   const fresh = state.shown.filter((place) => !kept.includes(place)).sort((a, b) => freedom(a) - freedom(b));
   return [...kept, ...fresh];
@@ -664,7 +710,7 @@ function headOutline([base, tip]: [Point, Point]): [Point, Point][] {
   ];
 }
 
-function placeLabels(state: MapState): PlaceLabel[] {
+function placeLabels(state: Laid): PlaceLabel[] {
   const map = mapSize(state);
   const dots = state.shown.map((place) => dotRect(state.places[place]!.at));
   const legs = state.routes.flatMap((route) => routeLegs(state, route));
@@ -888,7 +934,7 @@ function pathDrawable(id: string, points: Point[], closed: boolean, fill: Paint,
   return { id, kind: "path", x: flat[0]!, y: flat[1]!, points: flat, closed, fill, stroke, strokeWidth, z: 1, backdrop: true };
 }
 
-function landDrawables(state: MapState): Drawable[] {
+function landDrawables(state: Laid): Drawable[] {
   const map = mapSize(state);
   const clip: Rect = { x: 0, y: 0, w: map.w, h: map.h };
   const coast = state.land.flatMap((ring) => coastLines(ring, map));
@@ -902,7 +948,7 @@ function markedPlaces(state: MapState): number[] {
   return state.events.flatMap((event) => (event.place === null ? [] : [event.place]));
 }
 
-function placeDrawables(state: MapState): Drawable[] {
+function placeDrawables(state: Laid): Drawable[] {
   const marked = markedPlaces(state);
   const dots = state.shown.map((place): Drawable => {
     const { at } = state.places[place]!;
@@ -933,13 +979,13 @@ function legDrawable(id: string, from: Point, to: Point, last: boolean, color: R
   return { id, kind: last ? "arrow" : "line", x: from.x, y: from.y, x2: to.x, y2: to.y, stroke: color, strokeWidth: ROUTE_WIDTH, z: 3 };
 }
 
-function routeDrawables(state: MapState, routeIndex: number): Drawable[] {
+function routeDrawables(state: Laid, routeIndex: number): Drawable[] {
   const route = state.routes[routeIndex]!;
   const legs = drawnLegs(state, route);
   return legs.map(([from, to], index) => legDrawable(`route-${routeIndex}-leg-${index}`, from, to, index === legs.length - 1, route.color));
 }
 
-function growingRoute(state: MapState, routeIndex: number, progress: number): Drawable[] {
+function growingRoute(state: Laid, routeIndex: number, progress: number): Drawable[] {
   const route = state.routes[routeIndex]!;
   const legs = drawnLegs(state, route);
   const total = legs.reduce((sum, leg) => sum + legLength(leg), 0);
@@ -1011,7 +1057,7 @@ function timelineDrawables(state: MapState): Drawable[] {
   return [...axisDrawables(state, layout.axisY), ...layout.eras.flatMap((slot) => eraDrawables(state, slot)), ...eventDrawables(state, layout)];
 }
 
-function changingDrawables(state: MapState): Drawable[] {
+function changingDrawables(state: Laid): Drawable[] {
   return [...state.routes.flatMap((_, index) => routeDrawables(state, index)), ...placeDrawables(state), ...timelineDrawables(state)];
 }
 
@@ -1024,7 +1070,7 @@ function blendDrawable(before: Drawable, after: Drawable, t: number): Drawable {
   return Object.fromEntries(mixed) as Drawable;
 }
 
-function settle(before: MapState, after: MapState, t: number): Drawable[] {
+function settle(before: Laid, after: Laid, t: number): Drawable[] {
   const earlier = new Map(changingDrawables(before).map((item) => [item.id, item]));
   return changingDrawables(after).map((item) => {
     const was = earlier.get(item.id);
@@ -1067,20 +1113,16 @@ export const lab: LabDef<MapSpec, MapState> = {
 
   init(spec, objectId) {
     const declared = readPlaces(spec.places, objectId);
-    const projection = projectionFor(declared, MAP_ALONE);
-    const rings = landRings(projection, MAP_ALONE);
     return {
       objectId,
       reading: readReading(spec, objectId),
-      places: declared.map((place) => ({ ...place, at: project(projection, place.lon, place.lat) })),
+      places: declared,
       shown: [],
       routes: [],
       eras: [],
       events: [],
-      labels: [],
       axis: timeAxis(readYear(spec, "from", objectId), readYear(spec, "to", objectId), objectId),
-      land: rings,
-      coast: coastGrid(rings, MAP_ALONE),
+      trail: [],
     };
   },
 
@@ -1088,17 +1130,17 @@ export const lab: LabDef<MapSpec, MapState> = {
     places: {
       doc: '{"show": ["Rome", "Carthage"]}; those places from the spec appear as dots on the map, each with its name',
       seconds: 0.8,
-      apply: (state, op) => relabelled(withShown(state, placeList(state, op, "show", '["Rome", "Carthage"]'))),
+      apply: (state, op) => played(withShown(state, placeList(state, op, "show", '["Rome", "Carthage"]'))),
     },
     routes: {
       doc: `{"through": ["New Carthage", "Alps pass", "Cannae"]}; a route is drawn over time from place to place in that order, ending in an arrow; each route gets its own color, up to ${MAX_ROUTES}; its places appear if they were hidden`,
       seconds: routeSeconds,
       apply(state, op) {
         if (state.routes.length >= MAX_ROUTES) fail(`op "routes": ${state.objectId} already has ${MAX_ROUTES} routes, the most that keep their own colors`);
-        const through = checkedRoute(state, placeList(state, op, "through", '["New Carthage", "Alps pass", "Cannae"]'));
-        return relabelled({ ...withShown(state, through), routes: [...state.routes, { through, color: SERIES[state.routes.length]! }] });
+        const through = checkedRoute(laidOut(state), placeList(state, op, "through", '["New Carthage", "Alps pass", "Cannae"]'));
+        return played({ ...withShown(state, through), routes: [...state.routes, { through, color: SERIES[state.routes.length]! }] });
       },
-      during: (before, after, _op, progress) => [...settle(before, after, settleShare(progress)), ...growingRoute(after, after.routes.length - 1, actShare(progress))],
+      during: (before, after, _op, progress) => [...settle(laidOut(before), laidOut(after), settleShare(progress)), ...growingRoute(laidOut(after), after.routes.length - 1, actShare(progress))],
     },
     eras: {
       doc: '{"name": "Second Punic War", "from": -218, "to": -201}; a named span grows along the timeline from "from" to "to" (BC is negative); eras that overlap in time stack in two rows; the first era or event makes the map shrink to leave room for the timeline',
@@ -1110,7 +1152,7 @@ export const lab: LabDef<MapSpec, MapState> = {
         if (to <= from) fail(`op "eras": "to" (${to}) must be a later year than "from" (${from})`);
         const next = { ...state, eras: [...state.eras, { name, from, to, color: SERIES[state.eras.length % SERIES.length]! }] };
         eraSlots(next, 0);
-        return relabelled(withTimelineRoom(state, next));
+        return played(next);
       },
       during(before, after, _op, progress) {
         const { axisY, eras } = timelineLayout(after);
@@ -1118,7 +1160,7 @@ export const lab: LabDef<MapSpec, MapState> = {
         const era = after.eras[slot.era]!;
         const grown = actShare(progress);
         const span = eraSpan(after, era, slot.row, axisY, lerp(era.from, era.to, grown));
-        return [...settle(before, after, settleShare(progress)), ...eraDrawables(after, slot, span, clamp01((grown - 1 + ERA_LABEL_FADE) / ERA_LABEL_FADE))];
+        return [...settle(laidOut(before), laidOut(after), settleShare(progress)), ...eraDrawables(after, slot, span, clamp01((grown - 1 + ERA_LABEL_FADE) / ERA_LABEL_FADE))];
       },
     },
     events: {
@@ -1131,14 +1173,14 @@ export const lab: LabDef<MapSpec, MapState> = {
         const shown = place === null ? state : withShown(state, [place]);
         const next = { ...shown, events: [...state.events, { name, year, place }] };
         eventRows(next);
-        return relabelled(withTimelineRoom(state, next));
+        return played(next);
       },
       during(before, after, _op, progress) {
         const fresh = `event-${after.events.length - 1}-`;
         const appearing = eventDrawables(after, timelineLayout(after))
           .filter((item) => item.id.startsWith(fresh))
           .map((item) => ({ ...item, opacity: actShare(progress) }));
-        return [...settle(before, after, settleShare(progress)), ...appearing];
+        return [...settle(laidOut(before), laidOut(after), settleShare(progress)), ...appearing];
       },
     },
   },
@@ -1148,6 +1190,7 @@ export const lab: LabDef<MapSpec, MapState> = {
   },
 
   draw(state) {
-    return [...mapFrame(state), ...landDrawables(state), ...changingDrawables(state)];
+    const laid = laidOut(state);
+    return [...mapFrame(laid), ...landDrawables(laid), ...changingDrawables(laid)];
   },
 };
