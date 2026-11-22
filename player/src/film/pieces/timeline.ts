@@ -80,6 +80,8 @@ export const primitive: LabDef<Record<string, unknown>, TimelineState> = {
     if (typeof from !== "number" || typeof to !== "number" || to <= from) throw new Error(`${objectId}: "from" and "to" must be years, with "to" after "from"`);
     const marks = parseMarks(spec.marks, objectId);
     if (marks.some((mark) => mark.year < from || mark.year > to)) throw new Error(`${objectId}: every mark year must lie between ${from} and ${to}`);
+    const shared = marks.findIndex((mark, position) => marks.findIndex((other) => other.year === mark.year) !== position);
+    if (shared >= 0) throw new Error(`${objectId}: marks[${shared}] falls in ${marks[shared]!.year} like an earlier mark, and a timeline marks moments in different years; join them into one mark, or show moments inside one year on a tracker`);
     return { from, to, marks, shown: 0 };
   },
   ops: {
