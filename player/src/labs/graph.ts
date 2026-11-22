@@ -430,7 +430,7 @@ function geometryOf(state: GraphState): Geometry {
   const reach = state.radius * CURRENT_SCALE;
   const marginX = reach + SIDE_MARGIN;
   const marginY = reach + VERTICAL_MARGIN;
-  const stripRoom = state.frontierKind ? STRIP_GAP + (state.reading ? TAG_ROOM : 0) + STRIP_HEIGHT + VERTICAL_MARGIN : 0;
+  const stripRoom = STRIP_GAP + (state.reading ? TAG_ROOM : 0) + STRIP_HEIGHT + VERTICAL_MARGIN;
   const room = { w: STAGE.w - 2 * STAGE_MARGIN - 2 * marginX, h: STAGE.h - 2 * STAGE_MARGIN - 2 * marginY - stripRoom };
   const layout = layoutGraph({ kind: state.layout, ids: state.nodes.map((node) => node.id), edges: state.edges, directed: state.directed, root: state.root, radius: state.radius, room });
   const graphWidth = layout.w + 2 * marginX;
