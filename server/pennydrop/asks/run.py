@@ -125,6 +125,7 @@ class LessonRun:
         self._first_voice: asyncio.Task[Voice | None] | None = None
         self._repairs: list[dict[str, Any]] = []
         self._catalog_labs: set[str] = set()
+        self._op_docs: dict[str, dict[str, str]] = {}
         self._published = 0
         self._shown_steps = 0
         self._redone_for_child: set[int] = set()
@@ -159,6 +160,7 @@ class LessonRun:
         kit = self._kit
         snapshot = await kit.catalog.current()
         self._catalog_labs = {lab.id for lab in snapshot.labs}
+        self._op_docs = {lab.id: lab.ops for lab in snapshot.labs}
         plan = await kit.classifier.plan(self._ask.text, self._ask.profile, snapshot.labs, self._ask.viewing, self._record.id)
         self._stopwatch.mark("classified")
         self._refused = not plan.fine_for_young_child
@@ -333,7 +335,7 @@ class LessonRun:
             self._claims_agree(step, written, known, facts),
             _asked_at_the_close(step, number, pending.followed),
             self._missing_hinge(step, number, pending.last_after),
-            self._narration_off_stage(step, arrays, figures, event_plays(scene, step)),
+            self._narration_off_stage(step, arrays, figures, event_plays(scene, step, self._op_docs)),
             self._answer_on_stage(step, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines]),
             self._answer_told(step),
             self._asks_the_challenge(step),

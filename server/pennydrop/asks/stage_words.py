@@ -282,6 +282,8 @@ EVENT_LABS = ("scheduler", "sequence", "threads", "address", "hash", "memory", "
 STILL_OPERATIONS = ("highlight", "focus", "unhighlight", "label", "note")
 UNSPOKEN_FIELDS = ("op", "on", "cue", "role", "ms")
 OBJECT_NAME = re.compile(r"^[\w-]+")
+DOC_EXAMPLE = re.compile(r"\{[^{}]*\}|\[[^\[\]]*\]|\s*(?:such as )?\"[^\"()]*\d[^\"()]*\"")
+DOC_LEAD = re.compile(r"^(?:\s|optional|or|and|with|,|;|:)+")
 
 
 @dataclass(frozen=True)
@@ -294,7 +296,7 @@ class EventPlay:
         return f'the {self.lab} Lab "{self.name}" plays: {"; then ".join(self.events)}'
 
 
-def event_plays(scene_before: Any, step: dict[str, Any]) -> list[EventPlay]:
+def event_plays(scene_before: Any, step: dict[str, Any], op_docs: dict[str, dict[str, str]]) -> list[EventPlay]:
     scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
     objects = scene_before.get("objects") if isinstance(scene_before, dict) else None
     labs = {
@@ -308,11 +310,13 @@ def event_plays(scene_before: Any, step: dict[str, Any]) -> list[EventPlay]:
         names = {found[0] for target in operation["on"] if (found := OBJECT_NAME.match(str(target)))}
         for name in names:
             if labs.get(name) in EVENT_LABS:
-                events.setdefault(name, []).append(_event(operation))
+                events.setdefault(name, []).append(_event(operation, op_docs.get(labs[name], {})))
     return [EventPlay(name, labs[name], tuple(played)) for name, played in events.items()]
 
 
-def _event(operation: dict[str, Any]) -> str:
+def _event(operation: dict[str, Any], docs: dict[str, str]) -> str:
     fields = ", ".join(f"{key} {json.dumps(value) if isinstance(value, dict | list) else value}" for key, value in operation.items() if key not in UNSPOKEN_FIELDS)
     parts = [str(target) for target in operation["on"] if "[" in str(target)]
-    return " ".join(filter(None, (str(operation.get("op")), f"on {', '.join(parts)}" if parts else "", f"({fields})" if fields else "")))
+    played = " ".join(filter(None, (str(operation.get("op")), f"on {', '.join(parts)}" if parts else "", f"({fields})" if fields else "")))
+    doc = DOC_LEAD.sub("", DOC_EXAMPLE.sub("", docs.get(str(operation.get("op")), ""))).strip()
+    return f"{played} ({doc})" if doc else played
