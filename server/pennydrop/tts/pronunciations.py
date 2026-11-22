@@ -15,16 +15,20 @@ KOKORO_NAMES = {
     "Fructidor": "fɹˌʌktidˈɔɹ",
     "Formio": "fˈɔɹmjO",
     "Kleber": "klAbˈɛɹ",
-    "Sieyes": "sjɛjˈɛs",
+    "Sieyes": "sˌiɛjˈɛs",
     "Fouche": "fuʃˈA",
     "Brumaire": "bɹumˈɛɹ",
     "Aboukir": "ˌɑbukˈiɹ",
-    "Barras": "bɑɹˈɑ",
+    "Barras": "bɑɹˈɑs",
     "Beauharnais": "bˌOɑɹnˈA",
     "Ducos": "dukˈO",
     "Augustin": "ˌOɡustˈɛn",
     "Arcole": "ɑɹkˈOl",
     "Ajaccio": "ˌɑʒɑʧˈiO",
+    "Bourrienne": "buɹjˈɛn",
+    "Lucien": "lyˈsjɛn",
+    "Joubert": "ʒubˈɛɹ",
+    "Maximilien": "mˌɑksimiljˈɛn",
 }
 NAME_TOKEN = re.compile(r"(?<![\w'’])(" + "|".join(re.escape(name) for name in sorted(KOKORO_NAMES, key=len, reverse=True)) + r")('s|’s)?(?![\w])")
 
