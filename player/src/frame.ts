@@ -1,7 +1,7 @@
 import { gsap } from "gsap";
 import { definitionOf, type SceneState } from "./scene";
 import { type Camera, buildStage, HOME_CAMERA, arrivedObjects, movedObjects, type PlacedObject, placeDrawables, type Stage } from "./stage";
-import { clamp01, type Drawable, type DrawableKind, duringLabOp, lerp, lerpRect, type Paint, type Rect } from "./lab";
+import { clamp01, type Drawable, duringLabOp, lerp, lerpRect, type Paint, PATH_KINDS, type Rect, WORD_KINDS } from "./lab";
 import { parseHex, type Rgba, shownText, type Theme } from "./theme";
 import { type SegmentProgress, type Timeline, trueProgress } from "./timeline";
 import { applyEffect, type Touch } from "./verbs";
@@ -34,8 +34,6 @@ export interface Frame {
   time: number;
 }
 
-const PATH_KINDS: DrawableKind[] = ["line", "arrow", "path"];
-const WORD_KINDS: DrawableKind[] = ["text", "code", "math"];
 const ENTER_RISE = 18;
 const RELAYOUT_FADE_START = 0.6;
 

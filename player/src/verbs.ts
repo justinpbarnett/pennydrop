@@ -1,10 +1,11 @@
-import { isRole, fail, lerp, type Drawable } from "./lab";
+import { isRole, fail, lerp, type Drawable, PATH_KINDS, WORD_KINDS } from "./lab";
 import {
-  createObject, findObject, removeObject, requireObject, type SceneObject, type SceneState, upsertObject,
+  createObject, definitionOf, findObject, removeObject, requireObject, type SceneObject, type SceneState, upsertObject,
 } from "./scene";
 import type { ObjectSpec } from "./format";
 import { parseRelation } from "./relation";
 import type { Selector } from "./selector";
+import { ownDrawables } from "./stage";
 
 export type Effect =
   | { kind: "pulse" }
@@ -67,11 +68,19 @@ function setField(scene: SceneState, op: ParsedOp, field: "tint" | "highlight", 
   return { scene: next, touches };
 }
 
+function drawsOnlyStrokes(scene: SceneState, object: SceneObject): boolean {
+  const shapes = ownDrawables(scene, object).filter((drawable) => !WORD_KINDS.includes(drawable.kind));
+  return shapes.length > 0 && shapes.every((drawable) => PATH_KINDS.includes(drawable.kind));
+}
+
 function effectVerb(kind: "pulse" | "trace"): Verb["run"] {
   return (scene, op) => ({
     scene,
     touches: ids(op).map((id) => {
       const object = requireObject(scene, id);
+      if (kind === "trace" && !drawsOnlyStrokes(scene, object)) {
+        fail(`op "trace" draws on a line, arrow, edge or plotted series, and ${id} (${definitionOf(object).title}) is none of those; highlight or pulse it instead, and to play a run of code use the Step's "trace" directive`);
+      }
       return { objectId: id, before: object, after: object, action: { type: "effect", effect: { kind } } };
     }),
   });
@@ -150,7 +159,7 @@ const VERBS: Record<string, Verb> = {
     run: (scene, op) => setField(scene, op, "tint", "active"),
   },
   pulse: { summary: 'pulse: {"on":["id"]} swells an object once', duration: 0.7, run: effectVerb("pulse") },
-  trace: { summary: 'trace: {"on":["id"]} draws a line, arrow or path along its length', duration: 1.2, run: effectVerb("trace") },
+  trace: { summary: 'trace: {"on":["id"]} draws a line, arrow, edge or plotted series along its length; other objects reject it', duration: 1.2, run: effectVerb("trace") },
   swap: {
     summary: 'swap: {"on":["a","b"]} two objects trade places on arcs',
     duration: 0.9,

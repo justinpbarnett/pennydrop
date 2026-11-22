@@ -113,6 +113,12 @@ export function buildStage(scene: SceneState, layout: LayoutOf = layoutScene, th
   return stage;
 }
 
+export function ownDrawables(scene: SceneState, object: SceneObject): Drawable[] {
+  const def = definitionOf(object);
+  const links = def.overlay ? linksFor(scene, layoutScene(scene)) : {};
+  return def.draw(object.state, { objectId: object.id, links });
+}
+
 const BOX_MOVE_THRESHOLD = 0.5;
 
 export function movedObjects(before: Stage, after: Stage): Set<string> {

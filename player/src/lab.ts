@@ -19,6 +19,8 @@ export interface Span {
 }
 
 export type DrawableKind = "rect" | "circle" | "line" | "arrow" | "path" | "text" | "code" | "math" | "image";
+export const PATH_KINDS: readonly DrawableKind[] = ["line", "arrow", "path"];
+export const WORD_KINDS: readonly DrawableKind[] = ["text", "code", "math"];
 
 export interface Drawable {
   id: string;
