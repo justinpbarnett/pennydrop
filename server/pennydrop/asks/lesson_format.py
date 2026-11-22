@@ -150,7 +150,7 @@ def _reshaped(step: dict[str, Any]) -> dict[str, Any]:
     step = _with_directives_out_of_operations(step)
     step = _with_trace_named_by_code(step)
     step = _with_until_in_staged_directive(step)
-    return _without_empty_directives(step)
+    return _without_empty_fields(step)
 
 
 def _decoded(text: str) -> tuple[str, Any, int]:
@@ -179,8 +179,8 @@ def _reopened(text: str, value: Any, end: int) -> tuple[str, Any, int]:
     return text, value, end
 
 
-def _without_empty_directives(step: dict[str, Any]) -> dict[str, Any]:
-    empty = [name for name in DIRECTIVES if name in step and step[name] in (None, {}, [])]
+def _without_empty_fields(step: dict[str, Any]) -> dict[str, Any]:
+    empty = [name for name in (*DIRECTIVES, "scene", "do") if name in step and step[name] in (None, {}, [], "")]
     return {key: value for key, value in step.items() if key not in empty} if empty else step
 
 
