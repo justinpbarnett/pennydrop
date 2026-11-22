@@ -56,6 +56,7 @@ RUN_ENDS_AFTER_STOP = 'this Step plays the run to its end before the Lesson has 
 LOADED_BEFORE_HINGE = 'this Step has the OS load the missing page before the Lesson has asked its predict Challenge, and once the page is loaded the stage shows what the OS does, so nothing is left to predict; stop this Step\'s simulation at "k fault", where the walk finds the invalid entry, make this Step the hinge that asks what happens next without giving the answer, and leave "k load" to the next Step'
 OPEN_QUESTION = 'say: the narration ends on a question, but this Step has no Challenge, so the learner gets no turn to answer it; give this Step the predict Challenge that question asks, or end the narration on the statement it is leading to'
 PLOT_ENDS_BEFORE_HINGE = 'this Step draws the {plot} plot to its end before the Lesson has asked its predict Challenge, and once every line is drawn the learner reads any answer off the plot; graph the {line} line here only part way, with "to" at an x before the end, so a later Step can ask the Challenge about where it ends and the Step after it can graph the rest and mark the end'
+MATCHED_BEFORE_HINGE = 'this Step matches the word to its meaning "{meaning}" before the Lesson has asked its predict Challenge, and once the check mark shows, the learner has seen the answer, so nothing is left to work out; here match only a wrong meaning, or none, ask for the meaning in a later Step\'s Challenge, and play the right match in the Step after it as the reveal'
 SIDE_RUN_TOO_SOON = 'this Step starts the contrast run while the main run is stopped at "until": {until}, but the story plays the main run, the normal case, to its end before the contrast run breaks it, so the learner never sees the main run finish; play the main run on in this Step instead, with its trace at the next stop the brief gives after {until}, or with no "until" when no stop is left, narrate the turns it plays, and start the contrast run only in a Step after the main run ends'
 MAIN_RUN_TOO_SOON = 'this Step plays the main run while the contrast run is stopped at "until": {until}, but the story plays the contrast run, the normal case, to its end before the main run answers it, so the learner never sees the contrast run finish and its whole order or total is never shown; play the contrast run on in this Step instead, with its trace at the next stop the brief gives after {until}, or with no "until" when no stop is left, narrate the turns it plays, and play the main run only in a Step after the contrast run ends'
 PLANNED_HINGE = '; the story asks its hinge right after "until": {until} of the run on "{on}", so carry that run\'s trace in this Step with "until": {until}, which leaves the rest of the run to the last Step, and ask {question}'
@@ -414,7 +415,7 @@ class LessonRun:
             self._restates_point(step, number, pending.followed),
             self._claims_agree(step, written, known, facts),
             _asked_at_the_close(step, number, pending.followed),
-            self._ends_before_hinge(step, written, values, plots, pending.followed),
+            self._ends_before_hinge(step, scene, written, values, plots, pending.followed),
             self._still_stage(step, written, number, pending.followed),
             self._missing_hinge(step, number, pending.last_after),
             self._narration_off_stage(step, arrays, figures, events),
@@ -480,7 +481,7 @@ class LessonRun:
             return None
         return " ".join([STORY_OFF_LAB.format(labs=" or ".join(sorted(planned))), *directive_briefs(tuple(sorted(planned)))])
 
-    async def _ends_before_hinge(self, step: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any], plots: list[PlotView], followed: asyncio.Future[bool]) -> Spoiler | None:
+    async def _ends_before_hinge(self, step: dict[str, Any], scene: Any, written: dict[str, Any] | Malformed, values: dict[str, Any], plots: list[PlotView], followed: asyncio.Future[bool]) -> Spoiler | None:
         if self._asked_challenge or "challenge" in step:
             return None
         if trace_totals(values) and self._stage.plays_last_run(written):
@@ -490,6 +491,8 @@ class LessonRun:
             spoiler = Spoiler(PLOT_ENDS_BEFORE_HINGE.format(plot=finished.name, line=finished.graphed[-1]), (finished.name, finished.graphed[-1]))
         elif any(operation.get("op") == "fault" and self._stage.labs.get(next(iter(operation.get("on") or []), "")) == "address" for operation in step.get("do", []) if isinstance(operation, dict)):
             spoiler = Spoiler(LOADED_BEFORE_HINGE)
+        elif right := next((match for match in card_matches(scene, step) if match.right), None):
+            spoiler = Spoiler(MATCHED_BEFORE_HINGE.format(meaning=right.meanings[right.marked]))
         else:
             return None
         return spoiler if await followed else None

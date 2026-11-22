@@ -515,7 +515,7 @@ export const lab: LabDef<WordsSpec, WordsState> = {
   reading: "optional",
   catalog: {
     summary:
-      "A word card for languages and reading: one word in large type split into syllables, a track that lights as the word is spoken, a stressed syllable marked in its own color, letter tiles that spell it out, and optional meaning cards to match it with. To pair the word with a picture instead, place a picture Lab beside it and use connect.",
+      "A word card for languages and reading: one word in large type split into syllables, a track that lights as the word is spoken, a stressed syllable marked in its own color, letter tiles that spell it out, and optional meaning cards to match it with. Only a language whose words carry a stressed syllable, such as English, Spanish or Italian, has one to mark; Japanese, Chinese and French words have none, so a Lesson on them teaches the beats, sounds and meaning and claims no stress. To pair the word with a picture instead, place a picture Lab beside it and use connect.",
     spec: {
       word: 'the word, with a hyphen between syllables, such as "ba-na-na" (shown as banana with a dot between syllables); one word, at most 6 syllables and 14 letters; a phrase is one words Lab per word, kept side by side with "at": {"row": [...]}, each brought in as the narration says it, so an earlier word stays on stage beside the one that joins it',
       meanings: 'optional list of 1 to 4 short meanings shown as cards under the word, such as ["a long yellow fruit", "a small red fruit"]; a few words each; they are what this word means on its own, so a word that only changes a phrase, such as a polite ending, has meanings like "a polite ending", never the meaning of the whole phrase',
