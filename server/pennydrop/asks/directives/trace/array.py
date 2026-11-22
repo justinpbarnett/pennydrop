@@ -136,7 +136,15 @@ def _closing(found: list[tuple[int, list[dict[str, Any]]]], run: TracedRun, arra
 def _add(found: list[tuple[int, list[dict[str, Any]]]], position: int, operations: list[dict[str, Any]]) -> None:
     if not operations:
         return
+    last = found[-1][1][-1] if found else None
+    if len(operations) == 1 and _same_counter(last, operations[0]):
+        last["add"] += operations[0]["add"]
+        return
     if found and found[-1][0] == position:
         found[-1][1].extend(operations)
     else:
         found.append((position, operations))
+
+
+def _same_counter(last: dict[str, Any] | None, operation: dict[str, Any]) -> bool:
+    return last is not None and last["op"] == operation["op"] == "counter" and last["on"] == operation["on"] and last["name"] == operation["name"]

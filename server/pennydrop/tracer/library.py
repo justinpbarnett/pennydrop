@@ -144,7 +144,7 @@ def sort_range(a, low, high):
     a[boundary], a[high] = a[high], a[boundary]
     sort_range(a, low, boundary - 1)
     sort_range(a, boundary + 1, high)
-''', "a list of numbers", 'quicksort, the whole sort: it partitions around a pivot, then sorts each side the same way', [5, 2, 8, 1, 9, 3, 7, 4], ("boundary", "j"), ("low", "high"), "boundary", Contrast("quick_sort", [1, 2, 3, 4, 5, 6, 7, 8], BREAK, "a list already in order, the worst case: the pivot is always the largest value, so each partition splits off one value and sorts the rest again")),
+''', "a list of numbers", 'quicksort, the whole sort: it partitions around a pivot, then sorts each side the same way', [4, 1, 5, 2, 6, 3], ("boundary", "j"), ("low", "high"), "boundary", Contrast("quick_sort", [1, 2, 3, 4, 5, 6], BREAK, "a list already in order, the worst case: the pivot is always the largest value, so each partition splits off one value and sorts the rest again")),
     Algorithm("partition", "partition", '''
 def partition(a):
     pivot = a[-1]
