@@ -18,7 +18,6 @@ from . import Direction, Form, Practice, Rule
 
 CASE_DIRECTIVES = ("trace", "simulate", "math")
 UNKEYED = ("until", "on", "name")
-PRESENTATION = ("at", "title", "counters", "pointers", "window", "sorted", "label")
 KID_FRESH_TYPES = ("click", "yesno")
 CASE_ONLY_FIELDS = ("form", "direction", "inputs")
 RUN_STAGE_NUMBER = 2
