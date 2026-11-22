@@ -2,8 +2,9 @@ import type { Challenge, LessonHeader, LessonSource, Step } from "./format";
 import { prepareStepAssets } from "./assets";
 import { type Frame, renderFrame } from "./frame";
 import { THEMES, type Theme, type ThemeId } from "./theme";
+import { soundLabOp } from "./lab";
 import { Timeline } from "./timeline";
-import { startSceneOf } from "./scene";
+import { definitionOf, startSceneOf } from "./scene";
 
 export type PlaybackState = "idle" | "playing" | "paused" | "challenge" | "buffering" | "ended";
 
@@ -13,6 +14,7 @@ export interface PendingChallenge {
 }
 
 const AUDIO_DRIFT_SECONDS = 0.25;
+const LATE_SOUND_SECONDS = 0.25;
 
 export class Playback {
   timeline = new Timeline();
@@ -137,6 +139,7 @@ export class Playback {
     if (this.state !== "playing") return;
     const elapsed = Math.max(0, (now - this.lastTick) / 1000);
     this.lastTick = now;
+    const from = this.time;
     const target = this.time + elapsed;
     const end = this.timeline.duration;
     const gate = this.timeline.steps.find((span) => span.step.challenge && !this.answered.has(span.step.step) && this.time < span.end && target >= span.end);
@@ -153,7 +156,14 @@ export class Playback {
       this.time = target;
       this.syncAudio(false);
     }
+    this.soundOpsStartingIn(Math.max(from, this.time - LATE_SOUND_SECONDS), this.time);
     this.notify();
+  }
+
+  private soundOpsStartingIn(from: number, to: number): void {
+    for (const segment of this.timeline.segmentsStartingIn(from, to))
+      for (const touch of segment.touches)
+        if (touch.action.type === "lab" && touch.before) soundLabOp(definitionOf(touch.before), touch.action, touch.before.state);
   }
 
   private syncAudio(force: boolean): void {

@@ -20,10 +20,17 @@ interface TimeoutRow {
 
 type Row = MessageRow | TimeoutRow;
 
+interface Column {
+  lines: string[];
+  width: number;
+  center: number;
+}
+
 interface SequenceState {
   objectId: string;
   reading: boolean;
   participants: string[];
+  columns: Column[];
   rows: Row[];
 }
 
@@ -32,9 +39,9 @@ interface SequenceSpec {
   reading?: unknown;
 }
 
-interface Columns {
-  boxWidth: number;
-  pitch: number;
+interface Fit {
+  lines: string[];
+  width: number;
 }
 
 interface Path {
@@ -64,6 +71,11 @@ const BOX_TEXT_PADDING = 20;
 const NAME_MAX_SIZE = 38;
 const NAME_MIN_SIZE = 28;
 const FIT_TOLERANCE = 0.5;
+const BOX_FLOOR_WIDTH = 150;
+const BOX_GROWTH_SHARE = 0.5;
+const NAME_LINE_RATIO = 1.1;
+const HEAD_TEXT_PADDING = 10;
+const WRAPPED_MAX_SIZE = (HEAD_HEIGHT - HEAD_TEXT_PADDING * 2) / (2 * NAME_LINE_RATIO);
 
 const ROW_TOP_PAD = 20;
 const LABEL_MAX_SIZE = 30;
@@ -108,29 +120,91 @@ function boxLimit(count: number): number {
   return (WIDTH - BOX_MIN_GAP * (count - 1)) / count;
 }
 
-function columns(names: string[]): Columns {
-  const count = names.length;
-  const base = Math.min(BOX_MAX_WIDTH, (WIDTH / count) * BOX_SHARE + BOX_TEXT_PADDING * 2);
-  const needed = Math.max(0, ...names.map((name) => markWidth(name, NAME_MIN_SIZE, "mark") + BOX_TEXT_PADDING * 2));
-  const boxWidth = Math.max(base, Math.min(boxLimit(count), needed));
-  return { boxWidth, pitch: (WIDTH - boxWidth) / (count - 1) };
-}
-
 function nameRoom(boxWidth: number): number {
   return boxWidth - BOX_TEXT_PADDING * 2;
+}
+
+function linesWidth(lines: string[], size: number): number {
+  return Math.max(...lines.map((line) => markWidth(line, size, "mark")));
 }
 
 function nameFits(name: string, boxWidth: number): boolean {
   return markWidth(name, NAME_MIN_SIZE, "mark") <= nameRoom(boxWidth) + FIT_TOLERANCE;
 }
 
-function nameSize(name: string, boxWidth: number): number {
-  return Math.max(NAME_MIN_SIZE, fittedSize(name, NAME_MAX_SIZE, nameRoom(boxWidth), "mark"));
+function spreadColumns(lines: string[][], widths: number[]): Column[] {
+  const gap = (WIDTH - widths.reduce((sum, width) => sum + width, 0)) / Math.max(1, lines.length - 1);
+  let left = 0;
+  return lines.map((own, index) => {
+    const width = widths[index]!;
+    const column = { lines: own, width, center: left + width / 2 };
+    left += width + gap;
+    return column;
+  });
+}
+
+function equalColumns(names: string[]): Column[] | null {
+  const count = names.length;
+  const base = Math.min(BOX_MAX_WIDTH, (WIDTH / count) * BOX_SHARE + BOX_TEXT_PADDING * 2);
+  const needed = Math.max(0, ...names.map((name) => markWidth(name, NAME_MIN_SIZE, "mark") + BOX_TEXT_PADDING * 2));
+  const boxWidth = Math.max(base, Math.min(boxLimit(count), needed));
+  if (!names.every((name) => nameFits(name, boxWidth))) return null;
+  return spreadColumns(
+    names.map((name) => [name]),
+    names.map(() => boxWidth),
+  );
+}
+
+function singleLine(name: string): Fit {
+  return { lines: [name], width: linesWidth([name], NAME_MIN_SIZE) + BOX_TEXT_PADDING * 2 };
+}
+
+function twoLines(name: string): Fit | null {
+  const words = name.split(/\s+/);
+  const splits = words.slice(1).map((_, index) => [words.slice(0, index + 1).join(" "), words.slice(index + 1).join(" ")]);
+  const fits = splits.map((lines): Fit => ({ lines, width: linesWidth(lines, NAME_MIN_SIZE) + BOX_TEXT_PADDING * 2 }));
+  return fits.reduce<Fit | null>((best, fit) => (best === null || fit.width < best.width ? fit : best), null);
+}
+
+function floored(fit: Fit): number {
+  return Math.max(BOX_FLOOR_WIDTH, fit.width);
+}
+
+function nameCap(lines: string[]): number {
+  return lines.length > 1 ? WRAPPED_MAX_SIZE : NAME_MAX_SIZE;
+}
+
+function sizedColumns(names: string[]): Column[] | null {
+  const room = WIDTH - BOX_MIN_GAP * (names.length - 1);
+  const wrapped = names.map(twoLines);
+  const chosen = names.map(singleLine);
+  const total = () => chosen.reduce((sum, fit) => sum + floored(fit), 0);
+  while (total() > room) {
+    const savings = chosen.map((fit, index) => (wrapped[index] && fit !== wrapped[index] ? floored(fit) - floored(wrapped[index]!) : 0));
+    const best = savings.indexOf(Math.max(...savings));
+    if (savings[best]! <= 0) return null;
+    chosen[best] = wrapped[best]!;
+  }
+  const deficits = chosen.map((fit) => Math.max(0, Math.min(BOX_MAX_WIDTH, linesWidth(fit.lines, nameCap(fit.lines)) + BOX_TEXT_PADDING * 2) - floored(fit)));
+  const wanted = deficits.reduce((sum, deficit) => sum + deficit, 0);
+  const share = wanted === 0 ? 0 : Math.min(1, ((room - total()) * BOX_GROWTH_SHARE) / wanted);
+  return spreadColumns(
+    chosen.map((fit) => fit.lines),
+    chosen.map((fit, index) => floored(fit) + deficits[index]! * share),
+  );
+}
+
+function columnsFor(names: string[]): Column[] | null {
+  return equalColumns(names) ?? sizedColumns(names);
+}
+
+function nameSize(state: SequenceState): number {
+  const fitted = state.columns.flatMap((column) => column.lines.map((line) => fittedSize(line, nameCap(column.lines), nameRoom(column.width), "mark")));
+  return Math.max(NAME_MIN_SIZE, Math.min(...fitted));
 }
 
 function columnX(state: SequenceState, index: number): number {
-  const { boxWidth, pitch } = columns(state.participants);
-  return boxWidth / 2 + index * pitch;
+  return state.columns[index]!.center;
 }
 
 function height(state: SequenceState): number {
@@ -163,23 +237,28 @@ function pointAlong(path: Path, share: number): Point {
   return { x: lerp(path.start.x, path.end.x, share), y: lerp(path.start.y, path.end.y, share) };
 }
 
-function labelRoom(names: string[], from: number, to: number): number {
-  return columns(names).pitch * Math.abs(to - from) - LABEL_SIDE_CLEAR * 2;
+function labelRoom(state: SequenceState, from: number, to: number): number {
+  return Math.abs(columnX(state, to) - columnX(state, from)) - LABEL_SIDE_CLEAR * 2;
 }
 
-function labelSize(names: string[], from: number, to: number, text: string): number {
-  return Math.max(LABEL_MIN_SIZE, fittedSize(text, LABEL_MAX_SIZE, labelRoom(names, from, to), "read"));
+function labelSize(state: SequenceState, from: number, to: number, text: string): number {
+  return Math.max(LABEL_MIN_SIZE, fittedSize(text, LABEL_MAX_SIZE, labelRoom(state, from, to), "read"));
 }
 
 function messageLabel(state: SequenceState, index: number, row: MessageRow): Label {
   const path = messagePath(state, index, row);
   const middle = pointAlong(path, 0.5);
-  const size = labelSize(state.participants, row.from, row.to, row.label);
+  const size = labelSize(state, row.from, row.to, row.label);
   const width = markWidth(row.label, size, "read");
   const slope = Math.abs((path.end.y - path.start.y) / (path.end.x - path.start.x));
   const rise = (slope * width) / 2;
   const x = Math.min(WIDTH - width / 2, Math.max(width / 2, middle.x));
   return { text: row.label, at: { x, y: middle.y - rise - LABEL_ABOVE_LINE - size / 2 }, size };
+}
+
+function tooLong(names: string[]): string {
+  const narrowest = (name: string) => Math.min(singleLine(name).width, twoLines(name)?.width ?? Infinity);
+  return names.reduce((longest, name) => (narrowest(name) > narrowest(longest) ? name : longest));
 }
 
 function readParticipants(raw: unknown, objectId: string): string[] {
@@ -191,10 +270,13 @@ function readParticipants(raw: unknown, objectId: string): string[] {
     if (raw.indexOf(name) !== index) fail(`${objectId}: participant "${name}" appears twice; names must be unique`);
     return name as string;
   });
-  const { boxWidth } = columns(names);
-  for (const name of names)
-    if (!nameFits(name, boxWidth)) fail(`${objectId}: participant name "${name}" is too long for ${names.length} participants; shorten it, such as "Auth" for "Authentication server"`);
   return names;
+}
+
+function readColumns(names: string[], objectId: string): Column[] {
+  const columns = columnsFor(names);
+  if (!columns) fail(`${objectId}: participant names are too long to fit side by side for ${names.length} participants; shorten "${tooLong(names)}", such as "Auth" for "Authentication server"`);
+  return columns;
 }
 
 function readReading(raw: unknown, objectId: string): boolean {
@@ -283,12 +365,14 @@ function changedRow(before: SequenceState, after: SequenceState): number {
 }
 
 function headDrawables(state: SequenceState): Drawable[] {
-  const { boxWidth } = columns(state.participants);
-  return state.participants.flatMap((name, index): Drawable[] => {
-    const center = { x: columnX(state, index), y: HEAD_HEIGHT / 2 };
-    const box = boxDrawable(`head-${index}`, { x: center.x - boxWidth / 2, y: 0, w: boxWidth, h: HEAD_HEIGHT }, { fill: "fill", stroke: SERIES[index]!, strokeWidth: BOX_STROKE, radius: 1, z: 2 });
+  const size = nameSize(state);
+  return state.columns.flatMap((column, index): Drawable[] => {
+    const part = `${state.objectId}[${state.participants[index]}]`;
+    const box = boxDrawable(`head-${index}`, { x: column.center - column.width / 2, y: 0, w: column.width, h: HEAD_HEIGHT }, { fill: "fill", stroke: SERIES[index]!, strokeWidth: BOX_STROKE, radius: 1, z: 2, part });
     if (!state.reading) return [box];
-    return [box, textDrawable(`name-${index}`, name, center, { size: nameSize(name, boxWidth), font: "mark", z: 3 })];
+    const first = HEAD_HEIGHT / 2 - ((column.lines.length - 1) * size * NAME_LINE_RATIO) / 2;
+    const names = column.lines.map((line, row) => textDrawable(`name-${index}${row === 0 ? "" : `-${row}`}`, line, { x: column.center, y: first + row * size * NAME_LINE_RATIO }, { size, font: "mark", z: 3, part }));
+    return [box, ...names];
   });
 }
 
@@ -438,9 +522,10 @@ export const lab: LabDef<SequenceSpec, SequenceState> = {
   reading: "optional",
   catalog: {
     summary:
-      "A sequence diagram for protocols such as the TCP handshake, RPC, TLS and Kerberos: one lifeline per named participant, and each message an arrow that travels down and across from sender to receiver, so time runs top to bottom. A message can be lost mid-flight with a red cross, sent again, and a sender's timer can run out. Up to 16 messages and timeouts per object; every participant keeps one color.",
+      "A sequence diagram for protocols such as the TCP handshake, RPC, TLS and Kerberos: one lifeline per named participant, and each message an arrow that travels down and across from sender to receiver, so time runs top to bottom. A message can be lost mid-flight with a red cross, sent again, and a sender's timer can run out. Up to 16 messages and timeouts per object; every participant keeps one color, and its box can be tapped, so a click Challenge can ask which participant, answered as \"dns[Client]\".",
     spec: {
-      participants: 'list of 2 to 5 short names, left to right, such as ["Client", "Server"]; each gets a lifeline and its own color',
+      participants:
+        'list of 2 to 5 names, left to right, such as ["Client", "Server"]; each gets a lifeline and its own color; a long name gets a wider box, and a name of several words wraps onto two lines when that fits better, so "Authentication server" is fine. A click answer can name a participant as "dns[Client]", the object id and the participant name',
       reading:
         "optional, default true; false draws no words: participants are told apart by color, a message by its arrow in the sender's color, a retransmit by a warn-colored arrow, a loss by a red cross and a timeout by a clock on the lifeline, so the narration must name them",
     },
@@ -450,10 +535,12 @@ export const lab: LabDef<SequenceSpec, SequenceState> = {
   },
 
   init(spec, objectId) {
+    const participants = readParticipants(spec.participants, objectId);
     return {
       objectId,
       reading: readReading(spec.reading, objectId),
-      participants: readParticipants(spec.participants, objectId),
+      participants,
+      columns: readColumns(participants, objectId),
       rows: [],
     };
   },

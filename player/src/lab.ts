@@ -260,6 +260,10 @@ export function applyLabOp(def: AnyLabDef, state: unknown, op: LabOp): unknown {
   return def.ops[op.name]!.apply(state, op);
 }
 
+export function soundLabOp(def: AnyLabDef, op: LabOp, state: unknown): void {
+  def.ops[op.name]?.sound?.(op, state);
+}
+
 export function duringLabOp(def: AnyLabDef, before: unknown, after: unknown, op: LabOp, progress: number, ctx: LabCtx): Drawable[] {
   return def.ops[op.name]?.during?.(before, after, op, progress, ctx) ?? [];
 }

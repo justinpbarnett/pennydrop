@@ -232,6 +232,10 @@ export class Timeline {
     this.done = true;
   }
 
+  segmentsStartingIn(from: number, to: number): Segment[] {
+    return this.segments.filter((segment) => segment.start >= from && segment.start < to);
+  }
+
   stepIndexAt(time: number): number {
     const index = this.steps.findIndex((span) => time < span.end);
     return index < 0 ? Math.max(0, this.steps.length - 1) : index;
