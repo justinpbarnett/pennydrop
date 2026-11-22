@@ -64,6 +64,7 @@ ASKED_AT_THE_CLOSE = 'challenge: this is the last Step, which closes the story o
 STILL_RUN = STILL_OPENING + ': its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
 STILL_SIMULATION = STILL_OPENING + ', so the learner hears new words over a still picture; the run on stage plays only through its "simulate" directive, never through "do", so carry the simulation of the Step before, {simulation}, with the next stop after its "until", or with no "until" to play the rest of the run, and keep "say" telling only the part this Step plays'
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
+ANSWERS_CUT_QUESTION = 'say: the Step before could not keep its Challenge, so the learner was never asked "{asked}", yet this narration announces its answer as if they had been; tell this beat as a plain statement over the stage, with no words that answer a question, and keep every other field as it is'
 ASKS_ANOTHER_QUESTION = 'challenge: this Step\'s "say" asks a different question from its Challenge, so the learner hears one question and is asked to answer another; make "say" ask the Challenge prompt\'s own question, for the same form of answer, and keep the Challenge as it is'
 ANSWER_FORMS = {"number": "The learner answers with a number.", "choice": "The learner picks one of: {choices}.", "click": "The learner answers by tapping a thing on the stage.", "order": "The learner puts these in order: {choices}.", "match": "The learner matches pairs."}
 CHALLENGE_FLAW = re.compile(r"^(step \d+ )?challenge:")
@@ -154,6 +155,7 @@ class LessonRun:
         self._claims_disagreed: set[int] = set()
         self._remembered_values: dict[str, Any] = {}
         self._asked_challenge = False
+        self._cut_question: tuple[int, str] | None = None
         self._told: list[str] = []
         self._stage = Stage()
         self._told_point: str | None = None
@@ -268,6 +270,8 @@ class LessonRun:
                 raise LessonError(f"the player's validator crashed on step {step.number}, and no rewrite can fix that: {crash}") from None
             if settled is None:
                 continue
+            if self._cut_question is not None and self._cut_question[0] < step.number:
+                self._cut_question = None
             scene = settled.scene
             self._asked_challenge = self._asked_challenge or "challenge" in settled.step
             self._told.append(settled.step["say"])
@@ -295,13 +299,16 @@ class LessonRun:
                 self._log_repair(pending.number, attempt + 1, checked.advice, "dropped the still Step, which the writer could not make play")
                 return None
             if isinstance(written, dict) and "challenge" in written and any(CHALLENGE_FLAW.match(advice) for advice in checked.advice):
+                cut = (pending.number, _prompt_of(written["challenge"]))
                 unasked = await self._unasked(brief, pending, written, scene)
                 if unasked is not None:
                     self._log_repair(pending.number, attempt + 1, checked.advice, "dropped the Challenge, whose flaw the writer could not fix")
+                    self._cut_question = cut
                     return unasked
                 question = {field: value for field, value in (checked.step or {}).items() if field != "challenge"}
                 if pending.number > 1 and not (question.get("do") or question.get("scene")) and await pending.followed:
                     self._log_repair(pending.number, attempt + 1, checked.advice, "left out the question Step, whose Challenge the writer could not fix and which plays nothing without it")
+                    self._cut_question = cut
                     return None
             if (held := self._held_back(written, checked)) is not None:
                 rechecked = await self._check(held, pending, scene)
@@ -387,6 +394,7 @@ class LessonRun:
             self._narration_off_stage(step, arrays, figures, events),
             self._card_off_stage(step, scene),
             self._reveal_off_answer(step),
+            self._answers_cut_question(step, pending.number),
             self._answer_on_stage(step, written, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines] + [play.told() for play in events]),
             self._answer_told(step),
             self._asks_the_challenge(step),
@@ -530,6 +538,17 @@ class LessonRun:
         if confirmed == answers.right:
             return None
         return REVEAL_OFF_ANSWER.format(asked=answers.asked, answer=answers.options[answers.right])
+
+    async def _answers_cut_question(self, step: dict[str, Any], number: int) -> str | None:
+        say = step.get("say")
+        if self._cut_question is None or self._cut_question[0] >= number or not self._cut_question[1] or not isinstance(say, str) or "challenge" in step:
+            return None
+        try:
+            answers = await self._kit.classifier.answers_unasked(say, self._cut_question[1], self._record.id)
+        except GatewayError as error:
+            LOG.warning("lesson %s narration could not be checked against the cut Challenge: %s", self._record.id, error)
+            return None
+        return ANSWERS_CUT_QUESTION.format(asked=self._cut_question[1]) if answers else None
 
     async def _answer_on_stage(self, step: dict[str, Any], written: dict[str, Any], views: list[str]) -> str | None:
         asked = _predicted(step, self._stage.cell_place(step))
@@ -848,6 +867,11 @@ async def _challenge_read_off(step: dict[str, Any], plots: list[PlotView]) -> st
 
 def _said_number(value: float) -> str:
     return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
+def _prompt_of(challenge: Any) -> str:
+    prompt = challenge.get("prompt") if isinstance(challenge, dict) else None
+    return prompt if isinstance(prompt, str) else ""
 
 
 def _predicted(step: dict[str, Any], place: str | None) -> str | None:

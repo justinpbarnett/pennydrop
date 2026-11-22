@@ -161,6 +161,11 @@ class Classifier:
         result = await self._gateway.classify(point, {"claim": question}, lesson_id=lesson_id)
         return _yes(result.answers["claim"])
 
+    async def answers_unasked(self, say: str, asked: str, lesson_id: str) -> bool:
+        question = YesNo(f'The learner was never asked this question: "{asked}". Does the narration speak as if the learner had just answered it, such as by opening with the answer on its own, like "It is the ears!" or "Four hops!", or by saying they got it right? Answer no when the narration only tells facts as part of the story, even facts that answer the question.')
+        result = await self._gateway.classify(say, {"answers": question}, lesson_id=lesson_id)
+        return _yes(result.answers["answers"])
+
     async def restates_point(self, say: str, point: str, lesson_id: str) -> bool:
         question = YesNo("Does the narration state the point?")
         result = await self._gateway.classify(f"Point: {point}\nNarration: {say}", {"restates": question}, lesson_id=lesson_id)
