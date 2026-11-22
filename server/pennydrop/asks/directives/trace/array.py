@@ -8,11 +8,12 @@ from ._stages import Window, loop_turns
 PROBE_POINTER = "probe"
 COUNTED_EVENTS = ("comparisons", "swaps")
 
-OPERATIONS = frozenset({"compare", "pointer", "counter", "swap", "set"})
+OPERATIONS = frozenset({"compare", "pointer", "counter", "swap", "set", "window", "sorted"})
 
 GUIDE = "\n".join([
     "The `array` Lab plays a trace as compares, swaps and writes on its cells.",
     "Set one `array` object with `values` equal to the input list, so the trace starts from known values. The counters `comparisons` and `swaps` are added for you when the algorithm changes them, so name no counters yourself.",
+    "The trace also draws what the algorithm keeps in its range: a bracket over the cells still in play, such as the live low to high range of binary_search and quick_sort, and a sorted mark on each cell that reaches its final place, such as the pivot of quick_sort, so set no `window` or `sorted` on a traced array either.",
     "The trace slides the pointers its algorithm keeps, such as `boundary` and `j` for partition and quick_sort, under the cells they index, so set no `pointers` on a traced array: a pointer the run does not move would stand still while the narration moves on.",
 ])
 
@@ -59,25 +60,31 @@ def operations_by_event(run: TracedRun, array_id: str) -> list[tuple[int, list[d
     cell = lambda index: f"{array_id}[{index}]"  # noqa: E731
     values = list(_traced_list(run.input) or [])
     pointed: dict[str, int] = {}
+    framed: tuple[int, int] | None = None
+    settled: set[int] = set()
     found: list[tuple[int, list[dict[str, Any]]]] = []
     last_line = None
     for position, event in enumerate(run.trace.events):
         operations: list[dict[str, Any]] = []
         if event.type == "line":
-            moved = [(name, index) for name in run.pointers if isinstance(index := event.locals.get(name), int) and 0 <= index < len(values) and pointed.get(name) != index]
+            moved = [(name, index) for name in run.pointers if _is_slot(index := event.locals.get(name), len(values)) and pointed.get(name) != index]
             pointed.update(moved)
+            operations = [{"op": "pointer", "name": name, "on": [cell(index)]} for name, index in moved]
+            frame = _range_of(run.window, event.locals, len(values))
+            if frame and frame != framed:
+                framed = frame
+                operations.append({"op": "window", "on": [cell(frame[0]), cell(frame[1])]})
             looped_back = last_line is not None and last_line.stack == event.stack and last_line.line > event.line
-            _add(found, position - 1 if looped_back else position, [{"op": "pointer", "name": name, "on": [cell(index)]} for name, index in moved])
+            _add(found, position - 1 if looped_back else position, operations)
             last_line = event
             continue
-        if event.type == "compare":
-            if event.i is not None and event.j is not None:
-                operations.append({"op": "compare", "on": [cell(event.i), cell(event.j)], "count": "comparisons"})
-            else:
-                probed = event.i if event.i is not None else event.j
-                operations.append({"op": "pointer", "name": PROBE_POINTER, "on": [cell(probed)]})
-                if event.counted:
-                    operations.append({"op": "counter", "on": [array_id], "name": "comparisons", "add": 1})
+        if event.type == "call" and run.placed and last_line is not None and event.function == last_line.stack[-1]:
+            index = last_line.locals.get(run.placed)
+            if _is_slot(index, len(values)) and index not in settled:
+                settled.add(index)
+                operations.append({"op": "sorted", "on": [cell(index)]})
+        elif event.type == "compare":
+            operations = _compare_operations(event, array_id)
         elif event.type == "swap":
             values[event.i], values[event.j] = values[event.j], values[event.i]
             operations.append({"op": "swap", "on": [cell(event.i), cell(event.j)], "count": "swaps"})
@@ -86,9 +93,35 @@ def operations_by_event(run: TracedRun, array_id: str) -> list[tuple[int, list[d
                 values[event.index] = event.value
             operations.append({"op": "set", "on": [cell(event.index)], "value": event.value})
         _add(found, position, operations)
-    if any(operation["op"] in ("compare", "swap") for _, operations in found for operation in operations):
-        _add(found, len(run.trace.events) - 1, [{"op": "clear", "on": [array_id]}])
+    _add(found, len(run.trace.events) - 1, _closing(found, run, array_id, framed is not None))
     return found
+
+
+def _is_slot(index: Any, size: int) -> bool:
+    return isinstance(index, int) and not isinstance(index, bool) and 0 <= index < size
+
+
+def _range_of(names: tuple[str, str] | None, scope: dict[str, Any], size: int) -> tuple[int, int] | None:
+    if names is None:
+        return None
+    low, high = (scope.get(name) for name in names)
+    return (low, high) if _is_slot(low, size) and _is_slot(high, size) and low <= high else None
+
+
+def _compare_operations(event: Any, array_id: str) -> list[dict[str, Any]]:
+    if event.i is not None and event.j is not None:
+        return [{"op": "compare", "on": [f"{array_id}[{event.i}]", f"{array_id}[{event.j}]"], "count": "comparisons"}]
+    probed = event.i if event.i is not None else event.j
+    probe = {"op": "pointer", "name": PROBE_POINTER, "on": [f"{array_id}[{probed}]"]}
+    return [probe, {"op": "counter", "on": [array_id], "name": "comparisons", "add": 1}] if event.counted else [probe]
+
+
+def _closing(found: list[tuple[int, list[dict[str, Any]]]], run: TracedRun, array_id: str, framed: bool) -> list[dict[str, Any]]:
+    moved = any(operation["op"] in ("compare", "swap") for _, operations in found for operation in operations)
+    closing = [{"op": "clear", "on": [array_id]}] if moved else []
+    if run.placed:
+        closing += [*([{"op": "clear", "on": [array_id], "what": "window"}] if framed else []), {"op": "sorted", "on": [array_id]}]
+    return closing
 
 
 def _add(found: list[tuple[int, list[dict[str, Any]]]], position: int, operations: list[dict[str, Any]]) -> None:

@@ -42,6 +42,8 @@ class TracedRun:
     input: Any
     source: str
     pointers: tuple[str, ...] = ()
+    window: tuple[str, str] | None = None
+    placed: str | None = None
 
 
 @dataclass(frozen=True)

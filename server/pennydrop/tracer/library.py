@@ -1,7 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
+
+
+NORMAL_CASE = "normal_case"
+BREAK = "break"
+
+
+@dataclass(frozen=True)
+class Contrast:
+    algorithm: str
+    input: Any
+    serves: str
+    why: str
 
 
 @dataclass(frozen=True)
@@ -13,6 +25,17 @@ class Algorithm:
     summary: str
     example: Any
     pointers: tuple[str, ...] = ()
+    window: tuple[str, str] | None = None
+    placed: str | None = None
+    contrast: Contrast | None = None
+    promise: str | None = None
+
+
+SEARCH_ARRAY = {"array": [1, 3, 5, 7, 9, 11, 13]}
+SEARCH_GRAPH = {"graph": {"A": ["B", "C"], "B": ["A", "D", "E"], "C": ["A", "F"], "D": ["B"], "E": ["B"], "F": ["C"]}, "start": "A"}
+ROUTE_GRAPH = {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}
+HOP_GRAPH = {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A", "B", "D"], "D": ["B", "C"]}, "start": "A"}
+GRAPH_INPUT = 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D", "E"], "C": ["A", "F"], "D": ["B"], "E": ["B"], "F": ["C"]}, "start": "A"}: every node maps to the list of its neighbors'
 
 
 TREE_INPUT = 'an object like {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [null, "I"], "A": [null, null], "D": [null, null], "I": [null, null]}, "root": "F"}: every node maps to [left child, right child], null for none'
@@ -20,7 +43,24 @@ TREE_INPUT = 'an object like {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [n
 TREE_EXAMPLE = {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [None, "I"], "A": [None, None], "D": [None, None], "I": [None, None]}, "root": "F"}
 
 
-ALGORITHMS = {algorithm.name: algorithm for algorithm in [
+PROMISES = {
+    "bubble_sort": "Why does sorting a long list by swapping neighbors take so many passes?",
+    "selection_sort": "Why does picking the smallest card again and again get slow for a big hand?",
+    "insertion_sort": "Why does sorting a hand of cards one card at a time slow down as the hand grows?",
+    "merge_sort": "How do you sort a huge pile of papers by sorting two small piles?",
+    "quick_sort": "How does picking one card split a deck so a sort finishes fast?",
+    "partition": "How does one pivot card sort a whole deck into small and big in a single pass?",
+    "binary_search": "How can you find one name in a phone book of a million names in about twenty looks?",
+    "linear_search": "How many names do you read to find the last one in a phone book?",
+    "breadth_first_search": "How does a search find the nearest friend in a network of friends first?",
+    "depth_first_search": "How does a search explore a maze without getting lost in it?",
+    "dijkstra": "How does a map app find the cheapest route out of every possible road?",
+    "tree_preorder": "How do you read every folder in a file tree, parents before children?",
+    "tree_inorder": "How do you read a tree of names so they come out in alphabetical order?",
+    "tree_postorder": "How do you delete a folder only after everything inside it is gone?",
+}
+
+ALGORITHMS = {algorithm.name: replace(algorithm, promise=PROMISES.get(algorithm.name)) for algorithm in [
     Algorithm("bubble_sort", "bubble_sort", '''
 def bubble_sort(a):
     n = len(a)
@@ -29,7 +69,7 @@ def bubble_sort(a):
             if a[j] > a[j + 1]:
                 a[j], a[j + 1] = a[j + 1], a[j]
     return a
-''', "a list of numbers", 'bubble sort, which swaps neighbors that are out of order, pass after pass', [5, 2, 4, 1, 3]),
+''', "a list of numbers", 'bubble sort, which swaps neighbors that are out of order, pass after pass', [5, 2, 4, 1, 3], contrast=Contrast("bubble_sort", [5, 4, 3, 2, 1], BREAK, "a list in reverse order, the worst case: every neighbor pair is out of order, so every compare also swaps")),
     Algorithm("selection_sort", "selection_sort", '''
 def selection_sort(a):
     n = len(a)
@@ -41,7 +81,7 @@ def selection_sort(a):
         if smallest != i:
             a[i], a[smallest] = a[smallest], a[i]
     return a
-''', "a list of numbers", 'selection sort, which picks the smallest remaining value and swaps it into place', [5, 2, 4, 1, 3]),
+''', "a list of numbers", 'selection sort, which picks the smallest remaining value and swaps it into place', [5, 2, 4, 1, 3], contrast=Contrast("selection_sort", [1, 2, 3, 4, 5], BREAK, "a list already in order: selection sort still compares every value with every later one and moves nothing, because it cannot tell the work is done")),
     Algorithm("insertion_sort", "insertion_sort", '''
 def insertion_sort(a):
     for i in range(1, len(a)):
@@ -52,7 +92,7 @@ def insertion_sort(a):
             j -= 1
         a[j + 1] = key
     return a
-''', "a list of numbers", 'insertion sort, which slides each value left into the sorted part before it', [5, 2, 4, 1, 3]),
+''', "a list of numbers", 'insertion sort, which slides each value left into the sorted part before it', [5, 2, 4, 1, 3], contrast=Contrast("insertion_sort", [1, 2, 3, 4, 5], NORMAL_CASE, "a list already in order: each value is checked against its left neighbor only and slides nowhere, so the work is one compare per value, and a mixed list costs more because values slide past larger ones")),
     Algorithm("merge_sort", "merge_sort", '''
 def merge_sort(a):
     sort_range(a, 0, len(a))
@@ -85,7 +125,7 @@ def sort_range(a, low, high):
         a[k] = right[j]
         j += 1
         k += 1
-''', "a list of numbers", 'merge sort, which splits the list in halves, sorts each and merges them', [5, 2, 4, 1, 3]),
+''', "a list of numbers", 'merge sort, which splits the list in halves, sorts each and merges them', [5, 2, 4, 1, 3], contrast=Contrast("insertion_sort", [5, 2, 4, 1, 3], NORMAL_CASE, "the way a person sorts by hand on the same list: slide each value left into the sorted part, one value at a time")),
     Algorithm("quick_sort", "quick_sort", '''
 def quick_sort(a):
     sort_range(a, 0, len(a) - 1)
@@ -104,7 +144,7 @@ def sort_range(a, low, high):
     a[boundary], a[high] = a[high], a[boundary]
     sort_range(a, low, boundary - 1)
     sort_range(a, boundary + 1, high)
-''', "a list of numbers", 'quicksort, the whole sort: it partitions around a pivot, then sorts each side the same way', [5, 2, 8, 1, 9, 3, 7, 4], ("boundary", "j")),
+''', "a list of numbers", 'quicksort, the whole sort: it partitions around a pivot, then sorts each side the same way', [5, 2, 8, 1, 9, 3, 7, 4], ("boundary", "j"), ("low", "high"), "boundary", Contrast("quick_sort", [1, 2, 3, 4, 5, 6, 7, 8], BREAK, "a list already in order, the worst case: the pivot is always the largest value, so each partition splits off one value and sorts the rest again")),
     Algorithm("partition", "partition", '''
 def partition(a):
     pivot = a[-1]
@@ -115,7 +155,7 @@ def partition(a):
             boundary += 1
     a[boundary], a[-1] = a[-1], a[boundary]
     return a
-''', "a list of numbers whose last value is the pivot", 'one quicksort partition around a pivot, a single pass and not the whole sort', [5, 2, 8, 1, 9, 3, 7, 4], ("boundary", "j")),
+''', "a list of numbers whose last value is the pivot", 'one quicksort partition around a pivot, a single pass and not the whole sort', [5, 2, 8, 1, 9, 3, 7, 4], ("boundary", "j"), contrast=Contrast("partition", [1, 2, 3, 4, 5, 6, 7, 8], BREAK, "a list already in order: the pivot is the largest value, so every value stays on its left and the other side is empty")),
     Algorithm("binary_search", "binary_search", '''
 def binary_search(array, target):
     low, high = 0, len(array) - 1
@@ -128,7 +168,14 @@ def binary_search(array, target):
         else:
             high = middle - 1
     return -1
-''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with a sorted array; leave "target" out and the directive searches for the last value, which takes the most halvings', 'binary search, which finds a value in a sorted array by checking the middle and halving the range', {"array": [1, 3, 5, 7, 9, 11, 13]}),
+''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with a sorted array; leave "target" out and the directive searches for the last value, which takes the most halvings', 'binary search, which finds a value in a sorted array by checking the middle and halving the range', SEARCH_ARRAY, window=("low", "high"), contrast=Contrast("linear_search", SEARCH_ARRAY, NORMAL_CASE, "the scan a person would try first: look at every value from the left, one look per value, so the last value costs one look per value in the list")),
+    Algorithm("linear_search", "linear_search", '''
+def linear_search(array, target):
+    for index in range(len(array)):
+        if array[index] == target:
+            return index
+    return -1
+''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with an array; leave "target" out and the directive searches for the last value, which takes the most looks', 'linear search, which finds a value by looking at the cells one by one from the left', SEARCH_ARRAY, contrast=Contrast("binary_search", SEARCH_ARRAY, BREAK, "a sorted list lets a search halve the range with every look, so the same last value takes three looks instead of seven")),
     Algorithm("two_pointers_pair_sum", "pair_sum", '''
 def pair_sum(array, target):
     left, right = 0, len(array) - 1
@@ -176,7 +223,7 @@ def push(node):
 
 def pop(node):
     return node
-''', 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}: every node maps to the list of its neighbors, and an edge listed both ways is one undirected edge', 'breadth first search, which visits a graph level by level using a queue', {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}),
+''', GRAPH_INPUT + ', and an edge listed both ways is one undirected edge', 'breadth first search, which visits a graph level by level using a queue', SEARCH_GRAPH, contrast=Contrast("depth_first_search", SEARCH_GRAPH, NORMAL_CASE, "the way a person explores a maze: follow one path as deep as it goes before backing up, which reaches far nodes before near ones")),
     Algorithm("depth_first_search", "dfs", '''
 def dfs(graph, start):
     order = []
@@ -194,7 +241,7 @@ def explore(graph, node, order):
 
 def visit(node):
     return node
-''', 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}: every node maps to the list of its neighbors', 'depth first search, which follows one path of a graph as deep as it goes before backing up', {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}),
+''', GRAPH_INPUT, 'depth first search, which follows one path of a graph as deep as it goes before backing up', SEARCH_GRAPH, contrast=Contrast("breadth_first_search", SEARCH_GRAPH, NORMAL_CASE, "visiting every neighbor before going any deeper, level by level, the order a person expects when asked to list a node's neighbors first")),
     Algorithm("dijkstra", "dijkstra", '''
 def dijkstra(graph, start):
     best = {start: 0}
@@ -228,7 +275,7 @@ def pop(node):
 
 def relax(source, target, distance):
     return distance
-''', 'an object like {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}: every node maps to its [neighbor, weight] pairs, listed from both ends of an undirected edge', "Dijkstra's shortest paths, which finds the cheapest route to every node of a weighted graph", {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}),
+''', 'an object like {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}: every node maps to its [neighbor, weight] pairs, listed from both ends of an undirected edge', "Dijkstra's shortest paths, which finds the cheapest route to every node of a weighted graph", ROUTE_GRAPH, contrast=Contrast("breadth_first_search", HOP_GRAPH, BREAK, "the same map with its weights ignored: breadth first search reaches D by the fewest roads, A to B to D, which costs 5, while the cheapest route is A to C to B to D, which costs 4")),
     Algorithm("tree_preorder", "preorder", '''
 def preorder(tree, root):
     order = []
@@ -247,7 +294,7 @@ def walk(tree, node, order):
 
 def visit(node):
     return node
-''', TREE_INPUT, 'tree pre-order traversal, which visits a node before its subtrees', TREE_EXAMPLE),
+''', TREE_INPUT, 'tree pre-order traversal, which visits a node before its subtrees', TREE_EXAMPLE, contrast=Contrast("tree_inorder", TREE_EXAMPLE, BREAK, "the same tree visited in-order, where a node waits until its left subtree is done, so a parent can come after its child")),
     Algorithm("tree_inorder", "inorder", '''
 def inorder(tree, root):
     order = []
@@ -266,7 +313,7 @@ def walk(tree, node, order):
 
 def visit(node):
     return node
-''', TREE_INPUT, 'tree in-order traversal, which visits the left subtree, then the node, then the right subtree', TREE_EXAMPLE),
+''', TREE_INPUT, 'tree in-order traversal, which visits the left subtree, then the node, then the right subtree', TREE_EXAMPLE, contrast=Contrast("tree_preorder", TREE_EXAMPLE, NORMAL_CASE, "the same tree visited pre-order, the top down reading order where every node comes before its children")),
     Algorithm("tree_postorder", "postorder", '''
 def postorder(tree, root):
     order = []
@@ -285,5 +332,5 @@ def walk(tree, node, order):
 
 def visit(node):
     return node
-''', TREE_INPUT, 'tree post-order traversal, which visits both subtrees before the node', TREE_EXAMPLE),
+''', TREE_INPUT, 'tree post-order traversal, which visits both subtrees before the node', TREE_EXAMPLE, contrast=Contrast("tree_preorder", TREE_EXAMPLE, NORMAL_CASE, "the same tree visited pre-order, the top down reading order where every node comes before its children")),
 ]}
