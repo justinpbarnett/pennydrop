@@ -13,6 +13,8 @@ COMMONS = "https://commons.wikimedia.org/w/api.php"
 WIKIPEDIA = "https://en.wikipedia.org/w/api.php"
 OPENVERSE_PAGES = (1, 2)
 OPENVERSE_PAGE_SIZE = 20
+SOURCE_SECONDS = 8.0
+ENOUGH_CANDIDATES = 12
 COMMONS_LIMIT = 50
 STANDARD_WIDTHS = (20, 40, 60, 120, 250, 330, 500, 960, 1280, 1920, 3840)
 SHARP_WIDTH = 1600
@@ -57,11 +59,17 @@ def _is_public_domain(name: str) -> bool:
 async def search_all(query: str, attribution_ok: bool) -> list[Candidate]:
     headers = {"User-Agent": USER_AGENT}
     async with httpx.AsyncClient(headers=headers, timeout=20, follow_redirects=True) as client:
-        found = await asyncio.gather(_openverse(client, query, attribution_ok), _commons(client, query, attribution_ok), _lead_image(client, query, attribution_ok), return_exceptions=True)
+        searches = [asyncio.ensure_future(source) for source in (_openverse(client, query, attribution_ok), _commons(client, query, attribution_ok), _lead_image(client, query, attribution_ok))]
+        done, slow = await asyncio.wait(searches, timeout=SOURCE_SECONDS)
+        if slow and sum(len(search.result()) for search in done if search.exception() is None) < ENOUGH_CANDIDATES:
+            await asyncio.wait(slow)
+        for search in slow:
+            search.cancel()
+        found = await asyncio.gather(*searches, return_exceptions=True)
     candidates = [candidate for source in found if isinstance(source, list) for candidate in source]
     leads = {candidate.source for candidate in candidates if candidate.lead}
     candidates = [candidate for candidate in candidates if candidate.lead or candidate.source not in leads]
-    failures = [source for source in found if isinstance(source, BaseException)]
+    failures = [source for source in found if isinstance(source, Exception)]
     if not candidates and failures:
         raise failures[0]
     return candidates
@@ -69,13 +77,9 @@ async def search_all(query: str, attribution_ok: bool) -> list[Candidate]:
 
 async def _openverse(client: httpx.AsyncClient, query: str, attribution_ok: bool) -> list[Candidate]:
     licenses = "cc0,pdm,by,by-sa" if attribution_ok else "cc0,pdm"
-    responses = []
-    for page in OPENVERSE_PAGES:
-        response = await client.get(OPENVERSE, params={"q": query, "license": licenses, "category": "photograph", "page_size": OPENVERSE_PAGE_SIZE, "page": page})
-        if response.is_success:
-            responses.append(response)
-        elif page == OPENVERSE_PAGES[0]:
-            response.raise_for_status()
+    pages = await asyncio.gather(*(client.get(OPENVERSE, params={"q": query, "license": licenses, "category": "photograph", "page_size": OPENVERSE_PAGE_SIZE, "page": page}) for page in OPENVERSE_PAGES))
+    pages[0].raise_for_status()
+    responses = [response for response in pages if response.is_success]
     candidates = []
     for item in (item for response in responses for item in response.json()["results"]):
         name = _openverse_license(item["license"], item.get("license_version"))
