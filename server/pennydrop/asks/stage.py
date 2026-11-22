@@ -79,6 +79,8 @@ class Stage:
         self.drawn_labs: dict[str, None] = {}
         self.played: list[tuple[str, dict[str, Any]]] = []
         self.retired: dict[str, dict[str, Any]] = {}
+        self.declared: dict[str, dict[str, Any]] = {}
+        self.moved: dict[str, list[str]] = {}
         self.simulations: dict[str, dict[str, Any]] = {}
         self.setups = PlayedSetups()
         for thing in (snapshot or {}).get("objects", []):
@@ -143,7 +145,16 @@ class Stage:
             self.simulations[raw["lab"]] = filled_from(raw, self.simulations)
 
     def errors_in_written(self, written: Any) -> list[str]:
-        return self._graph_played_by_hand(written) + self._counters_owned_by_trace(written)
+        return self._graph_played_by_hand(written) + self._counters_owned_by_trace(written) + self._declared_again(written)
+
+    def _declared_again(self, written: Any) -> list[str]:
+        scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
+        return [
+            f'scene: {name} is declared again with the spec it had before {" and ".join(dict.fromkeys(self.moved[name]))} were played on it, so it would show a state the story has moved past and the narration would contradict the stage; '
+            f'keep {name} on stage and continue it with "do", or give a spec that shows its state now, such as the change those operations made, because a spec sets the object to exactly what it describes'
+            for name, spec in scene.items()
+            if isinstance(spec, dict) and self.moved.get(name) and self.declared.get(name) == spec
+        ]
 
     def _graph_played_by_hand(self, written: Any) -> list[str]:
         if not isinstance(written, dict) or "trace" in written:
@@ -197,12 +208,21 @@ class Stage:
                 self.labs.pop(name, None)
                 continue
             self.retired.pop(name, None)
+            self.declared[name] = spec
+            self.moved.pop(name, None)
             self.specs[name] = spec
             if isinstance(spec.get("lab"), str):
                 self.labs[name] = spec["lab"]
                 self.drawn_labs.setdefault(spec["lab"])
             else:
                 self.labs.pop(name, None)
+        self._remember_moves(step)
+
+    def _remember_moves(self, step: dict[str, Any]) -> None:
+        for operation in step.get("do", []):
+            if isinstance(operation, dict) and isinstance(operation.get("op"), str):
+                for target in operation_targets(operation):
+                    self.moved.setdefault(target, []).append(operation["op"])
 
     def _remember_play(self, step: dict[str, Any]) -> None:
         restated = set(step.get("scene") or {})
