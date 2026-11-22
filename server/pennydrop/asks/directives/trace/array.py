@@ -6,13 +6,13 @@ from .._support import DirectiveError, TracedRun
 from ._stages import Window, loop_turns
 
 PROBE_POINTER = "probe"
-COUNTED_EVENTS = ("comparisons", "swaps")
+COUNTED_EVENTS = ("comparisons", "swaps", "writes")
 
 OPERATIONS = frozenset({"compare", "pointer", "counter", "swap", "set", "window", "sorted"})
 
 GUIDE = "\n".join([
     "The `array` Lab plays a trace as compares, swaps and writes on its cells.",
-    "Set one `array` object with `values` equal to the input list, so the trace starts from known values. The counters `comparisons` and `swaps` are added for you when the algorithm changes them, so name no counters yourself.",
+    "Set one `array` object with `values` equal to the input list, so the trace starts from known values. The counters `comparisons`, `swaps` and `writes` are added for you when the algorithm changes them, so name no counters yourself.",
     "The trace also draws what the algorithm keeps in its range: a bracket over the cells still in play, such as the live low to high range of binary_search and quick_sort, and a sorted mark on each cell that reaches its final place, such as the pivot of quick_sort, so set no `window` or `sorted` on a traced array either.",
     "The trace slides the pointers its algorithm keeps, such as `boundary` and `j` for partition and quick_sort, under the cells they index, so set no `pointers` on a traced array: a pointer the run does not move would stand still while the narration moves on.",
 ])
@@ -88,13 +88,22 @@ def operations_by_event(run: TracedRun, array_id: str) -> list[tuple[int, list[d
         elif event.type == "swap":
             values[event.i], values[event.j] = values[event.j], values[event.i]
             operations.append({"op": "swap", "on": [cell(event.i), cell(event.j)], "count": "swaps"})
-        elif event.type == "set" and (event.index >= len(values) or values[event.index] != event.value):
-            if event.index < len(values):
-                values[event.index] = event.value
-            operations.append({"op": "set", "on": [cell(event.index)], "value": event.value})
+            if run.trace.counters.writes:
+                operations.append(_writes(array_id, 2))
+        elif event.type == "set":
+            if event.index >= len(values) or values[event.index] != event.value:
+                if event.index < len(values):
+                    values[event.index] = event.value
+                operations.append({"op": "set", "on": [cell(event.index)], "value": event.value, "count": "writes"})
+            else:
+                operations.append(_writes(array_id, 1))
         _add(found, position, operations)
     _add(found, len(run.trace.events) - 1, _closing(found, run, array_id, framed is not None))
     return found
+
+
+def _writes(array_id: str, amount: int) -> dict[str, Any]:
+    return {"op": "counter", "on": [array_id], "name": "writes", "add": amount}
 
 
 def _is_slot(index: Any, size: int) -> bool:

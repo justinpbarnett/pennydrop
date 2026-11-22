@@ -370,14 +370,14 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
       during: (before, after, _op, progress) => tickingCounters(before, after, progress),
     },
     set: {
-      doc: 'on one cell with {"value": 9} changes its value',
+      doc: 'on one cell with {"value": 9} changes its value; {"count": "writes"} adds one to that counter',
       seconds: 0.7,
       apply(state, op) {
         const [slot] = expandParts(state, op.parts);
         if (slot === undefined) fail(`op "set" needs one cell in "on", such as ["${state.objectId}[2]"]`);
         const value = op.args.value;
         if (typeof value !== "number" && typeof value !== "string") fail(`op "set" needs "value" as a number or text`);
-        return { ...state, cells: state.cells.map((cell, index) => (index === slot ? { ...cell, value } : cell)) };
+        return withCounted({ ...state, cells: state.cells.map((cell, index) => (index === slot ? { ...cell, value } : cell)) }, op);
       },
     },
     clear: {
