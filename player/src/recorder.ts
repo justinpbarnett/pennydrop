@@ -36,6 +36,13 @@ export class Recorder {
     });
   }
 
+  cancel(): void {
+    const recorder = this.recorder;
+    if (!recorder) return;
+    this.release();
+    if (recorder.state !== "inactive") recorder.stop();
+  }
+
   private meter(stream: MediaStream): void {
     this.context = new AudioContext();
     const analyser = this.context.createAnalyser();
