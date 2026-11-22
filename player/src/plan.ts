@@ -120,7 +120,8 @@ export function planStep(previous: SceneState, step: Step, narration: Narration)
     }
   });
 
-  errors.push(...relationProblems(scene.objects).map((problem) => `${label}: ${problem}`));
+  const gone = new Set(previous.objects.map((object) => object.id).filter((id) => !findObject(scene, id)));
+  errors.push(...relationProblems(scene.objects, gone).map((problem) => `${label}: ${problem}`));
   if (step.challenge) errors.push(...challengeProblems(step.challenge, scene.reading !== false).map((problem) => `${label}: ${problem}`));
   const replaced = Object.keys(step.scene ?? {}).filter((id) => {
     const was = findObject(previous, id);

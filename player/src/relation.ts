@@ -147,7 +147,7 @@ export function relationTargets(relation: Relation | undefined): string[] {
   return groupOf(relation)?.ids ?? [];
 }
 
-export function relationProblems(placed: readonly { id: string; at?: Relation }[]): string[] {
+export function relationProblems(placed: readonly { id: string; at?: Relation }[], gone: ReadonlySet<string> = new Set()): string[] {
   const ids = new Set(placed.map((object) => object.id));
   const anchors = new Map(placed.flatMap((object) => {
     const side = sideOf(object.at);
@@ -156,7 +156,8 @@ export function relationProblems(placed: readonly { id: string; at?: Relation }[
   const problems: string[] = [];
   for (const object of placed) {
     for (const target of relationTargets(object.at)) {
-      if (!ids.has(target)) problems.push(`${object.id} is placed relative to "${target}", which is not an object in the Scene; "at" names a whole object, never a node, part or value inside one; objects: ${[...ids].join(", ")}`);
+      if (gone.has(target)) problems.push(`${object.id} still sits relative to "${target}" from an earlier Step, and this Step takes "${target}" off the stage; give ${object.id} a new place in this Step (a "move" op with "to", or its full spec with a new "at" in "scene"), or keep "${target}"`);
+      else if (!ids.has(target)) problems.push(`${object.id} is placed relative to "${target}", which is not an object in the Scene; "at" names a whole object, never a node, part or value inside one; objects: ${[...ids].join(", ")}`);
     }
   }
   const cleared = new Set<string>();
