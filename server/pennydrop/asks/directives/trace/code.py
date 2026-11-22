@@ -78,7 +78,17 @@ def follow(step: dict[str, Any], object_id: str, run: TracedRun, data_operations
                     operations.append({"op": "line", "on": on, "n": last_line.line - _stripped_lines(run.source)})
             if shown:
                 operations.extend(by_event[position])
+    if final_position >= 0 and not marker_depth:
+        operations.extend(_caught_up(run, window.end, frames[-1] if frames else {}, on))
     return {**step, "do": [*step.get("do", []), *operations]}
+
+
+def _caught_up(run: TracedRun, end: int, known: dict[str, Any], on: list[str]) -> list[dict[str, Any]]:
+    resumes_at = run.trace.events[end] if end < len(run.trace.events) else None
+    if resumes_at is None or resumes_at.type != "line":
+        return []
+    changed = [{"op": "set", "on": on, "name": name, "value": plain_repr(value)} for name, value in resumes_at.locals.items() if name not in known or known[name] != value]
+    return [*changed, {"op": "line", "on": on, "n": resumes_at.line - _stripped_lines(run.source)}]
 
 
 def drawn(step: dict[str, Any], object_id: str, run: TracedRun) -> dict[str, Any]:
