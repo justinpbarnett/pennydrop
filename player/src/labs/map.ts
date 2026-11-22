@@ -72,7 +72,6 @@ interface MapState {
 interface Layout {
   shown: number;
   routes: number;
-  timeline: boolean;
 }
 
 interface Geometry {
@@ -136,18 +135,19 @@ const MAX_YEAR = 3000;
 const WIDTH = 1480;
 const HEIGHT = 780;
 const PANEL_GAP = 20;
-const PANEL_PAD = 30;
+const PANEL_PAD = 24;
 const EVENT_TEXT = 26;
-const EVENT_ROW_PITCH = 38;
-const EVENT_ROWS = 2;
+const EVENT_ROW_PITCH = 34;
+const EVENT_ROWS = 4;
 const STEM_LENGTH = 32;
+const STEM_LABEL_INSET = 10;
 const AXIS_INSET = 70;
 const TICK_LENGTH = 8;
 const TICK_TEXT = 22;
 const TICK_LABEL_OFFSET = 32;
 const TICK_GAP = 40;
 const YEAR_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
-const ERA_OFFSET = 68;
+const ERA_OFFSET = 58;
 const ERA_HEIGHT = 38;
 const ERA_GAP = 12;
 const ERA_ROWS = 2;
@@ -160,9 +160,8 @@ const ERA_LABEL_FADE = 0.3;
 const MOST_ABOVE_AXIS = EVENT_ROWS * EVENT_ROW_PITCH + STEM_LENGTH;
 const MOST_BELOW_AXIS = ERA_OFFSET + ERA_ROWS * ERA_HEIGHT + (ERA_ROWS - 1) * ERA_GAP;
 const PANEL_HEIGHT = 2 * PANEL_PAD + MOST_ABOVE_AXIS + MOST_BELOW_AXIS;
-const MAP_ABOVE_TIMELINE: Size = { w: WIDTH, h: HEIGHT - PANEL_GAP - PANEL_HEIGHT };
-const MAP_ALONE: Size = { w: WIDTH, h: HEIGHT };
-const PANEL_TOP = MAP_ABOVE_TIMELINE.h + PANEL_GAP;
+const MAP_AREA: Size = { w: WIDTH, h: HEIGHT - PANEL_GAP - PANEL_HEIGHT };
+const PANEL_TOP = MAP_AREA.h + PANEL_GAP;
 const AXIS_LEFT = AXIS_INSET;
 const AXIS_RIGHT = WIDTH - AXIS_INSET;
 
@@ -207,8 +206,9 @@ const HEAD_CLEAR = WIDEST_HEAD_WING + EDGE_CLEAR;
 const ROUTE_CLEAR = DOT_RADIUS + 9;
 const ARROW_STOP = DOT_RADIUS + 7;
 const MIN_LEG = 3 * ROUTE_CLEAR;
-const MIN_LAST_LEG = 120;
-const MIN_GROWING_ARROW = 70;
+const MIN_SHAFT = 4;
+const MIN_LAST_LEG = ROUTE_CLEAR + ARROW_STOP + WIDEST_HEAD_LENGTH + MIN_SHAFT;
+const MIN_GROWING_ARROW = WIDEST_HEAD_LENGTH + MIN_SHAFT;
 const TRAVELLER_RADIUS = 8;
 const SETTLE_SHARE = 0.3;
 
@@ -405,14 +405,6 @@ function withShown(state: MapState, places: number[]): MapState {
   return { ...state, shown: [...state.shown, ...places.filter((place, index) => !state.shown.includes(place) && places.indexOf(place) === index)] };
 }
 
-function hasTimeline(state: MapState): boolean {
-  return state.eras.length + state.events.length > 0;
-}
-
-function mapSize(state: MapState): Size {
-  return hasTimeline(state) ? MAP_ABOVE_TIMELINE : MAP_ALONE;
-}
-
 const MAX_CACHED = 200;
 const geometries = new Map<string, Geometry>();
 const labelings = new Map<string, PlaceLabel[]>();
@@ -427,12 +419,11 @@ function remembered<T>(cache: Map<string, T>, key: string, make: () => T): T {
   return made;
 }
 
-function geometryOf(places: Place[], timeline: boolean): Geometry {
-  return remembered(geometries, JSON.stringify([places, timeline]), () => {
-    const map = timeline ? MAP_ABOVE_TIMELINE : MAP_ALONE;
-    const projection = projectionFor(places, map);
-    const land = landRings(projection, map);
-    return { places: places.map((place) => ({ ...place, at: project(projection, place.lon, place.lat) })), land, coast: coastGrid(land, map) };
+function geometryOf(places: Place[]): Geometry {
+  return remembered(geometries, JSON.stringify(places), () => {
+    const projection = projectionFor(places, MAP_AREA);
+    const land = landRings(projection, MAP_AREA);
+    return { places: places.map((place) => ({ ...place, at: project(projection, place.lon, place.lat) })), land, coast: coastGrid(land, MAP_AREA) };
   });
 }
 
@@ -443,9 +434,7 @@ function labelsAfter(state: MapState, step: number): PlaceLabel[] {
   const shown = state.shown.slice(0, layout.shown);
   const routes = state.routes.slice(0, layout.routes);
   return remembered(labelings, JSON.stringify([state.places, trail, shown, routes]), () => {
-    const earlier = state.trail[step - 1];
-    const previous = earlier && earlier.timeline !== layout.timeline ? [] : labelsAfter(state, step - 1);
-    const view = { ...state, ...geometryOf(state.places, layout.timeline), shown, routes, eras: layout.timeline ? state.eras : [], events: layout.timeline ? state.events : [], labels: previous };
+    const view = { ...state, ...geometryOf(state.places), shown, routes, labels: labelsAfter(state, step - 1) };
     return placeLabels(view);
   });
 }
@@ -453,13 +442,13 @@ function labelsAfter(state: MapState, step: number): PlaceLabel[] {
 function laidOut(state: MapState): Laid {
   const known = laidStates.get(state);
   if (known) return known;
-  const laid = { ...state, ...geometryOf(state.places, hasTimeline(state)), labels: labelsAfter(state, state.trail.length - 1) };
+  const laid = { ...state, ...geometryOf(state.places), labels: labelsAfter(state, state.trail.length - 1) };
   laidStates.set(state, laid);
   return laid;
 }
 
 function played(state: MapState): MapState {
-  return { ...state, trail: [...state.trail, { shown: state.shown.length, routes: state.routes.length, timeline: hasTimeline(state) }] };
+  return { ...state, trail: [...state.trail, { shown: state.shown.length, routes: state.routes.length }] };
 }
 
 function yearArg(state: MapState, op: LabOp, key: string): number {
@@ -711,7 +700,6 @@ function headOutline([base, tip]: [Point, Point]): [Point, Point][] {
 }
 
 function placeLabels(state: Laid): PlaceLabel[] {
-  const map = mapSize(state);
   const dots = state.shown.map((place) => dotRect(state.places[place]!.at));
   const legs = state.routes.flatMap((route) => routeLegs(state, route));
   const heads = arrowHeads(state);
@@ -727,7 +715,7 @@ function placeLabels(state: Laid): PlaceLabel[] {
     const otherLeaders = labels.flatMap((label) => (label.leader ? [label.leader] : []));
     const lines = [...legs, ...otherLeaders];
     return (
-      !insideMap(plate, map) ||
+      !insideMap(plate, MAP_AREA) ||
       labels.some((other) => overlaps(inflate(other.plate, PLATE_GAP), plate) || (leader !== null && nearText(leader, other.plate))) ||
       dots.some((dot, index) => overlaps(dot, inflate(textBox(plate), EDGE_CLEAR)) || (leader !== null && state.shown[index] !== place && segmentHitsRect(leader[0], leader[1], dot))) ||
       lines.some((line) => nearText(line, plate)) ||
@@ -746,7 +734,7 @@ function placeLabels(state: Laid): PlaceLabel[] {
     const at = state.places[place]!.at;
     const kept = previous.get(place);
     const spread = plateCandidates(at, plateSize(state.places[place]!.name));
-    const slid = spread.filter(({ plate }) => !insideMap(plate, map)).map(({ plate, preference }) => ({ plate: slidInside(plate, map), preference: preference + STRAIN_COST, slid: true }));
+    const slid = spread.filter(({ plate }) => !insideMap(plate, MAP_AREA)).map(({ plate, preference }) => ({ plate: slidInside(plate, MAP_AREA), preference: preference + STRAIN_COST, slid: true }));
     const options = [...(kept ? [{ plate: kept, preference: 0, slid: false }] : []), ...spread.map((option) => ({ ...option, slid: false })), ...slid];
     return options.map(({ plate, preference, slid: moved }) => {
       const leader = leaderFor(at, plate);
@@ -796,12 +784,13 @@ interface EventFootprint {
   box: Interval;
 }
 
-function eventFootprint(state: MapState, index: number): EventFootprint {
+function eventFootprints(state: MapState, index: number): EventFootprint[] {
   const event = state.events[index]!;
   const stem = yearX(state.axis, event.year);
   const width = textWidth(eventText(state, event), EVENT_TEXT, "read");
-  const left = Math.min(WIDTH - PANEL_PAD - width, Math.max(PANEL_PAD, stem - width / 2));
-  return { event: index, stem, box: [left, left + width] };
+  const centered = Math.min(WIDTH - PANEL_PAD - width, Math.max(PANEL_PAD, stem - width / 2));
+  const lefts = [centered, stem - STEM_LABEL_INSET, stem + STEM_LABEL_INSET - width].filter((left) => left >= PANEL_PAD && left + width <= WIDTH - PANEL_PAD);
+  return [...new Set(lefts)].map((left) => ({ event: index, stem, box: [left, left + width] }));
 }
 
 interface RowedEvent {
@@ -818,21 +807,23 @@ function eventFits(placed: RowedEvent[], footprint: EventFootprint, row: number)
   });
 }
 
-function assignEventRows(footprints: EventFootprint[], placed: RowedEvent[]): RowedEvent[] | null {
-  const [next, ...rest] = footprints;
+function assignEventRows(candidates: EventFootprint[][], placed: RowedEvent[]): RowedEvent[] | null {
+  const [next, ...rest] = candidates;
   if (!next) return placed;
-  for (let row = 0; row < EVENT_ROWS; row++) {
-    if (!eventFits(placed, next, row)) continue;
-    const solved = assignEventRows(rest, [...placed, { footprint: next, row }]);
-    if (solved) return solved;
+  for (const footprint of next) {
+    for (let row = 0; row < EVENT_ROWS; row++) {
+      if (!eventFits(placed, footprint, row)) continue;
+      const solved = assignEventRows(rest, [...placed, { footprint, row }]);
+      if (solved) return solved;
+    }
   }
   return null;
 }
 
 function eventRows(state: MapState): RowedEvent[] {
   if (!state.reading) return [];
-  const footprints = byYear(state.events, (event) => event.year).map((index) => eventFootprint(state, index));
-  const assigned = assignEventRows(footprints, []);
+  const candidates = byYear(state.events, (event) => event.year).map((index) => eventFootprints(state, index));
+  const assigned = assignEventRows(candidates, []);
   if (!assigned)
     fail(`op "events": no room on the timeline to label "${state.events[state.events.length - 1]!.name}" beside the other events; space the events more years apart or give them shorter names`);
   return assigned;
@@ -898,10 +889,8 @@ function timelineLayout(state: MapState): TimelineLayout {
   return { axisY, events: eventSlots(eventRows(state), axisY), eras: eraSlots(state, axisY) };
 }
 
-function mapFrame(state: MapState): Drawable[] {
-  const map = mapSize(state);
-  const sea = boxDrawable("sea", { x: 0, y: 0, w: map.w, h: map.h }, { fill: "fill", stroke: "rule", strokeWidth: 1.5, z: 0 });
-  if (!hasTimeline(state)) return [sea];
+function mapFrame(): Drawable[] {
+  const sea = boxDrawable("sea", { x: 0, y: 0, w: MAP_AREA.w, h: MAP_AREA.h }, { fill: "fill", stroke: "rule", strokeWidth: 1.5, z: 0 });
   return [sea, boxDrawable("timeline-panel", { x: 0, y: PANEL_TOP, w: WIDTH, h: PANEL_HEIGHT }, { fill: "fill", stroke: "rule", strokeWidth: 1.5, z: 0 })];
 }
 
@@ -935,9 +924,8 @@ function pathDrawable(id: string, points: Point[], closed: boolean, fill: Paint,
 }
 
 function landDrawables(state: Laid): Drawable[] {
-  const map = mapSize(state);
-  const clip: Rect = { x: 0, y: 0, w: map.w, h: map.h };
-  const coast = state.land.flatMap((ring) => coastLines(ring, map));
+  const clip: Rect = { x: 0, y: 0, w: MAP_AREA.w, h: MAP_AREA.h };
+  const coast = state.land.flatMap((ring) => coastLines(ring, MAP_AREA));
   return [
     ...state.land.map((ring, index) => ({ ...pathDrawable(`land-${index}`, ring, true, "fill2", "fill2", 0), clip })),
     ...coast.map((line, index) => ({ ...pathDrawable(`coast-${index}`, line, false, "none", "muted", COAST_WIDTH), clip })),
@@ -1052,7 +1040,6 @@ function eventDrawables(state: MapState, layout: TimelineLayout): Drawable[] {
 }
 
 function timelineDrawables(state: MapState): Drawable[] {
-  if (!hasTimeline(state)) return [];
   const layout = timelineLayout(state);
   return [...axisDrawables(state, layout.axisY), ...layout.eras.flatMap((slot) => eraDrawables(state, slot)), ...eventDrawables(state, layout)];
 }
@@ -1191,6 +1178,6 @@ export const lab: LabDef<MapSpec, MapState> = {
 
   draw(state) {
     const laid = laidOut(state);
-    return [...mapFrame(laid), ...landDrawables(laid), ...changingDrawables(laid)];
+    return [...mapFrame(), ...landDrawables(laid), ...changingDrawables(laid)];
   },
 };
