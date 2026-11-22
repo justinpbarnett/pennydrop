@@ -145,6 +145,12 @@ function line(id: string, from: Point, to: Point, stroke: Paint, strokeWidth: nu
   return { ...segmentDrawable("line", from, to, stroke, strokeWidth, z), id, ...extra };
 }
 
+function bouncinessRole(bounciness: number): Role {
+  if (bounciness < 0.15) return "series4";
+  if (bounciness < 0.6) return "series2";
+  return "series5";
+}
+
 function circle(id: string, at: Point, r: number, fill: Paint, stroke: Paint, strokeWidth: number, z: number, extra: Partial<Drawable> = {}): Drawable {
   return { id, kind: "circle", x: at.x, y: at.y, r, fill, stroke, strokeWidth, z, ...extra };
 }
@@ -529,7 +535,7 @@ const drop: Kind<DropParams, DropLayout> = {
   spec: {
     height: "release height in m, 0.5 to 200, default 10",
     masses: "optional list of 1 to 3 masses in kg, each 0.1 to 100, default [1, 5]; the bigger one is drawn bigger, and they still land together",
-    bounciness: "optional list, one per ball in the order of masses, each 0 to 0.95, default all 0; the share of its speed a ball keeps when it hits the ground: 0 is soft clay that lands and stops, 0.3 a dull thud, 0.9 a rubber ball; each bounce is lower than the last until the ball settles",
+    bounciness: "optional list, one per ball in the order of masses, each 0 to 0.95, default all 0; the share of its speed a ball keeps when it hits the ground: 0 is soft clay that lands and stops, 0.3 a dull thud, 0.9 a rubber ball; each bounce is lower than the last until the ball settles; a ball's color follows its bounciness, so clay, a dull thud and rubber each look their own way, and the color changes with the Theme, so the narration never names it",
     gravity: "optional gravity in m/s^2, 0.5 to 30, default 9.81",
   },
   settable: { height: "m", masses: "list of kg", bounciness: "list, 0 to 0.95", gravity: "m/s^2" },
@@ -586,14 +592,13 @@ const drop: Kind<DropParams, DropLayout> = {
   scene(layout, view) {
     const { scale, groundY, band, radii, xs } = layout;
     const body = bodyAt(view.trajectory, view.time);
-    const ballRoles: Role[] = ["accent", "series3", "series5"];
     const vscale = VELOCITY_PX / Math.sqrt(2 * view.params.gravity * view.params.height);
     const heightAt = (index: number, height: number) => groundY - radii[index]! - Math.max(0, height) * scale;
     const out: Drawable[] = [...groundDrawables(layout.size.w, groundY, band), ...verticalRuler(96, groundY, layout.top - Math.max(...radii), scale, view.reading)];
     out.push(line("release-line", { x: 110, y: layout.top }, { x: xs[xs.length - 1]! + radii[xs.length - 1]! + 40, y: layout.top }, "edge", 2, 1));
     view.params.masses.forEach((mass, index) => {
       const at = { x: xs[index]!, y: heightAt(index, body.q[index]!) };
-      const role = ballRoles[index]!;
+      const role = bouncinessRole(view.params.bounciness[index]!);
       if (view.trail && view.ran) {
         const stride = niceStep(endTime(view.trajectory), 8);
         let last = Infinity;
