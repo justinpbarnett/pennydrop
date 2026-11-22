@@ -60,7 +60,9 @@ export async function chooseProfile(panel: HTMLElement): Promise<number | null> 
   }
   if (chosen !== null) {
     remember(chosen);
-    history.replaceState(null, "", `?${new URLSearchParams({ profile: String(chosen) })}`);
+    const query = new URLSearchParams(location.search);
+    query.set("profile", String(chosen));
+    history.replaceState(null, "", `?${query}`);
   }
   return chosen;
 }

@@ -95,7 +95,11 @@ export class KidsApp {
     return this.lessonId && span ? { lesson_id: this.lessonId, step: span.step.step } : null;
   }
 
-  private async open(id: string): Promise<void> {
+  show(id: string): void {
+    void this.open(id, false);
+  }
+
+  private async open(id: string, autoplay: boolean): Promise<void> {
     this.playback.pause();
     this.loading.abort();
     this.loading = new AbortController();
@@ -103,7 +107,7 @@ export class KidsApp {
     this.shownChallenge = -1;
     this.playback = this.newPlayback();
     const current = this.playback;
-    current.play();
+    if (autoplay) current.play();
     await loadLesson(id, {
       header: (header) => current.setHeader(header),
       step: (step) => current.addStep(step),
@@ -121,7 +125,7 @@ export class KidsApp {
     try {
       const reply = await postAsk({ ...input, profileId: this.profileId, from });
       this.asking = false;
-      await this.open(reply.lesson_id);
+      await this.open(reply.lesson_id, true);
     } catch (failure) {
       this.fail(failure instanceof AskError && failure.status === 422 ? "nothing-heard" : "oops");
     } finally {

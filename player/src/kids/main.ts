@@ -17,7 +17,7 @@ const profileId = await chooseProfile($("#avatars"));
 const manifest = $<HTMLLinkElement>('link[rel="manifest"]');
 if (profileId !== null) manifest.href = `/kids/manifest.webmanifest?profile=${profileId}`;
 await loadMintedLabs();
-new KidsApp({
+const app = new KidsApp({
   stage: $<SVGSVGElement>("#stage"),
   frame: $(".kstage-frame"),
   face: $("#face"),
@@ -26,4 +26,6 @@ new KidsApp({
   play: $<HTMLButtonElement>("#play"),
   answers: $("#answers"),
 }, profileId);
+const lessonId = new URLSearchParams(location.search).get("lesson");
+if (lessonId) app.show(lessonId);
 await loadFonts();
