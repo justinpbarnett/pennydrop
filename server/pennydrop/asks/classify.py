@@ -254,11 +254,6 @@ class Classifier:
         result = await self._gateway.classify(case, {"breaks": question}, lesson_id=lesson_id)
         return _yes(result.answers["breaks"])
 
-    async def shows_the_rule_failing(self, case: str, rule: str, lesson_id: str) -> bool:
-        question = YesNo(f'The Rule: {rule}. Do the computed facts below show the Rule failing in this case, so a learner who applied the Rule here would be wrong?')
-        result = await self._gateway.classify(case, {"fails": question}, lesson_id=lesson_id)
-        return _yes(result.answers["fails"])
-
     async def claims_agree(self, claimed: str, facts: list[str], lesson_id: str) -> bool:
         text = "\n".join([*(f"Fact: {fact}" for fact in facts), f"Step: {claimed}"])
         result = await self._gateway.classify(text, CONTRADICTION_QUESTIONS, lesson_id=lesson_id)

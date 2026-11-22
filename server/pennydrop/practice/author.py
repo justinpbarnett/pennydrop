@@ -18,6 +18,7 @@ from .check import ItemCheck, PracticeChecker, Standing, case_keys
 LOG = logging.getLogger(__name__)
 
 MAX_REDOS = 2
+BACK_TRIES = 2
 WHY_LENGTH = 200
 
 
@@ -63,10 +64,12 @@ class PracticeAuthor:
         lesson = lesson_text({}, [])
         taken = frozenset().union(*(case_keys(item) for item in seen))
         errors: list[str] = []
-        for running in [direction, Direction.FORWARD] if direction is Direction.BACK else [direction]:
+        for running in _directions_to_try(direction, standing.reading):
             errors = []
-            for _ in range(MAX_REDOS + 1):
+            for _ in range(BACK_TRIES if running is Direction.BACK else MAX_REDOS + 1):
                 written = await self._writer.case(rule, form, running, lesson, seen, profile, errors, lesson_id)
+                if isinstance(written, dict) and written.get("back") is False and running is Direction.BACK:
+                    break
                 checked = await self._checked_case(written, rule, form, running, standing, taken, lesson_id)
                 if checked.item is not None:
                     return await self._voiced(checked.item)
@@ -120,6 +123,12 @@ class PracticeAuthor:
 class LineErrors:
     reasons: list[str]
     practice: Practice | None
+
+
+def _directions_to_try(direction: Direction | None, reading: bool) -> list[Direction | None]:
+    if direction is not Direction.BACK:
+        return [direction]
+    return [Direction.BACK, Direction.FORWARD] if reading else [Direction.FORWARD]
 
 
 def _why(reasons: list[str]) -> str:

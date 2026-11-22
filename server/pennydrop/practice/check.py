@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import copy
 import json
 from dataclasses import dataclass, replace
@@ -8,7 +7,7 @@ from typing import Any
 
 from ..asks.classify import Classifier
 from ..asks.coaching import coached
-from ..asks.directives import DirectiveError, DirectiveTools, carries_directive, computed_facts, expand_directives
+from ..asks.directives import DIRECTIVES, DirectiveError, DirectiveTools, carries_directive, computed_facts, expand_directives
 from ..asks.directives.trace import totals_for
 from ..asks.mending import mended, mended_cues, validated_and_mended
 from ..asks.stage import Stage
@@ -19,7 +18,7 @@ CASE_DIRECTIVES = ("trace", "simulate", "math")
 UNKEYED = ("until", "on", "name")
 PRESENTATION = ("at", "title", "counters", "pointers", "window", "sorted", "label")
 KID_FRESH_TYPES = ("click", "yesno")
-CASE_ONLY_FIELDS = ("form", "direction")
+CASE_ONLY_FIELDS = ("form", "direction", "inputs")
 RUN_STAGE_NUMBER = 2
 SAY_FIELDS = {"say", "challenge"}
 
@@ -98,7 +97,7 @@ class PracticeChecker:
         body = {name: value for name, value in written.items() if name not in CASE_ONLY_FIELDS}
         if errors := _shape_errors(form, direction, body, standing):
             return ItemCheck(errors, None, standing)
-        body = _with_stand_in_answer(body, direction)
+        body = _with_stand_in_answer(_with_applies_answer(body, form), direction)
         stage = copy.deepcopy(standing.stage)
         tools = replace(self._tools, lesson_id=lesson_id, young_child=standing.young_child, staged=stage.on_stage(), traced=frozenset(stage.traces), pictures=dict(stage.specs), played=tuple(stage.played))
         mended_body = mended({**body, "step": RUN_STAGE_NUMBER}, stage)
@@ -110,9 +109,9 @@ class PracticeChecker:
         if verdict.errors:
             return ItemCheck([coached(error) for error in verdict.errors], None, standing)
         keys = case_keys(mended_body) | case_keys(step)
-        errors, step = await self._form_errors(form, direction, rule, step, mended_body, values, keys, standing.cases | earlier, tools, lesson_id)
+        errors, step = await self._form_errors(form, direction, rule, step, mended_body, written.get("inputs"), values, keys, standing.cases | earlier, tools, lesson_id)
         facts = computed_facts(values)
-        if not errors and facts and not await self._classifier.claims_agree(step["say"], facts, lesson_id):
+        if not errors and facts and form is not Form.APPLIES and not await self._classifier.claims_agree(step["say"], facts, lesson_id):
             errors = [f'the narration claims something the computed values contradict: {"; ".join(facts)}; rewrite the claim, or leave the numbers out of "say" and ask instead']
         if errors:
             return ItemCheck(errors, None, standing)
@@ -121,7 +120,7 @@ class PracticeChecker:
         item = {**{name: value for name, value in step.items() if name != "step"}, "form": form.value, **({"direction": direction.value} if direction else {})}
         return ItemCheck([], item, replace(standing, stage=stage, scene=verdict.scene, remembered={**standing.remembered, **values}, cases=standing.cases | keys))
 
-    async def _form_errors(self, form: Form, direction: Direction | None, rule: Rule, step: dict[str, Any], written: dict[str, Any], values: dict[str, Any], keys: frozenset[str], taken: frozenset[str], tools: DirectiveTools, lesson_id: str) -> tuple[list[str], dict[str, Any]]:
+    async def _form_errors(self, form: Form, direction: Direction | None, rule: Rule, step: dict[str, Any], written: dict[str, Any], inputs: Any, values: dict[str, Any], keys: frozenset[str], taken: frozenset[str], tools: DirectiveTools, lesson_id: str) -> tuple[list[str], dict[str, Any]]:
         if form is Form.SAY:
             asks = await self._classifier.asks_why_the_rule_holds(step["say"], rule.statement, lesson_id)
             return ([] if asks else ['the say item must ask the learner to explain, in their own words with a "because", why the Rule holds, and must not state the reason itself'], step)
@@ -131,20 +130,35 @@ class PracticeChecker:
         if repeated:
             return [f"the fresh case's input is {repeated[0]}, which the worked example or an earlier case already used; change exactly one slot of the Rule ({', '.join(rule.slots)}) to a value none of them used"], step
         if direction is Direction.BACK:
-            return await self._back_errors(step, written, tools)
+            return await self._back_errors(step, written, inputs, tools)
         return [], step
 
     async def _applies_errors(self, rule: Rule, step: dict[str, Any], values: dict[str, Any], lesson_id: str) -> list[str]:
-        facts = computed_facts(values)
-        case = "\n".join([f"Case: {step['say']}", f"Case on the stage: {json.dumps(step.get('scene') or {})[:600]}", *(f"Fact: {fact}" for fact in facts)])
-        breaks, *failing = await asyncio.gather(self._classifier.breaks_the_condition(case, rule.condition, lesson_id), *([self._classifier.shows_the_rule_failing(case, rule.statement, lesson_id)] if facts else []))
-        errors = [] if breaks else [f'the near miss must break the Rule\'s condition ("{rule.condition}") by exactly one condition, so the Rule does not apply to it; change the case so it does']
-        if facts and not all(failing):
-            errors.append("the computed facts do not show the Rule failing in this case; change the case so running it shows the Rule failing, or pick a case where the Rule fails")
-        return errors
+        case = "\n".join([f"Case: {step['say']}", f"Case on the stage: {json.dumps(step.get('scene') or {})[:600]}", *(f"Fact: {fact}" for fact in computed_facts(values))])
+        if await self._classifier.breaks_the_condition(case, rule.condition, lesson_id):
+            return []
+        return [f'the near miss must break the Rule\'s condition ("{rule.condition}") so the Rule does not apply to it. When the condition describes how the algorithm works, no case can break it: rewrite the whole line with a Rule whose condition is a property of the input or setup that a case can lack, such as "the list is sorted", and make the near miss lack exactly that']
 
-    async def _back_errors(self, step: dict[str, Any], written: dict[str, Any], tools: DirectiveTools) -> tuple[list[str], dict[str, Any]]:
-        trace = written.get("trace")
+    async def _back_errors(self, step: dict[str, Any], written: dict[str, Any], inputs: Any, tools: DirectiveTools) -> tuple[list[str], dict[str, Any]]:
+        if "trace" in written:
+            return await self._traced_back_errors(step, written, tools)
+        computing = next((name for name in ("math", "simulate") if isinstance(written.get(name), dict)), None)
+        if computing is None:
+            return ['a fresh item that runs back carries the directive that computes its result: a "trace" with no "until", or a "math" or "simulate" directive plus "inputs"'], step
+        if "until" in written[computing]:
+            return [f'a fresh item that runs back carries its {computing} directive with no "until", so the stage shows the finished result'], step
+        challenge = step["challenge"]
+        choices = challenge.get("choices", []) if challenge.get("type") == "choice" else []
+        if len(choices) < 2 or not isinstance(inputs, dict) or set(inputs) != set(choices):
+            return ['a fresh item that runs back asks a "choice" of at least two candidate inputs, and carries "inputs", an object that maps each choice, letter for letter, to the full ' + computing + ' directive that candidate gives'], step
+        reference = await _result(computing, written[computing], tools)
+        if reference is None:
+            return [f"the {computing} directive of the item gives no result"], step
+        matching = [choice for choice in choices if await _result(computing, inputs[choice], tools) == reference]
+        return _answered_by_the_one_match(step, reference, matching)
+
+    async def _traced_back_errors(self, step: dict[str, Any], written: dict[str, Any], tools: DirectiveTools) -> tuple[list[str], dict[str, Any]]:
+        trace = written["trace"]
         if not isinstance(trace, dict) or "until" in trace:
             return ['a fresh item that runs back carries a "trace" with no "until", so the stage shows the finished run and its result, and the learner picks the input that made it'], step
         challenge = step["challenge"]
@@ -155,9 +169,21 @@ class PracticeChecker:
         if len(candidates) < 2:
             return ['a fresh item that runs back asks a "choice" of at least two candidate inputs written as JSON, such as "[4, 9, 2]", or a "click" on one of at least two arrays on stage'], step
         matching = [label for label, candidate in candidates.items() if await _gives(trace, candidate, reference, tools)]
-        if len(matching) != 1:
-            return [f"exactly one candidate input must give the shown result {json.dumps(reference)}, and {len(matching)} do ({', '.join(matching) or 'none'}); change the candidates so a single one gives it"], step
-        return [], {**step, "challenge": {**challenge, "answer": matching[0]}}
+        return _answered_by_the_one_match(step, reference, matching)
+
+
+def _answered_by_the_one_match(step: dict[str, Any], reference: Any, matching: list[str]) -> tuple[list[str], dict[str, Any]]:
+    if len(matching) != 1:
+        return [f"exactly one candidate input must give the shown result {json.dumps(reference)}, and {len(matching)} do ({', '.join(matching) or 'none'}); change the candidates so a single one gives it"], step
+    return [], {**step, "challenge": {**step["challenge"], "answer": matching[0]}}
+
+
+async def _result(name: str, spec: Any, tools: DirectiveTools) -> str | None:
+    try:
+        _, found = await DIRECTIVES[name].expand({"scene": {}}, spec, tools)
+    except DirectiveError:
+        return None
+    return json.dumps({key: round(value, 6) if isinstance(value, float) else value for key, value in found.items()}, sort_keys=True, default=str)
 
 
 def _shape_errors(form: Form, direction: Direction | None, body: dict[str, Any], standing: Standing) -> list[str]:
@@ -168,9 +194,12 @@ def _shape_errors(form: Form, direction: Direction | None, body: dict[str, Any],
         allowed = SAY_FIELDS if standing.scene is not None else SAY_FIELDS | {"scene"}
         return [] if kind == "words" and set(body) <= allowed else ['the say item holds only "say" and a words challenge: it stays on the Lesson\'s proof, so it has no scene, do or directive' if standing.scene is not None else 'the say item holds only "say", a "scene" that shows the Rule\'s proof on the empty stage, and a words challenge, with no do or directive']
     if form is Form.APPLIES:
-        if kind != "yesno" or challenge.get("answer") != "no":
-            return ['the applies item\'s challenge is {"kind": "predict", "type": "yesno", "answer": "no"}, because the near miss breaks the Rule\'s condition']
-        return [] if "scene" in body or carries_directive(body) else ["the applies item shows its case on the stage, with a scene or a directive"]
+        errors = []
+        if kind != "yesno":
+            errors.append(f'the applies item\'s "challenge" is a {{"kind": "predict", "type": "yesno", "prompt": "..."}} asking whether the Rule still works on the near miss, and this one is {json.dumps(challenge)[:120] if challenge else "missing"}')
+        if "scene" not in body and not carries_directive(body):
+            errors.append('the applies item shows its near miss on the stage: it must carry a "scene" that declares the objects of the case, or a directive')
+        return errors
     errors = []
     if kind in ("words", None):
         errors.append("the fresh item asks a predict Challenge of a type the Lesson's Labs allow, never words")
@@ -181,6 +210,13 @@ def _shape_errors(form: Form, direction: Direction | None, body: dict[str, Any],
     if direction is Direction.BACK and kind not in ("choice", "click"):
         errors.append("a fresh item that runs back is a choice, or for a kid a click, among candidate inputs")
     return errors
+
+
+def _with_applies_answer(body: dict[str, Any], form: Form) -> dict[str, Any]:
+    challenge = body.get("challenge")
+    if form is not Form.APPLIES or not isinstance(challenge, dict) or challenge.get("type") != "yesno":
+        return body
+    return {**body, "challenge": {**challenge, "kind": "predict", "answer": "no"}}
 
 
 def _with_stand_in_answer(body: dict[str, Any], direction: Direction | None) -> dict[str, Any]:
