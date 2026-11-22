@@ -23,11 +23,13 @@ CONTRADICTION_QUESTIONS = {
         "Does any fact contradict the Step? The facts are correct values from running the example."
         " Answer yes when the Step states a number that differs from a fact, or a comparison the facts disprove, including a claim about every job when one job's facts show it fails, since equal values are not lower or sooner."
         " Answer no when every number and comparison the Step states matches the facts, even if the Step also says things the facts do not cover."
+        " A number the Step calls about, roughly or nearly matches a fact that rounds to it, such as about 1,700 for 1744.94."
     ),
     "stated_differently": YesNo(
         "Does the Step state a value that a fact gives differently? The facts are correct values from running the example."
         " Answer yes only when the Step names a value a fact also gives, such as a count, an index, an address or a result of one run, and states it differently, or states a comparison that the facts disprove, such as calling a value lower when the facts show it higher or equal, or a claim about every job when one job's facts show it fails."
         " Answer no when every value the Step states matches the fact for the same thing, and for anything the facts do not give, such as how a step works or why."
+        " A value the Step calls about, roughly or nearly matches a fact that rounds to it, such as about 1,700 for 1744.94."
     ),
 }
 ANSWER_ON_STAGE_QUESTIONS = {

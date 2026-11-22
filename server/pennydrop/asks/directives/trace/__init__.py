@@ -30,15 +30,15 @@ GUIDE = "\n".join([
     *(f"- `{algorithm.name}`: {algorithm.input_help}" for algorithm in ALGORITHMS.values()),
     "The first Step that carries the trace sets the traced object in its own `scene`, and `on` names it when the scene holds several objects of those Labs; without `on`, the first Lab below that can play the algorithm is traced. Labs that can play a trace: " + ", ".join(TARGETS) + ".",
     "A Step that carries a trace plays the whole run, unless the trace has an `until`. To tell one run across several Steps, repeat the same trace, with the same `code` and `input`, in each Step, give every Step but the last a later `until` than the Step before, and leave `until` out of the Step that plays the end of the run. Each Step then plays only the part no earlier Step played, on the same objects, and its narration talks only about that part.",
-    "`until` counts turns: one turn of the traced function's outer loop for the array and code Labs, and one node taken for the graph Lab, so `\"until\": 2` stops the run after its second turn. bubble_sort, selection_sort and insertion_sort take one turn fewer than the number of values, and their first turn already moves values: turn 1 of insertion_sort inserts the second value into the sorted first one, so a Step that only shows the first value as sorted uses `\"until\": 0`, and turn k inserts the value at index k; turn k of bubble_sort carries the k-th largest value to its place at the end, and turn k of selection_sort puts the k-th smallest value at index k - 1. So on 4 values `\"until\": 3` already plays the whole run, and the Step before a predict Challenge on their total stops at `\"until\": 2` or earlier. `\"until\": 0` draws the objects with the run's input and plays none of it, for Step 1 or any Step that asks a question before the run starts. A Step with the same `until` as the Step before keeps the stage as it is, which only the Step that asks the predict Challenge does: every other Step plays a later turn than the Step before. merge_sort and quick_sort call themselves, so one of their turns is one merge or one partition: `\"until\": 1` stops quick_sort after its first partition has placed the first pivot. partition is that first partition alone, told value by value: its pivot is the last value, turn k compares the value at index k - 1 with the pivot and, when it is smaller, swaps it onto the boundary and moves the boundary one cell right, and only the Step without `until` swaps the pivot onto the boundary at the end. So on 6 values `\"until\": 5` plays all 5 compares with the pivot still last, and the next Step, without `until`, places it. Trace partition when the Ask is about how one partition works, and quick_sort when it is about the whole sort.",
+    "`until` counts turns: one turn of the traced function's outer loop for the array and code Labs, and one node taken for the graph Lab, so `\"until\": 2` stops the run after its second turn. bubble_sort, selection_sort and insertion_sort take one turn fewer than the number of values, and their first turn already moves values: turn 1 of insertion_sort inserts the second value into the sorted first one, so a Step that only shows the first value as sorted uses `\"until\": 0`, and turn k inserts the value at index k; turn k of bubble_sort carries the k-th largest value to its place at the end, and turn k of selection_sort puts the k-th smallest value at index k - 1. So on 4 values `\"until\": 3` already plays the whole run, and the Step before a predict Challenge on their total stops at `\"until\": 2` or earlier. `\"until\": 0` draws the objects with the run's input and plays none of it, for Step 1 or any Step that asks a question before the run starts. A Step with the same `until` as the Step before keeps the stage as it is, which only the Step that asks the predict Challenge does: every other Step plays a later turn than the Step before. merge_sort and quick_sort call themselves, so one of their turns is one merge or one partition: `\"until\": 1` stops quick_sort after its first partition has placed the first pivot. partition is that first partition alone, told value by value: its pivot is the last value, turn k compares the value at index k - 1 with the pivot and, when it is smaller, swaps it onto the boundary and moves the boundary one cell right, and only the Step without `until` swaps the pivot onto the boundary at the end. So on 6 values `\"until\": 5` plays all 5 compares with the pivot still last, and the next Step, without `until`, places it. Trace partition when the Ask is about how one partition works, and quick_sort when it is about the whole sort. Turn k of binary_search makes its k-th middle check and keeps the half that can hold the target, so on `[1, 3, 5, 7, 9, 11, 13]` `\"until\": 1` checks 7 and `\"until\": 2` checks 11: play each check as its own Step this way, never with compares written by hand.",
     *(target.GUIDE for target in TARGETS.values()),
     "An `array` object is played only when its `values` equal the traced `input` list. A hash table, a stack or any other structure that the code builds is not that, so trace it on a `code` object alone, and show any array of buckets with plain operations after the run.",
     "The directive writes the operations and counters for you, so write no `do` entries for the traced run.",
     'Use the measured totals as `{trace.comparisons}`, `{trace.swaps}` or `{trace.writes}` inside `say` or text in the Step that plays the run to its end or in any later Step, so the narration never states a total before the stage shows it. Only the totals the run makes exist: insertion sort shifts and never swaps, so it has no `trace.swaps`, and a graph search has none of the three.',
     'A predict Challenge names a total as `"answer": "trace.comparisons"` (or `swaps`, `writes`) in a Step that repeats the trace with an `until`, before the run ends: the whole run is computed there, and the stage does not show the total yet. A Challenge waits after its Step plays, so in the Step that plays the run to its end, or any later Step, the counter already shows the total and the learner would read it off; that Step reveals it instead.',
     'For your own code, `code` is the whole source text of one function, such as `"def grow(balance, years):\\n    for _ in range(years):\\n        balance = balance * 1.05\\n    return balance"`, never a bare function name that is not in the library list',
-    "Write the `input` with exactly the keys named above, such as `{\"array\": [1, 3, 5], \"target\": 3}` for binary_search, and never `arr` or other short names.",
-    "For binary_search make the target the first or the last value of the sorted array: the first guess is the middle, so a value at an end takes the most halvings, and a search that ends at once shows none.",
+    "Write the `input` with exactly the keys named above, such as `{\"array\": [2, 7, 11, 15], \"target\": 9}` for two_pointers_pair_sum, and never `arr` or other short names.",
+    "For binary_search leave `target` out of the input: the directive searches for the array's last value, which takes the most halvings, since a search that finds its target at the first middle shows none. So the narration names the last value as the target, such as thirteen in `[1, 3, 5, 7, 9, 11, 13]`, and never a value from the middle.",
     "Keep the input small, 3 to 6 numbers. A Step plays at most 40 operations, so stage a longer run with `until`.",
 ])
 
@@ -104,7 +104,7 @@ def _variables_of(source: str, entry: str) -> list[str]:
 async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple[dict[str, Any], dict[str, Any]]:
     written = {name: obj for name, obj in (step.get("scene") or {}).items() if isinstance(obj, dict)}
     kept = {name: obj for name, obj in tools.staged.items() if name not in (step.get("scene") or {})}
-    spec = _with_shown_source(_aligned(parse_spec(TraceSpec, raw, "trace")), {**kept, **written})
+    spec = _with_shown_source(_with_search_target(_aligned(parse_spec(TraceSpec, raw, "trace"))), {**kept, **written})
     _require_the_array_shown(spec, {**kept, **written})
     step = _with_traced_object(step, {**kept, **written}, spec)
     written = {name: obj for name, obj in (step.get("scene") or {}).items() if isinstance(obj, dict)}
@@ -150,14 +150,26 @@ def _held_for_prediction(step: dict[str, Any], until: int | None, turns: list[in
 
 
 def _settled(step: dict[str, Any], spec: TraceSpec, run: TracedRun, window: Window) -> tuple[dict[str, Any], dict[str, Any]]:
+    inputs = _inputs_named(spec)
     if window.finished:
-        return step, _totals(run)
+        return step, {**inputs, **_totals(run)}
     _require_totals_unsaid(step, spec.until)
-    return with_answer_from(step, _totals(run)), {}
+    return with_answer_from(step, {**inputs, **_totals(run)}), inputs
 
 
 def describe_value(name: str) -> str | None:
-    return {"comparisons": "comparisons in the whole run", "swaps": "swaps in the whole run", "writes": "array writes in the whole run, counting every shift and placement"}.get(name)
+    return {"comparisons": "comparisons in the whole run", "swaps": "swaps in the whole run", "writes": "array writes in the whole run, counting every shift and placement", "target": "the value the search looks for"}.get(name)
+
+
+def _inputs_named(spec: TraceSpec) -> dict[str, Any]:
+    return {"trace.target": spec.input["target"]} if spec.code == "binary_search" and isinstance(spec.input, dict) and "target" in spec.input else {}
+
+
+def _with_search_target(spec: TraceSpec) -> TraceSpec:
+    values = spec.input.get("array") if isinstance(spec.input, dict) else None
+    if spec.code != "binary_search" or not isinstance(values, list) or not values or "target" in spec.input:
+        return spec
+    return spec.model_copy(update={"input": {**spec.input, "target": values[-1]}})
 
 
 def _totals(run: TracedRun) -> dict[str, Any]:
@@ -191,10 +203,7 @@ def _require_totals_unsaid(step: dict[str, Any], until: int | None) -> None:
 def _require_a_search_worth_watching(spec: TraceSpec, run: TracedRun) -> None:
     values = spec.input.get("array") if isinstance(spec.input, dict) else None
     if spec.code == "binary_search" and isinstance(values, list) and len(values) >= 7 and run.trace.counters.comparisons < 3:
-        probes = {value: _binary_search_probes(values, value) for value in values}
-        deepest = [value for value in values if probes[value] == max(probes.values())]
-        targets = " or ".join(str(value) for value in dict.fromkeys([deepest[0], deepest[-1]]))
-        raise DirectiveError(f"trace directive: binary_search found its target in {run.trace.counters.comparisons} comparisons, which shows no halving; set the trace's \"target\" to {targets}, which the search reaches only after {max(probes.values())} halvings, and name that same target in \"say\" wherever the narration names it")
+        raise DirectiveError(f"trace directive: binary_search found its target in {run.trace.counters.comparisons} comparisons, which shows no halving; leave \"target\" out of the trace's input in this Step and every later one, so the search looks for the last value, {values[-1]}, which it reaches only after {_binary_search_probes(values, values[-1])} halvings, and name {values[-1]} as the target wherever \"say\" names it")
 
 
 def _binary_search_probes(values: list[Any], target: Any) -> int:

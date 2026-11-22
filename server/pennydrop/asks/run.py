@@ -47,6 +47,7 @@ END_TOLD_EARLY = 'say: the narration gives {value}, where the {line} line ends, 
 STILL_RUN = 'this Step plays nothing on the stage and asks nothing: its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+QUOTED = re.compile(r'"[^"]*"')
 SAY_FIELD = re.compile(r'"say"\s*:\s*("(?:[^"\\]|\\.)*")')
 
 
@@ -237,17 +238,19 @@ class LessonRun:
 
     async def _settle_step(self, brief: Brief, pending: PendingStep, scene: Any) -> SettledStep:
         written = self._mended(pending.written, pending.number)
+        sent: list[str] = []
         for attempt in range(MAX_REPAIR_TRIES + 1):
             checked = await self._check(written, pending, scene)
             if not checked.errors and not checked.advice:
                 return self._accepted(written, checked)
-            if attempt == MAX_REPAIR_TRIES:
-                break
             reasons = checked.errors + checked.advice
+            if attempt == MAX_REPAIR_TRIES or _same_failure(reasons, sent):
+                break
+            sent = reasons
             self._log_repair(pending.number, attempt + 1, reasons, "redone by the writer")
             written = self._mended(await self._kit.writer.repair(brief, scene, written, reasons, self._record.id), pending.number)
         if not checked.errors:
-            self._log_repair(pending.number, MAX_REPAIR_TRIES + 1, checked.advice, "kept as written")
+            self._log_repair(pending.number, attempt + 1, checked.advice, "kept as written")
             return self._accepted(written, checked)
         if HONOR_CODE_ERROR in checked.errors:
             raise LessonError(f"Step {pending.number} still broke the honor code after {MAX_REPAIR_TRIES} rewrites")
@@ -337,7 +340,7 @@ class LessonRun:
         scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
         kept = {lab for name, lab in self._stage.labs.items() if not (name in scene and not isinstance(scene[name], dict))}
         brought = {spec["lab"] for spec in scene.values() if isinstance(spec, dict) and isinstance(spec.get("lab"), str)}
-        if planned & (kept | brought):
+        if kept | brought:
             return None
         return " ".join([STORY_OFF_LAB.format(labs=" or ".join(sorted(planned))), *directive_briefs(tuple(sorted(planned)))])
 
@@ -505,7 +508,7 @@ class LessonRun:
 
     async def _finish(self) -> None:
         marks = self._stopwatch.marks
-        drawn = [lab for lab in self._record.labs if lab in self._stage.drawn_labs]
+        drawn = [lab for lab in self._stage.drawn_labs if lab in self._catalog_labs]
         point_check = await self._point_check if self._point_check else "not needed: a refusal has no point" if self._refused else "missed: the writer sent no point"
         record = replace(
             self._record, labs=drawn, header={**(self._record.header or {}), "labs": drawn, "point_check": point_check}, status="ready", first_step_seconds=marks["first_step_published"], done_seconds=self._stopwatch.elapsed(),
@@ -541,6 +544,10 @@ def _claimed(step: dict[str, Any]) -> str:
     if not isinstance(challenge, dict) or not challenge.get("choices") or not isinstance(challenge.get("answer"), str):
         return step["say"]
     return f'{step["say"]} The Challenge asks "{challenge.get("prompt")}", and its answer is "{challenge["answer"]}".'
+
+
+def _same_failure(reasons: list[str], sent: list[str]) -> bool:
+    return bool(sent) and [QUOTED.sub('""', reason) for reason in reasons] == [QUOTED.sub('""', reason) for reason in sent]
 
 
 def _claims_disagree(claimed: str, facts: list[str]) -> str:

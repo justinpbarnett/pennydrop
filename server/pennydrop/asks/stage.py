@@ -74,7 +74,7 @@ class Stage:
         self.shown_totals: dict[str, Any] = {}
         self.in_flight: set[str] = set()
         self.lost_runs = False
-        self.drawn_labs: set[str] = set()
+        self.drawn_labs: dict[str, None] = {}
         self.played: list[tuple[str, dict[str, Any]]] = []
         self.retired: dict[str, dict[str, Any]] = {}
         self.simulations: dict[str, dict[str, Any]] = {}
@@ -178,7 +178,7 @@ class Stage:
             self.specs[name] = spec
             if isinstance(spec.get("lab"), str):
                 self.labs[name] = spec["lab"]
-                self.drawn_labs.add(spec["lab"])
+                self.drawn_labs.setdefault(spec["lab"])
             else:
                 self.labs.pop(name, None)
 

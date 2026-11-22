@@ -65,8 +65,11 @@ The goal and the design live outside the repo, in the workshop initiative `penny
   No one listens before a choice, so `pd voice ab` judges by time, word error rate against the text, loudness and true peak.
 - Loudness has one home, `server/pennydrop/loudness.py`: a two pass `loudnorm` to -14 LUFS and -1.5 dBTP.
 - The writer stays on the subscription route.
-  Haiku 5.5 thinks adaptively through `claude -p`, and no flag or environment variable turns it off.
-  The writer's system prompt says the task needs no extended thinking, which stopped it on 5 of 6 probe runs, and the hedge covers the rest.
+  Haiku 5.5 and Sonnet 5.5 think adaptively through `claude -p`, and no flag or environment variable turns it off: `MAX_THINKING_TOKENS=0`, `CLAUDE_CODE_DISABLE_THINKING=1`, `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1` and `--thinking disabled` all still think.
+  The codex route does not stream, so it cannot carry the writer.
+  The system prompt tells the writer, and the repair prompt tells the repair call, to begin its line at once because the directives compute every value.
+  That moved the first Step p90 from over 6 s to 4.0 s on the bench.
+  The hedge starts another attempt whenever the latest one begins thinking, up to 5 attempts, on the stream and on repairs.
 
 ## Code standard
 

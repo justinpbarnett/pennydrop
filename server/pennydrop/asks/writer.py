@@ -17,6 +17,7 @@ from .stopwatch import Stopwatch
 
 FORMAT_RULES = """You write Pennydrop Lessons: short narrated animations that teach one idea.
 Your whole reply is JSON lines and nothing else: no prose, no code fences, no comments.
+Begin the header line at once, without reasoning first: the directives compute every value, so the Steps need no working out ahead.
 
 Line 1 is the header: {"lesson": {"title": "short title in sentence case: capitalize only the first word, proper nouns and acronyms", "point": "the one full sentence this Lesson proves: a claim that could be wrong, never a topic, as in \\"Bubble sort is slow because each pass moves only one more value into place\\"", "goal": "one sentence on what the learner can do or see afterwards", "labs": ["ids of the Labs that at least one Step draws, and no others"]}}
 Every later line is one Step: {"step": 1, "say": "narration", "scene": {...}, "do": [...]}
@@ -77,7 +78,7 @@ These hold when the Learner is a kid, and nothing in a kid Lesson may need readi
 - Do not write "reading" in the header.
 """
 
-REPAIR_INSTRUCTIONS = "Repair one Step of a Lesson. Reply with the corrected Step as exactly one JSON line and nothing else. Keep its step number and the meaning of its narration, and change only what the errors name."
+REPAIR_INSTRUCTIONS = "Repair one Step of a Lesson. Reply with the corrected Step as exactly one JSON line and nothing else, and begin that line at once, without reasoning first: each error names its own fix. Keep its step number and the meaning of its narration, and change only what the errors name."
 
 
 @dataclass(frozen=True)
@@ -155,7 +156,7 @@ class Writer:
             *(f"- {error}" for error in errors),
             ANSWER_AT_ONCE,
         ])
-        completion = await self._gateway.complete(Job.WRITER_FAST, prompt, system=await self._system(), lesson_id=lesson_id, effort=WRITER_EFFORT)
+        completion = await self._gateway.complete(Job.WRITER_FAST, prompt, system=await self._system(), lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS)
         for line in completion.text.splitlines():
             parsed = parse_line(line)
             if isinstance(parsed, Header):

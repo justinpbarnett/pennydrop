@@ -123,7 +123,7 @@ def binary_search(array, target):
         else:
             high = middle - 1
     return -1
-''', 'an object like {"array": [1, 3, 5], "target": 3} with a sorted array'),
+''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with a sorted array; leave "target" out and the directive searches for the last value, which takes the most halvings'),
     Algorithm("two_pointers_pair_sum", "pair_sum", '''
 def pair_sum(array, target):
     left, right = 0, len(array) - 1

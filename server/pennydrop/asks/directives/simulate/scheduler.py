@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .._support import DirectiveError, Simulation
+
+POLICY_NAMES = {"rr": "round_robin", "roundrobin": "round_robin", "fifo": "fcfs", "first_come_first_served": "fcfs", "first_come_first_serve": "fcfs", "shortest_job_first": "sjf", "spn": "sjf"}
 
 GUIDE = "\n".join([
     '`{"lab": "scheduler", "policy": "fcfs" | "sjf" | "round_robin", "quantum": 2, "processes": [{"id": "P1", "burst": 5, "arrive": 0}, ...]}` schedules up to 6 processes on one CPU.',
@@ -36,6 +39,14 @@ class Spec(BaseModel):
     quantum: int | None = Field(default=None, ge=1, le=10)
     until: int | None = Field(default=None, ge=0, le=200)
     on: str | None = None
+
+    @field_validator("policy", mode="before")
+    @classmethod
+    def _policy_named(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        name = re.sub(r"[^a-z]+", "_", value.lower()).strip("_")
+        return POLICY_NAMES.get(name, name)
 
     @model_validator(mode="after")
     def _consistent(self) -> Spec:
