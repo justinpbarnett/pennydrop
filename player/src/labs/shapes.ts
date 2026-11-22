@@ -68,8 +68,9 @@ const BLOCK = 64;
 const BLOCK_GAP = 14;
 const GROUP_PAD = 16;
 const GROUP_GAP = 36;
-const BLOCKS_TOP = 120;
-const BLOCKS_BOTTOM = 90;
+const BLOCKS_HEADER = 120;
+const BLOCKS_HEADER_Y = 60;
+const BLOCKS_PAD = 64;
 const BLOCKS_MAX_WIDTH = 1000;
 const BLOCKS_MIN_WIDTH = 520;
 const GROUP_COLUMNS = 5;
@@ -122,11 +123,12 @@ function blockLayout(state: BlocksState): { slots: Point[]; outlines: Outline[];
     content = { w: perRow * (boxW + GROUP_GAP) - GROUP_GAP, h: Math.ceil(groups / perRow) * (boxH + GROUP_GAP) - GROUP_GAP };
   }
   const width = Math.max(content.w, BLOCKS_MIN_WIDTH);
-  const shift = { x: (width - content.w) / 2, y: BLOCKS_TOP };
+  const top = state.reading ? BLOCKS_HEADER : BLOCKS_PAD;
+  const shift = { x: (width - content.w) / 2, y: top };
   return {
     slots: slots.map((slot) => ({ x: slot.x + shift.x, y: slot.y + shift.y })),
     outlines: outlines.map((outline) => ({ ...outline, x: outline.x + shift.x, y: outline.y + shift.y })),
-    size: { w: width, h: BLOCKS_TOP + content.h + BLOCKS_BOTTOM },
+    size: { w: width, h: top + content.h + BLOCKS_PAD },
   };
 }
 
@@ -152,8 +154,9 @@ function drawBlocks(state: BlocksState, shown: number): Drawable[] {
     if (state.reading) out.push(textDrawable(`n${index}`, String(index + 1), at, { size: 30, fill: "ground", z: 3, opacity: isLit ? 1 : 0 }));
   });
   for (const outline of layout.outlines) out.push(boxAt(outline.id, outline.x, outline.y, outline.w, outline.h, { fill: "none", stroke: outline.role, strokeWidth: 3, radius: 0.5, z: 1 }));
-  if (state.reading) out.push(textDrawable("total", String(lit), { x: layout.size.w / 2, y: 54 }, { size: 76, z: 3, opacity: lit > 0 ? 1 : 0 }));
-  if (state.reading && state.groupSize !== null) out.push(textDrawable("caption", groupCaption(state), { x: layout.size.w / 2, y: layout.size.h - 40 }, { size: 40 }));
+  const header = { x: layout.size.w / 2, y: BLOCKS_HEADER_Y };
+  if (state.reading && state.groupSize !== null) out.push(textDrawable("caption", groupCaption(state), header, { size: 40 }));
+  else if (state.reading) out.push(textDrawable("total", String(lit), header, { size: 76, z: 3, opacity: lit > 0 ? 1 : 0 }));
   return out;
 }
 
@@ -258,6 +261,7 @@ interface Hop {
   from: number;
   to: number;
   step: number;
+  move: number;
 }
 
 interface LineState extends Base {
@@ -270,13 +274,15 @@ interface LineState extends Base {
 
 const LINE_WIDTH = 1000;
 const LINE_PAD = 60;
-const LINE_Y = 250;
+const LINE_Y = 180;
+const LINE_BELOW = 135;
+const HOP_MAX = 96;
 const TOKEN_LIFT = 24;
 const SPOT_ABOVE = 120;
 const SPOT_BELOW = 60;
 
 const lineX = (state: LineState, value: number) => LINE_PAD + ((value - state.from) * LINE_WIDTH) / (state.to - state.from);
-const hopHeight = (state: LineState, hop: Hop) => Math.min(150, 36 + 0.12 * Math.abs(lineX(state, hop.to) - lineX(state, hop.from)));
+const hopHeight = (state: LineState, hop: Hop) => Math.min(HOP_MAX, 32 + 0.1 * Math.abs(lineX(state, hop.to) - lineX(state, hop.from)));
 
 function hopPoints(state: LineState, hop: Hop): number[] {
   const x0 = lineX(state, hop.from);
@@ -287,11 +293,19 @@ function hopPoints(state: LineState, hop: Hop): number[] {
   });
 }
 
+function passedOver(state: LineState, hop: Hop): boolean {
+  const latest = state.hops.filter((other) => other.move === state.hops.at(-1)!.move);
+  if (hop.move === latest[0]!.move) return false;
+  const ends = latest.flatMap((other) => [other.from, other.to]);
+  return Math.min(hop.from, hop.to) < Math.max(...ends) && Math.max(hop.from, hop.to) > Math.min(...ends);
+}
+
 function hopDrawables(state: LineState, index: number, reveal: number): Drawable[] {
   const hop = state.hops[index]!;
+  const quiet = passedOver(state, hop);
   const mid = lineX(state, (hop.from + hop.to) / 2);
-  const out: Drawable[] = [{ id: `hop-${index}`, kind: "path", x: 0, y: 0, points: hopPoints(state, hop), fill: "none", stroke: "accent", strokeWidth: 3.5, z: 2, draw: clamp01(reveal) }];
-  if (state.reading) out.push(textDrawable(`hop-${index}-label`, `${hop.step > 0 ? "+" : "-"}${Math.abs(hop.step)}`, { x: mid, y: LINE_Y - TOKEN_LIFT - hopHeight(state, hop) - 28 }, { size: 30, opacity: clamp01((reveal - 0.6) * 2.5), z: 3 }));
+  const out: Drawable[] = [{ id: `hop-${index}`, kind: "path", x: 0, y: 0, points: hopPoints(state, hop), fill: "none", stroke: quiet ? "edge" : "accent", strokeWidth: quiet ? 2.5 : 3.5, z: quiet ? 1 : 2, draw: clamp01(reveal) }];
+  if (state.reading) out.push(textDrawable(`hop-${index}-label`, `${hop.step > 0 ? "+" : "-"}${Math.abs(hop.step)}`, { x: mid, y: LINE_Y - TOKEN_LIFT - hopHeight(state, hop) - 28 }, { size: 30, opacity: quiet ? 0 : clamp01((reveal - 0.6) * 2.5), z: 3 }));
   return out;
 }
 
@@ -313,7 +327,7 @@ const line: Figure<LineState> = {
   },
   ops: {
     hop: {
-      doc: '{"by": n} the hopper hops n along the line, leaving an arc; "each": k hops k at a time, so by 6 each 2 is three hops; negative goes left',
+      doc: '{"by": n} the hopper hops n along the line, leaving an arc; "each": k hops k at a time, so by 6 each 2 is three hops; negative goes left; earlier arcs it passes over fade to quiet lines without their labels',
       seconds: 1.6,
       apply(state, op) {
         const by = integerArg(op.args, "by", op.name, -40, 40);
@@ -324,7 +338,8 @@ const line: Figure<LineState> = {
         if (target < state.from || target > state.to) {
           fail(`op "hop" on ${state.objectId}: hopping ${by} from ${state.token} lands on ${target}, off the line that runs ${state.from} to ${state.to}; hop by ${state.to - state.token} at most to the right or ${state.from - state.token} to the left`);
         }
-        const hops = range(Math.abs(by / step)).map((index) => ({ from: state.token + index * step, to: state.token + (index + 1) * step, step }));
+        const move = (state.hops.at(-1)?.move ?? -1) + 1;
+        const hops = range(Math.abs(by / step)).map((index) => ({ from: state.token + index * step, to: state.token + (index + 1) * step, step, move }));
         return { ...state, token: target, hops: [...state.hops, ...hops] };
       },
       during(before, after, _op, progress) {
@@ -339,7 +354,7 @@ const line: Figure<LineState> = {
       },
     },
   },
-  size: () => ({ w: LINE_WIDTH + 2 * LINE_PAD, h: LINE_Y + 80 }),
+  size: () => ({ w: LINE_WIDTH + 2 * LINE_PAD, h: LINE_Y + LINE_BELOW }),
   draw(state) {
     const spacing = LINE_WIDTH / (state.to - state.from);
     const labelEvery = spacing >= 54 ? 1 : 5;
