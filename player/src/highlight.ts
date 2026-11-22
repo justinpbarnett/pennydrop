@@ -67,18 +67,18 @@ export function languageField(spec: Record<string, unknown>, objectId: string): 
 }
 
 const NUMBER_LITERAL = /(?<![\w.])(?:0[xX][\da-fA-F_]*(?:\.[\da-fA-F_]*)?(?:[pP][+-]?\d+)?|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)[uUlLfFjJn]*(?!\w)/g;
-const LITERAL_ROLE: Role = "swap";
-const PROSE_ROLES: readonly Role[] = ["ok", "muted"];
+const NUMBER_ROLE: Role = "swap";
+const STRING_AND_COMMENT_ROLES: readonly Role[] = ["ok", "muted"];
 
 function withWholeNumbers(spans: Span[]): Span[] {
   const text = spans.map((span) => span.text).join("");
   const roles = spans.flatMap((span) => Array.from({ length: span.text.length }, () => span.role));
   for (const match of text.matchAll(NUMBER_LITERAL)) {
     const range = roles.slice(match.index, match.index + match[0].length);
-    if (!range.some((role) => PROSE_ROLES.includes(role))) roles.fill(LITERAL_ROLE, match.index, match.index + match[0].length);
+    if (!range.some((role) => STRING_AND_COMMENT_ROLES.includes(role))) roles.fill(NUMBER_ROLE, match.index, match.index + match[0].length);
   }
   const merged: Span[] = [];
-  [...text].forEach((char, index) => {
+  text.split("").forEach((char, index) => {
     const last = merged[merged.length - 1];
     if (last && last.role === roles[index]) last.text += char;
     else merged.push({ text: char, role: roles[index]! });
