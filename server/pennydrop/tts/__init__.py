@@ -11,6 +11,7 @@ from ..words import WordTiming, spoken_words
 from .align import align_to_text
 from .elevenlabs import ElevenLabsProvider
 from .kokoro import KokoroProvider
+from .letters import respelled
 from .provider import Provider, Synthesis, TtsError
 from .qwen3 import Qwen3Provider
 
@@ -44,12 +45,13 @@ class Speaker:
     async def voice(self, text: str, *, provider: str | None = None, voice: str | None = None) -> Voice:
         engine = self._provider(provider or self._settings.tts_provider)
         voice_name = voice or engine.default_voice
-        stem = self._cache_stem(engine, voice_name, text)
+        spoken = engine.speakable(text)
+        stem = self._cache_stem(engine, voice_name, spoken)
         cached = self._read_cached(stem)
         if cached:
             return cached
-        synthesis = await engine.synthesize(text, voice_name)
-        return await self._store(stem, text, synthesis)
+        synthesis = await engine.synthesize(spoken, voice_name)
+        return await self._store(stem, text, respelled(text), synthesis)
 
     def _provider(self, name: str) -> Provider:
         if name not in self._providers:
@@ -70,7 +72,7 @@ class Speaker:
         audio_path = self._settings.tts_cache_dir / saved["audio"]
         return Voice(audio_path, f"{MEDIA_PREFIX}/{saved['audio']}", saved["duration"], [WordTiming(**word) for word in saved["words"]], True)
 
-    async def _store(self, stem: str, text: str, synthesis: Synthesis) -> Voice:
+    async def _store(self, stem: str, text: str, aligned_text: str, synthesis: Synthesis) -> Voice:
         directory = self._settings.tts_cache_dir
         directory.mkdir(parents=True, exist_ok=True)
         audio_name = f"{stem}.{synthesis.extension}"
@@ -78,16 +80,17 @@ class Speaker:
         audio_path.write_bytes(synthesis.audio)
         words = synthesis.words
         if words is None:
-            words = align_to_text(text, await self._transcriber.word_timings(audio_path))
-        _require_words_match(text, words)
+            words = align_to_text(aligned_text, await self._transcriber.word_timings(audio_path))
+        words = _as_script_words(text, aligned_text, words)
         (directory / f"{stem}.json").write_text(
             json.dumps({"audio": audio_name, "duration": synthesis.duration, "words": [asdict(word) for word in words]})
         )
         return Voice(audio_path, f"{MEDIA_PREFIX}/{audio_name}", synthesis.duration, words, False)
 
 
-def _require_words_match(text: str, words: list[WordTiming]) -> None:
-    expected = [word.lower() for word in spoken_words(text)]
-    actual = [timing.word.lower() for timing in words]
-    if expected != actual:
-        raise TtsError(f"word timings do not line up with the text: expected {expected}, got {actual}")
+def _as_script_words(text: str, aligned_text: str, words: list[WordTiming]) -> list[WordTiming]:
+    expected = spoken_words(text)
+    heard = [timing.word.lower() for timing in words]
+    if heard not in ([word.lower() for word in spoken_words(candidate)] for candidate in (text, aligned_text)):
+        raise TtsError(f"word timings do not line up with the text: expected {expected}, got {heard}")
+    return [WordTiming(word, timing.start, timing.end) for word, timing in zip(expected, words, strict=True)]

@@ -9,6 +9,8 @@ import warnings
 import soundfile
 
 from ..words import WordTiming, normalize_word
+from .letters import phonemized
+from .pronunciations import kokoro_names
 from .provider import Provider, Synthesis, TtsError
 
 SAMPLE_RATE = 24000
@@ -32,6 +34,9 @@ class KokoroProvider(Provider):
         finally:
             for pipeline in pipelines:
                 self._pipelines.put(pipeline)
+
+    def speakable(self, text: str) -> str:
+        return kokoro_names(phonemized(text))
 
     async def synthesize(self, text: str, voice: str) -> Synthesis:
         return await asyncio.to_thread(self._synthesize_blocking, text, voice)

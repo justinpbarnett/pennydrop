@@ -37,6 +37,7 @@ export interface StepSpan {
   narration: Narration;
   narrationEnd: number;
   end: number;
+  opStarts: { index: number; time: number }[];
   errors: string[];
 }
 
@@ -173,6 +174,7 @@ export class Timeline {
 
     let cursor = this.scene;
     let lastSegmentEnd = start;
+    const opStarts: StepSpan["opStarts"] = [];
     const groups: { time: number; ops: PlannedOp[] }[] = sceneChanged ? [{ time: start, ops: [] }] : [];
     for (const event of events) {
       const group = groups.find((candidate) => Math.abs(candidate.time - event.time) < SAME_TIME);
@@ -194,6 +196,7 @@ export class Timeline {
       const lead = Math.min(naturalLead, time - previousStart);
       if (previous) previous.cutAt = time - lead;
       this.segments.push({ start: time, lead, exits, relayout, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches: sharedStart(group.ops.flatMap((planned) => planned.touches)), replaced });
+      opStarts.push(...group.ops.map((planned) => ({ index: planned.op.index, time })));
       cursor = after;
       if (trueSeconds > 0) this.trueEnd = Math.max(this.trueEnd, time + trueSeconds);
       lastSegmentEnd = Math.max(lastSegmentEnd, time + Math.max(baseDuration, trueSeconds));
@@ -207,6 +210,7 @@ export class Timeline {
       narration,
       narrationEnd,
       end: Math.max(narrationEnd + STEP_TAIL_SECONDS, lastSegmentEnd + STEP_SETTLE_SECONDS),
+      opStarts,
       errors,
     };
     this.steps.push(span);

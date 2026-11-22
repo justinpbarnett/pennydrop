@@ -14,6 +14,7 @@ import uvicorn
 from . import course_cli
 from .ask_client import AskClient, AskClientError, Arrival, Outcome, breakdown, median_and_max, p90
 from .courses import CourseSeedError
+from .films import FilmError, check_film, format_report, render_film
 from .gateway import Choice, GatewayError, Image, YesNo
 from .intake import IntakeError
 from .loudness import TARGET_LUFS, TARGET_TRUE_PEAK
@@ -26,7 +27,7 @@ from .tracer import ALGORITHMS, TraceError
 from .tts import TtsError
 from .tts.ab import compare
 
-EXPECTED_ERRORS = (AskClientError, CourseSeedError, GatewayError, IntakeError, MintError, TraceError, TtsError, LookupError)
+EXPECTED_ERRORS = (AskClientError, CourseSeedError, FilmError, GatewayError, IntakeError, MintError, TraceError, TtsError, LookupError)
 
 
 def main() -> None:
@@ -108,6 +109,17 @@ def _parser() -> argparse.ArgumentParser:
     add.set_defaults(handler=_profile_add)
     listing = profile_commands.add_parser("list")
     listing.set_defaults(handler=_profile_list)
+
+    film = commands.add_parser("film", help="render and check Films")
+    film_commands = film.add_subparsers(required=True, metavar="film-command")
+    render = film_commands.add_parser("render", help="voice, draw, mix and mux a Film into an MP4")
+    render.add_argument("film", type=Path)
+    render.add_argument("--out", type=Path)
+    render.add_argument("--seconds", type=float, help="render only the first seconds, for a quick look")
+    render.set_defaults(handler=_film_render)
+    film_check = film_commands.add_parser("check", help="measure loudness, true peak and Cue offsets of a rendered Film")
+    film_check.add_argument("mp4", type=Path)
+    film_check.set_defaults(handler=_film_check)
     return parser
 
 
@@ -297,3 +309,18 @@ def _profile_list(services: Services, _) -> None:
     for profile in services.store.profiles():
         born = f"born {profile.born_year}-{profile.born_month:02d}" if profile.born_year is not None else "-"
         print(f"{profile.id}  {profile.name}  {profile.kind.value}  {born}  {profile.level}  {profile.theme}")
+
+
+def _film_render(services: Services, arguments) -> None:
+    result = asyncio.run(render_film(services, arguments.film, arguments.out, arguments.seconds))
+    print(result.video_log)
+    mix = result.mix
+    print(f"voice {mix.voice.integrated:.2f} LUFS, bed {mix.bed.integrated:.2f} LUFS, master {mix.master.integrated:.2f} LUFS, master true peak {mix.master.true_peak:.2f} dBTP")
+    print(result.output)
+
+
+def _film_check(services: Services, arguments) -> None:
+    report = format_report(check := check_film(arguments.mp4, services.transcriber))
+    print(report)
+    if not (check.loudness_ok and check.cues_ok and check.spoken_ok):
+        sys.exit(1)

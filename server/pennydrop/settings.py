@@ -95,6 +95,10 @@ class Settings:
         return self.data_dir / "tts"
 
     @property
+    def films_dir(self) -> Path:
+        return self.data_dir / "films"
+
+    @property
     def media_dir(self) -> Path:
         return self.data_dir / "media"
 

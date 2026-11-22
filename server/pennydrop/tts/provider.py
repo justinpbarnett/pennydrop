@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from ..settings import Settings
 from ..words import WordTiming
+from .letters import respelled
 
 
 class TtsError(RuntimeError):
@@ -33,6 +34,9 @@ class Provider(ABC):
 
     def warm(self) -> None:
         return None
+
+    def speakable(self, text: str) -> str:
+        return respelled(text)
 
     @abstractmethod
     async def synthesize(self, text: str, voice: str) -> Synthesis: ...

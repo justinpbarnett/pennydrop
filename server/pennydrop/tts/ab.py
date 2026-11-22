@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import difflib
 import json
 import time
 from dataclasses import asdict, dataclass
@@ -12,6 +11,7 @@ import soundfile
 from ..intake import Transcriber
 from ..loudness import normalize
 from ..settings import Settings
+from ..spoken import misheard, word_error_rate
 from ..words import comparable_words
 from . import PROVIDERS
 from .provider import TtsError
@@ -57,23 +57,5 @@ async def _voice_with(settings: Settings, transcriber: Transcriber, text: str, n
     audio_seconds = soundfile.info(matched).duration
     return AbResult(
         name, str(matched), round(seconds, 2), round(audio_seconds, 2), round(seconds / synthesis.duration, 3),
-        round(_word_error_rate(expected, actual), 4), round(loudness.integrated, 1), round(loudness.true_peak, 1), _misheard(expected, actual),
+        round(word_error_rate(expected, actual), 4), round(loudness.integrated, 1), round(loudness.true_peak, 1), misheard(expected, actual),
     )
-
-
-def _word_error_rate(expected: list[str], actual: list[str]) -> float:
-    previous = list(range(len(actual) + 1))
-    for row, word in enumerate(expected, start=1):
-        current = [row]
-        for column, other in enumerate(actual, start=1):
-            current.append(min(previous[column] + 1, current[-1] + 1, previous[column - 1] + (word != other)))
-        previous = current
-    return previous[-1] / len(expected) if expected else 0.0
-
-
-def _misheard(expected: list[str], actual: list[str]) -> list[dict]:
-    matcher = difflib.SequenceMatcher(a=expected, b=actual, autojunk=False)
-    return [
-        {"expected": " ".join(expected[a1:a2]), "heard": " ".join(actual[b1:b2])}
-        for tag, a1, a2, b1, b2 in matcher.get_opcodes() if tag != "equal"
-    ]
