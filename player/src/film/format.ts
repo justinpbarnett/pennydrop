@@ -24,6 +24,7 @@ export interface SoundAccent {
 export interface FilmLine {
   line: number;
   say: string;
+  spine?: number;
   scene?: Record<string, ObjectSpec | null>;
   do?: StepOp[];
   camera?: CameraMove[];
@@ -35,6 +36,8 @@ export interface FilmHeader {
   title: string;
   theme: ThemeId;
   thread?: string;
+  armature?: string;
+  spine?: string[];
   lead?: number;
   tail?: number;
   start?: Record<string, ObjectSpec>;

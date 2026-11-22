@@ -15,6 +15,7 @@ class FilmMeasures:
     render_minutes: float | None
     stage_seconds: dict[str, float]
     tokens: dict[str, int]
+    cost_usd: dict[str, float]
     review_minutes: float | None
     claims: Counter
 
@@ -33,6 +34,7 @@ def gather(mp4: Path, manifest: dict) -> FilmMeasures:
         render_minutes=rendered.get("renderMinutes"),
         stage_seconds=rendered.get("stageSeconds", {}),
         tokens=recorded.get("tokens", {}),
+        cost_usd=recorded.get("costUsd", {}),
         review_minutes=recorded.get("reviewMinutes"),
         claims=claims,
     )
@@ -40,7 +42,7 @@ def gather(mp4: Path, manifest: dict) -> FilmMeasures:
 
 def format_measures(measures: FilmMeasures) -> list[str]:
     stages = ", ".join(f"{name} {seconds / 60:.1f}" for name, seconds in measures.stage_seconds.items()) or "not recorded"
-    tokens = ", ".join(f"{stage} {count}" for stage, count in measures.tokens.items()) or "none"
+    tokens = ", ".join(f"{stage} {count}" + (f" (${measures.cost_usd[stage]:.2f})" if stage in measures.cost_usd else "") for stage, count in measures.tokens.items()) or "none"
     review = "not recorded" if measures.review_minutes is None else f"{measures.review_minutes:.0f} min"
     render = "not recorded" if measures.render_minutes is None else f"{measures.render_minutes:.1f} min"
     verdicts = ", ".join(f"{count} {verdict}" for verdict, count in sorted(measures.claims.items())) or "no fact check log"

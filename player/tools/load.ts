@@ -21,16 +21,22 @@ async function registerMintedLabs(): Promise<void> {
   mintedIds.push(...(await registerMinted(listing, (url) => import(url))));
 }
 
-export async function registerAllLabs(): Promise<void> {
+async function registerSources(patterns: string[]): Promise<void> {
   const modules: Record<string, never> = {};
-  for (const pattern of ["labs/*.ts", "primitives/*.ts"]) {
+  for (const pattern of patterns) {
     for await (const file of new Bun.Glob(pattern).scan(SOURCE_ROOT)) {
       modules[file] = (await import(resolve(SOURCE_ROOT, file))) as never;
     }
   }
   registerModules(modules);
+}
+
+export async function registerAllLabs(): Promise<void> {
+  await registerSources(["labs/*.ts", "primitives/*.ts"]);
   await registerMintedLabs();
 }
+
+export const registerFilmPieces = () => registerSources(["film/pieces/*.ts"]);
 
 export async function readLessonFile(pathOrId: string) {
   const path = pathOrId.endsWith(".jsonl") ? resolve(pathOrId) : resolve(LESSONS_ROOT, `${pathOrId}.jsonl`);
