@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from .asks import Asks
 from .gateway import Gateway
 from .intake import Transcriber
+from .judge import Judge
 from .lessons import LessonLibrary
 from .settings import Settings, load_settings
 from .store import Store
@@ -22,6 +23,7 @@ class Services:
     tracer: Tracer
     library: LessonLibrary
     asks: Asks
+    judge: Judge
 
     @classmethod
     def open(cls) -> Services:
@@ -32,4 +34,4 @@ class Services:
         speaker = Speaker(settings, transcriber)
         tracer = Tracer(settings)
         library = LessonLibrary(settings, store, speaker)
-        return cls(settings, store, gateway, speaker, transcriber, tracer, library, Asks(settings, store, library, gateway, speaker, tracer))
+        return cls(settings, store, gateway, speaker, transcriber, tracer, library, Asks(settings, store, library, gateway, speaker, tracer), Judge(gateway, library))

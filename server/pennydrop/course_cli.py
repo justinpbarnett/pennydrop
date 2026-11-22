@@ -62,9 +62,10 @@ def _pregen(services: Services, arguments: argparse.Namespace) -> None:
     codes = [code.strip() for code in arguments.topics.split(",") if code.strip()] if arguments.topics else None
     results = asyncio.run(pregenerate(services, course, codes, arguments.concurrency, arguments.redo, _log))
     print()
-    print(f"{'code':6} {'status':8} {'lesson':14} {'seconds':>8} {'cost':>9}  title")
+    print(f"{'code':6} {'status':8} {'lesson':14} {'seconds':>8} {'cost':>9} {'judge':>6}  title")
     for result in results:
-        print(f"{result.topic.code:6} {result.status:8} {result.lesson_id or '-':14} {result.seconds:8.1f} {'$' + format(result.cost_usd, '.4f'):>9}  {result.topic.title}")
+        judged = f"{result.scorecard.overall}/10" if result.scorecard else "-"
+        print(f"{result.topic.code:6} {result.status:8} {result.lesson_id or '-':14} {result.seconds:8.1f} {'$' + format(result.cost_usd, '.4f'):>9} {judged:>6}  {result.topic.title}")
     written = [result for result in results if result.status != "skipped"]
     print(f"{len(written)} written in {sum(result.seconds for result in written):.1f} s of Lesson time, ${sum(result.cost_usd for result in written):.4f}, {len(results) - len(written)} skipped")
     failed = [result for result in results if result.status not in ("ready", "skipped")]
@@ -74,4 +75,8 @@ def _pregen(services: Services, arguments: argparse.Namespace) -> None:
 
 def _log(result: Pregenerated) -> None:
     detail = result.error or ""
+    if result.scorecard:
+        detail = f"judge {result.scorecard.summary}; failed: {', '.join(name for name, mark in result.scorecard.marks.items() if not mark.passed) or 'none'}"
+    elif result.scoring_error:
+        detail = f"judge failed: {result.scoring_error}"
     print(f"{result.topic.code} {result.status} {result.lesson_id or '-'} {result.seconds:.1f} s ${result.cost_usd:.4f} {detail}".rstrip(), flush=True)

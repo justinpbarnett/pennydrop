@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from .asks import AskRequest
 from .courses import Course, CourseTopic
+from .gateway import GatewayError
+from .judge import Scorecard
 from .services import Services
 
 
@@ -18,6 +20,8 @@ class Pregenerated:
     seconds: float
     cost_usd: float
     error: str | None = None
+    scorecard: Scorecard | None = None
+    scoring_error: str | None = None
 
 
 async def pregenerate(
@@ -55,4 +59,11 @@ async def _write(services: Services, topic: CourseTopic) -> Pregenerated:
         if name == "error":
             error = data["message"]
     record = services.store.lesson(lesson_id)
-    return Pregenerated(topic, lesson_id, record.status, time.monotonic() - started, record.cost_usd, error or record.error)
+    seconds = time.monotonic() - started
+    scorecard, scoring_error = None, None
+    if record.status == "ready":
+        try:
+            scorecard = await services.judge.score(lesson_id)
+        except GatewayError as failure:
+            scoring_error = str(failure)
+    return Pregenerated(topic, lesson_id, record.status, seconds, record.cost_usd, error or record.error, scorecard, scoring_error)

@@ -18,15 +18,18 @@ from .stopwatch import Stopwatch
 FORMAT_RULES = """You write Pennydrop Lessons: short narrated animations that teach one idea.
 Your whole reply is JSON lines and nothing else: no prose, no code fences, no comments.
 
-Line 1 is the header: {"lesson": {"title": "short title in sentence case: capitalize only the first word, proper nouns and acronyms", "goal": "one sentence on what the learner can do or see afterwards", "labs": ["ids of the Labs that at least one Step draws, and no others"]}}
+Line 1 is the header: {"lesson": {"title": "short title in sentence case: capitalize only the first word, proper nouns and acronyms", "point": "the one full sentence this Lesson proves: a claim that could be wrong, never a topic, as in \\"Bubble sort is slow because each pass moves only one more value into place\\"", "goal": "one sentence on what the learner can do or see afterwards", "labs": ["ids of the Labs that at least one Step draws, and no others"]}}
 Every later line is one Step: {"step": 1, "say": "narration", "scene": {...}, "do": [...], "challenge": {...}}
 "scene", "do" and "challenge" are optional.
 
 Rules
 - The Ask may be a speech transcript, so it can hold misheard words. Fix an evident mishearing, such as "Mudex" for "mutex", in the title and in the narration, and never repeat the wrong word.
 - The title is in sentence case: only its first word and proper nouns start with a capital, as in "Bubble sort" and "A page table walk".
-- Write 6 to 10 Steps.
-- Step 1 is short: one sentence of at most 14 words and at most one or two scene objects, so it can start playing at once; the Steps after it carry the detail.
+- Write 6 to 10 Steps that tell a story proving the point. Write the point first and make every Step serve it.
+- Step 1 is the promise: one sentence of at most 14 words that asks the question the Lesson answers, in the learner's own world, with at most one or two scene objects so it can start playing at once. The Steps after it carry the detail.
+- Order the Steps as a story: the normal case the learner already knows or assumes; the break, where that assumption fails or the problem shows; a chain of Steps where each follows from the last by cause (because of that) and never by "and then", which is the mechanism being taught; the reveal; and a last Step that says the point again in plain words over the proof still on stage, never over an emptied stage. Do not write these labels into the narration.
+- Between the promise and the last Step the stage proves the point with something the learner watches happen, such as a trace, a simulation or a picture that changes, and narration alone does not.
+- Cut every Step that does not move the point, however true it is. Each Step changes what the learner sees or advances the cause chain: no filler operation that changes nothing, no Step that only talks over an unchanged stage, and no pulsing of two objects while saying "this one... this one".
 - "say" is spoken aloud: plain words, about 25 words at most, no markdown, no symbols that are hard to speak.
 - Use only the Labs and primitives of the catalog below, with their exact spec fields and operations. An object with "lab" is a Lab, an object with "kind" is a primitive.
 - When no Lab fits the Ask, build the explanation from primitives and the generic verbs.
@@ -42,7 +45,7 @@ Rules
 - A braced placeholder such as {trace.comparisons} in "say" works only in a Step that carries that same directive, or after a Step that already ran it. In every earlier Step write the narration without the number.
 - In a sequence diagram, every "send" is followed by one "receive" or "drop" on the same diagram before the next "send".
 - A plot, chart or graph of numbers shows the Ask's own quantity, computed from the formula or data the Ask is about, and never a stand-in curve.
-- Include at least one predict Challenge. Put it on a Step before the Step that reveals the answer, and let that Step's narration ask the question without giving the answer.
+- Every Lesson has at least one predict Challenge, the hinge of the story. Put it on the Step just before the reveal, where the learner can add up the earlier Steps and reach the answer, and no earlier Step states that answer. Let that Step's narration ask the question without giving the answer, and let the next Step reveal it.
 - Challenge shapes, all with "kind": "predict":
   {"kind": "predict", "type": "number", "prompt": "...", "answer": 6}
   {"kind": "predict", "type": "choice", "prompt": "...", "choices": ["a", "b"], "answer": "a"}
@@ -62,6 +65,7 @@ Rules
 
 These hold when the Learner is a kid, and nothing in a kid Lesson may need reading.
 - Every Step is one or two short sentences.
+- The story has a character on stage who wants something, such as a ball that wants to roll farthest, so the point has a stake; Step 1 shows what it wants. The Steps follow the same order as above, and the Challenge comes before the Step that reveals who wins.
 - Show with pictures, shapes and physics, and put no text, code or math objects on the stage.
 - Every Challenge is "kind": "predict" with "type": "click", where the child taps an object on the stage.
 - The narration asks the question out loud, because the child hears it and does not read it.

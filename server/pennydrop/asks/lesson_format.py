@@ -11,6 +11,7 @@ class Header(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1)
+    point: str = ""
     goal: str = ""
     labs: list[str] = []
     start_scene: Any = None

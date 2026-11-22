@@ -4,10 +4,11 @@ import asyncio
 import json
 import logging
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ..courses import CourseContext
+from ..gateway import GatewayError
 from ..lessons import done_event
 from ..pictures import prefetch
 from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
@@ -61,6 +62,7 @@ class PendingStep:
     number: int
     written: dict[str, Any] | Malformed
     voice: asyncio.Task[Voice | None] | None
+    followed: asyncio.Future[bool]
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,7 @@ class Checked:
     errors: list[str]
     step: dict[str, Any] | None
     scene: Any
+    advice: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,7 @@ class LessonRun:
         self._stage = Stage()
         self._refused = False
         self._warm_picture: asyncio.Task[None] | None = None
+        self._point_check: asyncio.Task[str] | None = None
 
     @property
     def _reading(self) -> bool:
@@ -139,10 +143,11 @@ class LessonRun:
             group.create_task(self._read(brief, plan, start_scene, pending))
             group.create_task(self._settle(brief, start_scene, pending, ready))
             group.create_task(self._publish(ready))
-        self._finish()
+        await self._finish()
 
     async def _read(self, brief: Brief, plan: Plan, start_scene: Any, pending: asyncio.Queue[PendingStep | None]) -> None:
         number = 0
+        previous: PendingStep | None = None
         async for line in self._kit.writer.lines(brief, self._stopwatch, self._record.id):
             if isinstance(line, Header):
                 if self._record.header:
@@ -153,9 +158,13 @@ class LessonRun:
                 raise LessonError("the writer's first line was not a lesson header, so the Lesson cannot start")
             number += 1
             self._stopwatch.mark("first_step_parsed")
-            await pending.put(PendingStep(number, line, self._prevoice(line)))
-        if number == 0:
+            if previous:
+                previous.followed.set_result(True)
+            previous = PendingStep(number, line, self._prevoice(line), asyncio.get_running_loop().create_future())
+            await pending.put(previous)
+        if previous is None:
             raise LessonError("the writer finished without writing any Step")
+        previous.followed.set_result(False)
         await pending.put(None)
 
     def _request_missing_lab(self, plan: Plan) -> None:
@@ -171,6 +180,18 @@ class LessonRun:
         self._record = replace(self._record, title=header.title, labs=header.labs, header=data)
         self._kit.store.save_lesson(self._record)
         self._live.publish("lesson", {"id": self._record.id, "lesson": data})
+        if header.point:
+            self._point_check = asyncio.create_task(self._check_point(header.point))
+
+    async def _check_point(self, point: str) -> str:
+        try:
+            if await self._kit.classifier.states_a_claim(point, self._record.id):
+                return "passed"
+        except GatewayError as error:
+            LOG.warning("lesson %s point could not be checked: %s", self._record.id, error)
+            return f"unchecked: {error}"
+        LOG.warning("lesson %s point reads as a topic, not a claim: %s", self._record.id, point)
+        return "missed: the point is a topic, not a claim"
 
     async def _settle(self, brief: Brief, scene: Any, pending: asyncio.Queue[PendingStep | None], ready: asyncio.Queue[ReadyStep | None]) -> None:
         while (step := await pending.get()) is not None:
@@ -187,19 +208,24 @@ class LessonRun:
     async def _settle_step(self, brief: Brief, pending: PendingStep, scene: Any) -> SettledStep:
         written = pending.written
         for attempt in range(MAX_REPAIR_TRIES + 1):
-            checked = await self._check(written, pending.number, scene)
-            if not checked.errors:
+            checked = await self._check(written, pending.number, scene, pending.followed)
+            if not checked.errors and not checked.advice:
                 self._stage.remember_trace(written, checked.step)
                 return SettledStep(checked.step, checked.scene)
             if attempt == MAX_REPAIR_TRIES:
                 break
-            self._log_repair(pending.number, attempt + 1, checked.errors, "redone by the writer")
-            written = await self._kit.writer.repair(brief, scene, written, checked.errors, self._record.id)
+            reasons = checked.errors + checked.advice
+            self._log_repair(pending.number, attempt + 1, reasons, "redone by the writer")
+            written = await self._kit.writer.repair(brief, scene, written, reasons, self._record.id)
+        if not checked.errors:
+            self._log_repair(pending.number, MAX_REPAIR_TRIES + 1, checked.advice, "kept as written")
+            self._stage.remember_trace(written, checked.step)
+            return SettledStep(checked.step, checked.scene)
         if HONOR_CODE_ERROR in checked.errors:
             raise LessonError(f"Step {pending.number} still broke the honor code after {MAX_REPAIR_TRIES} rewrites")
         return await self._salvage(pending.number, written, checked, scene)
 
-    async def _check(self, written: dict[str, Any] | Malformed, number: int, scene: Any) -> Checked:
+    async def _check(self, written: dict[str, Any] | Malformed, number: int, scene: Any, followed: asyncio.Future[bool]) -> Checked:
         if isinstance(written, Malformed):
             return Checked([coached(written.reason)], None, scene)
         step = mended({**written, "step": number}, self._stage)
@@ -212,8 +238,8 @@ class LessonRun:
             step = expanded
         except DirectiveError as error:
             return Checked([coached(str(error))], None, scene)
-        verdict, fine_for_child, keeps_honor_code = await asyncio.gather(
-            self._kit.validator.check(step, scene, self._reading), self._fine_for_child(step), self._keeps_honor_code(step)
+        verdict, fine_for_child, keeps_honor_code, restates_point = await asyncio.gather(
+            self._kit.validator.check(step, scene, self._reading), self._fine_for_child(step), self._keeps_honor_code(step), self._restates_point(step, number, followed)
         )
         for _ in range(MAX_MENDS):
             if (roomier := mended_by_verdict(step, verdict.errors, self._stage)) is None:
@@ -228,7 +254,18 @@ class LessonRun:
         if not fine_for_child:
             self._redone_for_child.add(number)
             errors.append("say is not fine for a young child; rewrite the narration so it is gentle, true and free of frightening or adult content")
-        return Checked(errors, step, verdict.scene)
+        advice = [] if restates_point else [f'the last Step must say the Lesson\'s point again in plain words, and this narration does not; the point is "{self._record.header["point"]}"; rewrite "say" so it states that point simply as the close of the story, and keep the Step\'s scene and challenge']
+        return Checked(errors, step, verdict.scene, advice)
+
+    async def _restates_point(self, step: dict[str, Any], number: int, followed: asyncio.Future[bool]) -> bool:
+        point = self._record.header.get("point")
+        if number == 1 or not point or not isinstance(step.get("say"), str) or await followed:
+            return True
+        try:
+            return await self._kit.classifier.restates_point(step["say"], point, self._record.id)
+        except GatewayError as error:
+            LOG.warning("lesson %s last Step could not be checked against the point: %s", self._record.id, error)
+            return True
 
     async def _fine_for_child(self, step: dict[str, Any]) -> bool:
         if not self._is_kid or not isinstance(step.get("say"), str):
@@ -301,11 +338,12 @@ class LessonRun:
             self._published += 1
             self._stopwatch.mark("first_step_published")
 
-    def _finish(self) -> None:
+    async def _finish(self) -> None:
         marks = self._stopwatch.marks
         drawn = [lab for lab in self._record.labs if lab in self._stage.drawn_labs]
+        point_check = await self._point_check if self._point_check else "not needed: a refusal has no point" if self._refused else "missed: the writer sent no point"
         record = replace(
-            self._record, labs=drawn, header={**(self._record.header or {}), "labs": drawn}, status="ready", first_step_seconds=marks["first_step_published"], done_seconds=self._stopwatch.elapsed(),
+            self._record, labs=drawn, header={**(self._record.header or {}), "labs": drawn, "point_check": point_check}, status="ready", first_step_seconds=marks["first_step_published"], done_seconds=self._stopwatch.elapsed(),
             cost_usd=self._kit.store.lesson_cost(self._record.id), timings=marks, repairs=self._repairs,
         )
         self._kit.store.save_lesson(record)

@@ -17,6 +17,7 @@ from .courses import CourseSeedError
 from .films import FilmError, check_film, format_report, render_film
 from .gateway import Choice, GatewayError, Image, YesNo
 from .intake import IntakeError
+from .judge import Comparison, Scorecard
 from .loudness import TARGET_LUFS, TARGET_TRUE_PEAK
 from .mint import MintError
 from .mint import cli as mint_cli
@@ -95,6 +96,11 @@ def _parser() -> argparse.ArgumentParser:
     vision.add_argument("question")
     vision.set_defaults(handler=_vision)
 
+    judge = commands.add_parser("judge", help="score Lessons against the story spine, or compare two blind")
+    judge.add_argument("lessons", nargs="*", metavar="lesson_id", help="Lesson ids to score one by one")
+    judge.add_argument("--pair", nargs=2, metavar=("lesson_a", "lesson_b"), help="show two Lessons to the judge in a random order, unlabeled, and print which is better")
+    judge.set_defaults(handler=_judge)
+
     mint_cli.add_parser(commands)
     course_cli.add_parser(commands)
 
@@ -170,6 +176,7 @@ def _print_outcome(outcome: Outcome) -> None:
     if outcome.error:
         sys.exit(f"pd: the Lesson failed: {outcome.error}")
     done = outcome.done
+    print(f"point: {outcome.header.get('point') or '(none)'}  [check: {done.get('point_check')}]")
     print(f"done in {done['seconds']:.2f} s, first Step {done['first_step_seconds']:.2f} s, {done['steps']} Steps, tier {done['tier']}, Labs {', '.join(done['labs']) or 'none'}, cost ${done['cost_usd']:.5f}")
     for name, seconds in breakdown(done):
         print(f"  {name:38} {seconds:6.2f} s")
@@ -216,6 +223,34 @@ def _print_bench_row(services: Services, how: str, outcome: Outcome) -> None:
         f"first {done['first_step_seconds']:5.2f}  done {done['seconds']:5.2f}  ${done['cost_usd']:.5f}"
         f"{'  repairs ' + str(len(done['repairs'])) if done['repairs'] else ''}{'  hedged' if hedges else ''}", flush=True,
     )
+
+
+def _judge(services: Services, arguments) -> None:
+    if bool(arguments.pair) == bool(arguments.lessons):
+        sys.exit("give Lesson ids to score, or --pair with two ids")
+    if arguments.pair:
+        first, second = arguments.pair
+        _print_comparison(first, second, asyncio.run(services.judge.compare(first, second)))
+        return
+
+    async def score_all():
+        return await asyncio.gather(*(services.judge.score(lesson_id) for lesson_id in arguments.lessons))
+
+    for scorecard in asyncio.run(score_all()):
+        _print_scorecard(scorecard)
+
+
+def _print_scorecard(scorecard: Scorecard) -> None:
+    print(f"{scorecard.lesson_id}  {scorecard.title}  {scorecard.summary}")
+    for name, mark in scorecard.marks.items():
+        print(f"  {'pass' if mark.passed else 'FAIL'}  {name:26} {mark.reason}")
+
+
+def _print_comparison(first: str, second: str, comparison: Comparison) -> None:
+    print(f"{first} against {second}")
+    for name, preference in comparison.by_criterion.items():
+        print(f"  {name:26} {preference.better or 'tie':14} {preference.reason}")
+    print(f"overall: {comparison.overall.better or 'tie'}  {comparison.overall.reason}")
 
 
 def _tts(services: Services, arguments) -> None:

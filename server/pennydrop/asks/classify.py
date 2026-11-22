@@ -111,6 +111,16 @@ class Classifier:
         result = await self._gateway.classify(step_text, {"keeps": question}, lesson_id=lesson_id)
         return _yes(result.answers["keeps"])
 
+    async def states_a_claim(self, point: str, lesson_id: str) -> bool:
+        question = YesNo("Is this one full sentence that claims something which could be true or false, such as a cause or an effect, and not just the name of a topic?")
+        result = await self._gateway.classify(point, {"claim": question}, lesson_id=lesson_id)
+        return _yes(result.answers["claim"])
+
+    async def restates_point(self, say: str, point: str, lesson_id: str) -> bool:
+        question = YesNo("Does the narration state the point?")
+        result = await self._gateway.classify(f"Point: {point}\nNarration: {say}", {"restates": question}, lesson_id=lesson_id)
+        return _yes(result.answers["restates"])
+
 
 def _yes(answer) -> bool:
     assert isinstance(answer, YesNoAnswer)

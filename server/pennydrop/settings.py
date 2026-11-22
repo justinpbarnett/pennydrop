@@ -19,6 +19,7 @@ class Job(StrEnum):
     VISION = "vision"
     VISION_CHOOSE = "vision_choose"
     GRADE = "grade"
+    JUDGE = "judge"
     FILM_RESEARCH = "film_research"
     FILM_SCRIPT = "film_script"
     FILM_FACTCHECK = "film_factcheck"

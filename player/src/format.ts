@@ -42,6 +42,7 @@ export interface Step {
 
 export interface LessonHeader {
   title: string;
+  point?: string;
   goal?: string;
   labs?: string[];
   reading?: boolean;
