@@ -47,7 +47,13 @@ interface HashState {
   placed: number[];
   buckets: number[][];
   visitor: Visitor | null;
+  lookup: number | null;
   note: string;
+}
+
+interface Trail {
+  stops: Rect[];
+  found: boolean;
 }
 
 interface StrategyRule {
@@ -55,6 +61,7 @@ interface StrategyRule {
   resolveOp: string;
   rehashBucket(buckets: number[][], home: number): number;
   cells(state: HashState): number;
+  trail(state: HashState, layout: TableLayout, key: number): Trail;
   resolveNote(key: number, bucket: number, capacity: number): string;
   turnAway(layout: TableLayout, bucket: number, role: Role): Drawable[];
 }
@@ -180,6 +187,15 @@ const TRAY_HOLD = 0.15;
 const SLIDE_SHARE = 0.4;
 const LINK_SHOW = 0.85;
 const PROBE_HOLD = 0.3;
+const FIND_LEAD = 0.15;
+const FIND_TAIL = 0.2;
+const FIND_DWELL = 0.4;
+const FIND_BASE_SECONDS = 0.9;
+const FIND_SECONDS_PER_HOP = 0.45;
+const LENS_TINT = 0.2;
+const LENS_STROKE_RATIO = 1.25;
+const LENS_TINT_Z = KEY_Z + 0.5;
+const LENS_EDGE_Z = KEY_Z + 1.5;
 const RESIZE_BASE_SECONDS = 1.4;
 const REFLOW_END = 0.3;
 const ROWS_IN_END = 0.4;
@@ -204,6 +220,7 @@ const STRATEGIES: Record<Strategy, StrategyRule> = {
     resolveOp: "chain",
     rehashBucket: (_buckets, home) => home,
     cells: sharedBucketCount,
+    trail: chainTrail,
     resolveNote: (key, bucket) => `${key} joins bucket ${bucket}`,
     turnAway: collisionCross,
   },
@@ -212,6 +229,7 @@ const STRATEGIES: Record<Strategy, StrategyRule> = {
     resolveOp: "probe",
     rehashBucket: firstFreeBucket,
     cells: () => 1,
+    trail: probeTrail,
     resolveNote: (_key, bucket, capacity) => `(${bucket} + 1) mod ${capacity} = ${(bucket + 1) % capacity}`,
     turnAway: collisionCross,
   },
@@ -571,6 +589,50 @@ function collisionDrawables(state: HashState, layout: TableLayout): Drawable[] {
   return rule.turnAway(layout, state.visitor.bucket, rule.collision);
 }
 
+function chainTrail(state: HashState, layout: TableLayout, key: number): Trail {
+  const bucket = key % state.capacity;
+  const chain = state.buckets[bucket]!;
+  const slot = slotRect(layout, bucket, false);
+  const position = chain.indexOf(key);
+  const found = position >= 0;
+  const visited = found ? chain.slice(0, position + 1) : chain;
+  const pills = visited.map((_, at) => chainRect(layout, bucket, at, chain.length, false));
+  const turnedAway = !found && chain.length > 0;
+  return { stops: [slot, ...pills, ...(turnedAway ? [slot] : [])], found };
+}
+
+function probeTrail(state: HashState, layout: TableLayout, key: number): Trail {
+  const home = key % state.capacity;
+  const walk = Array.from({ length: state.capacity }, (_, step) => (home + step) % state.capacity);
+  const isEnd = (bucket: number) => state.buckets[bucket]!.length === 0 || state.buckets[bucket]![0] === key;
+  const end = walk.findIndex(isEnd);
+  const visited = end < 0 ? walk : walk.slice(0, end + 1);
+  const stops = visited.map((bucket) => (state.buckets[bucket]!.length === 0 ? slotRect(layout, bucket, false) : chainRect(layout, bucket, 0, 1, false)));
+  return { stops, found: end >= 0 && state.buckets[walk[end]!]![0] === key };
+}
+
+function lookupTrail(state: HashState, layout: TableLayout, key: number): Trail {
+  return STRATEGIES[state.strategy].trail(state, layout, key);
+}
+
+function lensDrawables(layout: TableLayout, rect: Rect, role: Role, fade = 1): Drawable[] {
+  const strokeWidth = keyStroke(layout.pillHeight) * LENS_STROKE_RATIO;
+  return [
+    boxDrawable("find-lens", rect, { fill: role, stroke: "none", radius: 1, opacity: LENS_TINT * fade, z: LENS_TINT_Z }),
+    boxDrawable("find-lens-edge", rect, { fill: "none", stroke: role, strokeWidth, radius: 1, opacity: fade, z: LENS_EDGE_Z }),
+  ];
+}
+
+function outcomeRole(trail: Trail): Role {
+  return trail.found ? "ok" : "fault";
+}
+
+function lookupDrawables(state: HashState, layout: TableLayout): Drawable[] {
+  if (state.lookup === null) return [];
+  const trail = lookupTrail(state, layout, state.lookup);
+  return lensDrawables(layout, trail.stops[trail.stops.length - 1]!, outcomeRole(trail));
+}
+
 function placeKey(state: HashState, key: number, bucket: number): HashState {
   const buckets = state.buckets.map((chain, index) => (index === bucket ? [...chain, key] : chain));
   return { ...state, buckets, placed: [...state.placed, key], visitor: null };
@@ -607,7 +669,7 @@ function chosenKey(state: HashState, op: LabOp): number {
   const key = op.args.key ?? state.waiting[0];
   if (key === undefined) fail(`${where}: no key waits in "incoming"; name the key to insert, such as {"key": 5}`);
   if (!isKey(key)) fail(`${where}: "key" must be a whole number from 0 to ${MAX_KEY}, got ${JSON.stringify(key)}`);
-  if (state.placed.includes(key)) fail(`${where}: key ${key} is already in the table; hash a key that is not stored yet`);
+  if (state.placed.includes(key)) fail(`${where}: key ${key} is already in the table; use "find" to look up a stored key, or hash a key that is not stored yet`);
   if (!state.keys.includes(key) && state.keys.length >= MAX_KEYS) fail(`${where}: the table shows at most ${MAX_KEYS} keys; hash one of the waiting keys instead`);
   return key;
 }
@@ -619,7 +681,7 @@ function hash(state: HashState, op: LabOp): HashState {
   const bucket = key % state.capacity;
   const keys = state.keys.includes(key) ? state.keys : [...state.keys, key];
   const waiting = state.waiting.filter((other) => other !== key);
-  const landed = land({ ...state, keys, waiting, note: modNote(key, state.capacity, bucket) }, key, bucket);
+  const landed = land({ ...state, keys, waiting, lookup: null, note: modNote(key, state.capacity, bucket) }, key, bucket);
   return requireDrawable(landed, `op "hash" on ${state.objectId}`);
 }
 
@@ -634,6 +696,36 @@ function chain(state: HashState): HashState {
   return placeKey({ ...state, note: STRATEGIES.chaining.resolveNote(key, bucket, state.capacity) }, key, bucket);
 }
 
+function lookupKey(state: HashState, op: LabOp): number {
+  const key = op.args.key;
+  if (!isKey(key)) fail(`op "find" on ${state.objectId}: needs "key" as a whole number from 0 to ${MAX_KEY}, such as {"key": 9}, got ${JSON.stringify(key)}`);
+  return key;
+}
+
+function find(state: HashState, op: LabOp): HashState {
+  requireNoVisitor(state, "find");
+  const key = lookupKey(state, op);
+  return { ...state, lookup: key, note: modNote(key, state.capacity, key % state.capacity) };
+}
+
+function findSeconds(op: LabOp, state: HashState): number {
+  return FIND_BASE_SECONDS + FIND_SECONDS_PER_HOP * (lookupTrail(state, tableLayout(state), lookupKey(state, op)).stops.length - 1);
+}
+
+function lensAlong(stops: Rect[], travel: number): Rect {
+  const from = Math.min(Math.floor(travel), stops.length - 1);
+  const to = Math.min(from + 1, stops.length - 1);
+  return lerpRect(stops[from]!, stops[to]!, clamp01((travel - from - FIND_DWELL) / (1 - FIND_DWELL)));
+}
+
+function findWalk(before: HashState, after: HashState, _op: LabOp, progress: number): Drawable[] {
+  const layout = tableLayout(after);
+  const trail = lookupTrail(after, layout, after.lookup!);
+  const travel = clamp01((progress - FIND_LEAD) / (1 - FIND_LEAD - FIND_TAIL)) * (trail.stops.length - 1);
+  const role = progress >= 1 - FIND_TAIL ? outcomeRole(trail) : "active";
+  return [...lensDrawables(layout, lensAlong(trail.stops, travel), role, clamp01(progress / FIND_LEAD)), ...sideTextsBetween(before, after, true, true)];
+}
+
 function rehashedKeys(state: HashState): number[] {
   return state.visitor ? [...state.placed, state.visitor.key] : state.placed;
 }
@@ -645,7 +737,7 @@ function resize(state: HashState, op: LabOp): HashState {
   if (state.strategy === "probing" && placed.length > capacity)
     fail(`op "resize" on ${state.objectId}: ${placed.length} keys do not fit in ${capacity} buckets with probing; use a "capacity" of at least ${placed.length}`);
   const buckets = storeAll(placed, capacity, state.strategy);
-  return requireDrawable({ ...state, capacity, buckets, placed, visitor: null, note: formulaNote(capacity) }, `op "resize" on ${state.objectId}`);
+  return requireDrawable({ ...state, capacity, buckets, placed, visitor: null, lookup: null, note: formulaNote(capacity) }, `op "resize" on ${state.objectId}`);
 }
 
 function insertedKey(after: HashState): number {
@@ -827,7 +919,7 @@ export const lab: LabDef<HashSpec, HashState> = {
   reading: "optional",
   catalog: {
     summary:
-      'A hash table: hash turns a key into a bucket index (key mod capacity), a collision is resolved by chaining or by linear probing, and resize grows the table and rehashes every key. A side panel shows the last calculation, a load bar of keys over buckets, and any keys waiting to be inserted. Put the object alone in "on"; parts are not used.',
+      'A hash table: hash turns a key into a bucket index (key mod capacity), a collision is resolved by chaining or by linear probing, find looks a key up by walking the same path, and resize grows the table and rehashes every key. A side panel shows the last calculation, a load bar of keys over buckets, and any keys waiting to be inserted. Put the object alone in "on"; parts are not used.',
     spec: {
       capacity: "whole number of buckets, 2 to 12, default 4",
       strategy: '"chaining" (default): a bucket holds a chain of keys; "probing" (or "open"): open addressing, one key per bucket, and a collision steps on to the next bucket',
@@ -839,6 +931,7 @@ export const lab: LabDef<HashSpec, HashState> = {
     example: [
       '{"step":1,"say":"One already sits in bucket one. Five mod four is also one, so five is turned away and probes the next bucket, two.","scene":{"table":{"lab":"hash","capacity":4,"strategy":"probing","keys":[1]}},"do":[{"cue":"Five mod four","op":"hash","on":["table"],"key":5},{"cue":"probes","op":"probe","on":["table"]}]}',
       '{"step":1,"say":"Five lands in bucket one, then nine lands there too and joins its chain.","scene":{"table":{"lab":"hash","capacity":4,"incoming":[5,9]}},"do":[{"cue":"Five lands","op":"hash","on":["table"]},{"cue":"nine lands","op":"hash","on":["table"]},{"cue":"joins","op":"chain","on":["table"]}]}',
+      '{"step":1,"say":"To find nine, work out nine mod four, which is one. Bucket one holds five first, so we walk on along its chain and nine is next.","scene":{"table":{"lab":"hash","capacity":4,"keys":[5,9]}},"do":[{"cue":"nine mod four","op":"find","on":["table"],"key":9}]}',
     ],
   },
 
@@ -859,6 +952,7 @@ export const lab: LabDef<HashSpec, HashState> = {
       placed: stored,
       buckets: storeAll(stored, capacity, strategy),
       visitor: null,
+      lookup: null,
       note: formulaNote(capacity),
     };
     return requireDrawable(state, objectId);
@@ -883,6 +977,12 @@ export const lab: LabDef<HashSpec, HashState> = {
       apply: chain,
       during: joinChain,
     },
+    find: {
+      doc: '{"key": 9}, looks up a key without changing the table; shows "9 mod 4 = 1", visits that bucket, then walks its chain key by key (chaining) or steps from bucket to bucket (probing) until it reaches the key, which lights green, or runs out at an empty bucket or the end of the chain, which lights red because the key is absent; use it to show where a stored key lives; any whole number from 0 to 999 may be named',
+      seconds: findSeconds,
+      apply: find,
+      during: findWalk,
+    },
     resize: {
       doc: 'optional {"capacity": 8}, default double, at most 12; grows the table and rehashes every stored key one by one, in the order they went in; a key still waiting on a collision is rehashed last, along with them',
       seconds: (_op, state) => RESIZE_BASE_SECONDS + RESIZE_SECONDS_PER_KEY * rehashedKeys(state).length,
@@ -903,6 +1003,7 @@ export const lab: LabDef<HashSpec, HashState> = {
       ...linkDrawables(state, layout),
       ...state.keys.flatMap((key) => keyDrawables(state, key, keyPlace(state, layout, key), KEY_Z)),
       ...collisionDrawables(state, layout),
+      ...lookupDrawables(state, layout),
     ];
   },
 };

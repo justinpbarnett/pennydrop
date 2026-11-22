@@ -281,7 +281,15 @@ def _without_the_answer_said(step: dict[str, Any], stage: Stage) -> dict[str, An
 
 
 OPERATION_ERROR = re.compile(r"do\[(?P<index>\d+)\] (?P<op>\w+): (?P<message>.*)")
-LOCK_AGREEMENT = {"acquire": ("block", "use \"block\""), "block": ("acquire", "use \"acquire\"")}
+OPERATION_AGREEMENT = (
+    ("acquire", 'use "block"', "block"),
+    ("block", 'use "acquire"', "acquire"),
+    ("hash", 'is already in the table; use "find"', "find"),
+    ("probe", 'use "chain" instead', "chain"),
+    ("chain", 'use "probe" instead', "probe"),
+)
+NOTHING_COLLIDED = re.compile(r'^op "(?:chain|probe)" on \w+: no key is waiting on a collision;')
+KEY_STILL_WAITING = re.compile(r'still waits outside bucket \d+ after a collision; use "(?P<resolve>chain|probe)" first')
 
 
 def _with_rewritten_operations(step: dict[str, Any], errors: list[str]) -> dict[str, Any] | None:
@@ -290,24 +298,35 @@ def _with_rewritten_operations(step: dict[str, Any], errors: list[str]) -> dict[
         return None
     rewritten = list(operations)
     dropped: set[int] = set()
+    resolving: dict[int, dict[str, Any]] = {}
     for error in errors:
         found = OPERATION_ERROR.search(error)
         if not found or int(found["index"]) >= len(operations):
             continue
         index, message = int(found["index"]), found["message"]
         operation = operations[index]
-        agreed = LOCK_AGREEMENT.get(found["op"])
-        if agreed and agreed[1] in message:
-            rewritten[index] = {**operation, "op": agreed[0]}
+        agreed = next((becomes for name, fragment, becomes in OPERATION_AGREEMENT if name == found["op"] and fragment in message), None)
+        if agreed:
+            rewritten[index] = {**operation, "op": agreed}
+        elif NOTHING_COLLIDED.search(message):
+            dropped.add(index)
+        elif waiting := KEY_STILL_WAITING.search(message):
+            resolving[index] = {"op": waiting["resolve"], "on": operation["on"]}
         elif found["op"] == "compare" and "needs exactly two cells" in message:
             rewritten[index] = {**operation, "op": "highlight"}
         elif found["op"] == "release" and ("cannot" in message or "only the owner" in message):
             dropped.add(index)
         elif "is out of range" in message and found["op"] in ("mark", "line"):
             dropped.add(index)
-    if rewritten == operations and not dropped:
+    if rewritten == operations and not dropped and not resolving:
         return None
-    return {**step, "do": [operation for index, operation in enumerate(rewritten) if index not in dropped]}
+    mended_operations: list[Any] = []
+    for index, operation in enumerate(rewritten):
+        if index in resolving:
+            mended_operations.append(resolving[index])
+        if index not in dropped:
+            mended_operations.append(operation)
+    return {**step, "do": mended_operations}
 
 
 def _with_trace_out_of_scene(step: dict[str, Any]) -> dict[str, Any]:
