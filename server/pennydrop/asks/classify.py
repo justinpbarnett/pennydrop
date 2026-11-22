@@ -42,6 +42,11 @@ ANSWER_TOLD_QUESTIONS = {
     "told": YesNo("Does the earlier narration state the Challenge's answer outright? Answer no when it only gives causes or facts that the learner must combine to work the answer out."),
     "said": YesNo("Has the earlier narration already said the very thing the answer says, so the learner only has to remember it? Answer no when the learner still has to reason from the narration to reach the answer."),
 }
+OTHER_MOVES_QUESTIONS = {
+    "other": YesNo("Does the narration say that a value moves in this Step when the stage does not move that value, or say nothing moves when the stage moves values?"),
+    "contradicts": YesNo("Does the narration state a move, a swap or a resting place that contradicts the moves listed for the stage? Leaving moves out is not a contradiction."),
+}
+OTHER_MOVES_CONFIDENCE = 0.7
 FOLLOW_UP = "follow_up"
 NEW_TOPIC = "new_topic"
 PICTURE_LAB = "picture"
@@ -158,9 +163,8 @@ class Classifier:
         return _yes(result.answers["restates"])
 
     async def tells_other_moves(self, played: str, say: str, lesson_id: str) -> bool:
-        question = YesNo("Does the narration say that a value moves in this Step when the stage does not move that value, or say nothing moves when the stage moves values?")
-        result = await self._gateway.classify(f"Stage in this Step: {played}.\nNarration: {say}", {"other": question}, lesson_id=lesson_id)
-        return _yes(result.answers["other"])
+        result = await self._gateway.classify(f"Stage in this Step: {played}.\nNarration: {say}", OTHER_MOVES_QUESTIONS, lesson_id=lesson_id)
+        return _mean_yes(result.answers[name] for name in OTHER_MOVES_QUESTIONS) >= OTHER_MOVES_CONFIDENCE
 
     async def answer_on_stage(self, shown: str, challenge: str, lesson_id: str) -> bool:
         result = await self._gateway.classify(f"Stage now: {shown}.\nChallenge: {challenge}", ANSWER_ON_STAGE_QUESTIONS, lesson_id=lesson_id)

@@ -116,7 +116,8 @@ def _move(operation: dict[str, Any], values: list[Any], indexes: list[int]) -> s
         unchanged = values[index] == operation.get("value")
         values[index] = operation.get("value")
         return f"{values[index]} stays at index {index}" if unchanged else f"{values[index]} moves to index {index}"
-    return f"points at {values[indexes[0]]} at index {indexes[0]}"
+    pointer = f"the {operation['name']} pointer" if isinstance(operation.get("name"), str) else "a pointer"
+    return f"{pointer} points at {values[indexes[0]]} at index {indexes[0]}"
 
 
 def _arrays_on_stage(scene: Any) -> dict[str, list[Any]]:
