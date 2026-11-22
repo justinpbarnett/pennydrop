@@ -360,6 +360,74 @@ const line: Figure<LineState> = {
 };
 
 
+interface PolygonState extends Base {
+  figure: "polygon";
+  sides: number;
+  counted: number;
+}
+
+const POLYGON_RADIUS = 230;
+const POLYGON_PAD = 70;
+const POLYGON_TOP = 130;
+const SIDE_LABEL_OUT = 44;
+const WALKER = 20;
+
+function corners(sides: number): Point[] {
+  const turn = (2 * Math.PI) / sides;
+  const angles = range(sides).map((index) => Math.PI / 2 - Math.PI / sides + index * turn);
+  const normalized = angles.map((angle) => Math.atan2(Math.sin(angle), Math.cos(angle)));
+  const first = range(sides).filter((index) => normalized[index]! <= -Math.PI / 2 + 1e-9).reduce((best, index) => (normalized[index]! > normalized[best]! ? index : best));
+  const ring = range(sides).map((index) => normalized[(first + index) % sides]!);
+  const raw = ring.map((angle) => ({ x: POLYGON_RADIUS * Math.cos(angle), y: POLYGON_RADIUS * Math.sin(angle) }));
+  const top = Math.min(...raw.map((point) => point.y));
+  const bottom = Math.max(...raw.map((point) => point.y));
+  const middle = { x: POLYGON_PAD + POLYGON_RADIUS, y: POLYGON_TOP + POLYGON_RADIUS - (top + bottom) / 2 };
+  return raw.map((point) => ({ x: point.x + middle.x, y: point.y + middle.y }));
+}
+
+function drawPolygon(state: PolygonState, walked: number): Drawable[] {
+  const points = corners(state.sides);
+  const center = { x: POLYGON_PAD + POLYGON_RADIUS, y: mean(points.map((point) => point.y)) };
+  const done = whole(walked);
+  const partial = walked - done;
+  const out: Drawable[] = [{ id: "face", kind: "path", x: 0, y: 0, points: points.flatMap((point) => [point.x, point.y]), closed: true, fill: "fill2", stroke: "none", z: 1 }];
+  points.forEach((from, index) => {
+    const to = points[(index + 1) % state.sides]!;
+    const lit = index < done;
+    out.push({ id: `side-${index}`, kind: "line", x: from.x, y: from.y, x2: to.x, y2: to.y, stroke: lit ? "accent" : "edge", strokeWidth: lit ? 12 : 8, z: 2, part: `${state.objectId}[${index}]` });
+    if (index === done && partial > 1e-9) out.push({ id: `walk-${index}`, kind: "line", x: from.x, y: from.y, x2: to.x, y2: to.y, stroke: "accent", strokeWidth: 12, z: 3, draw: partial });
+    const middle = mix(from, to, 0.5);
+    const outward = Math.hypot(middle.x - center.x, middle.y - center.y);
+    const label = { x: middle.x + ((middle.x - center.x) / outward) * SIDE_LABEL_OUT, y: middle.y + ((middle.y - center.y) / outward) * SIDE_LABEL_OUT };
+    if (state.reading) out.push(textDrawable(`side-label-${index}`, String(index + 1), label, { size: 34, z: 3, opacity: lit ? 1 : 0 }));
+  });
+  points.forEach((point, index) => out.push({ id: `corner-${index}`, kind: "circle", x: point.x, y: point.y, r: 9, fill: "ink", z: 4 }));
+  const at = done >= state.sides ? points[0]! : mix(points[done]!, points[(done + 1) % state.sides]!, partial);
+  out.push({ id: "walker", kind: "circle", x: at.x, y: at.y, r: WALKER, fill: "accent", stroke: "ink", strokeWidth: 3, z: 5 });
+  if (state.reading) out.push(textDrawable("total", String(Math.min(done, state.sides)), { x: POLYGON_PAD + POLYGON_RADIUS, y: 54 }, { size: 76, z: 3, opacity: done > 0 ? 1 : 0 }));
+  return out;
+}
+
+const polygon: Figure<PolygonState> = {
+  spec: { sides: "how many sides the flat shape has, 3 to 12: 3 a triangle, 4 a square, 5 a pentagon, 6 a hexagon, 8 an octagon" },
+  init(spec, objectId, reading) {
+    return { figure: "polygon", objectId, reading, sides: integerField(spec, "sides", 0, 3, 12, objectId), counted: 0 };
+  },
+  ops: {
+    count: {
+      doc: 'the walker goes around the edge from the top corner, lighting each side as it finishes it; it counts on from the sides already walked, or walks around again from the first side once every side is lit; optional "to": n stops after n sides, default all',
+      seconds: 3.2,
+      apply(state, op) {
+        return { ...state, counted: integerArg(op.args, "to", op.name, 1, state.sides, state.sides) };
+      },
+      during: (before, after, _op, progress) => drawPolygon(after, lerp(after.counted > before.counted ? before.counted : 0, after.counted, progress)),
+    },
+  },
+  size: () => ({ w: 2 * (POLYGON_PAD + POLYGON_RADIUS), h: POLYGON_TOP + 2 * POLYGON_RADIUS + POLYGON_PAD }),
+  draw: (state) => drawPolygon(state, state.counted),
+};
+
+
 interface FractionState extends Base {
   figure: "fraction";
   parts: number;
@@ -978,9 +1046,9 @@ const rearrange: Figure<RearrangeState> = {
 };
 
 
-type ShapesState = BlocksState | LineState | FractionState | AreaState | AngleState | TriangleState | RearrangeState;
+type ShapesState = BlocksState | LineState | PolygonState | FractionState | AreaState | AngleState | TriangleState | RearrangeState;
 
-const FIGURES = { blocks, line, fraction, area, angle, triangle, rearrange } as unknown as Record<ShapesState["figure"], Figure<ShapesState>>;
+const FIGURES = { blocks, line, polygon, fraction, area, angle, triangle, rearrange } as unknown as Record<ShapesState["figure"], Figure<ShapesState>>;
 const FIGURE_NAMES = Object.keys(FIGURES);
 
 const figureOf = (state: ShapesState) => FIGURES[state.figure];
@@ -1014,7 +1082,7 @@ export const lab: LabDef<SpecFields, ShapesState> = {
   title: "Numbers and shapes",
   reading: "optional",
   catalog: {
-    summary: "Counting, number lines, fractions, area and right triangles, from a first count to Pythagoras. One object is one figure, chosen by \"figure\"; every number (counts, areas, side lengths) is computed here. In a Lesson with reading false, for a small child, every figure reads from pictures alone: to add or take away, the hopper stands on the first number and a click Challenge asks the child to tap the spot where the next hops will land, which the next Step hops to. A pile of blocks shows a sum as one pile: \"add\" drops the second group onto it and \"count\" counts on, and \"take\" lifts blocks off. Parts are named: a block pile[0], a spot on a line line[7], a side of a triangle tri[a].",
+    summary: "Counting, number lines, flat shapes and their sides, fractions, area and right triangles, from a first count to Pythagoras. One object is one figure, chosen by \"figure\"; every number (counts, areas, side lengths) is computed here. In a Lesson with reading false, for a small child, every figure reads from pictures alone: to add or take away, the hopper stands on the first number and a click Challenge asks the child to tap the spot where the next hops will land, which the next Step hops to. A pile of blocks shows a sum as one pile: \"add\" drops the second group onto it and \"count\" counts on, and \"take\" lifts blocks off. A flat shape (\"polygon\") shows how many sides it has when \"count\" walks around it. Parts are named: a block pile[0], a spot on a line line[7], a side of a polygon hex[0] counting from the top corner, a side of a triangle tri[a].",
     spec: {
       figure: `one of ${FIGURE_NAMES.join(", ")}`,
       ...Object.fromEntries(Object.entries(FIGURES).map(([name, figure]) => [`figure "${name}"`, Object.entries(figure.spec).map(([field, doc]) => `${field}: ${doc}`).join("; ")])),
