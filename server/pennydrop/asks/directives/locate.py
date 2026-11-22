@@ -18,6 +18,7 @@ GUIDE = "\n".join([
     "Name the parts in words a small child says, such as beak, wing, wheel or chimney, each once, with no `]` in it. Name only parts the narration talks about, at most 6, and use only them in `do`, as `owl[beak]`.",
     "A part that is hidden in the photo is reported back, and then you drop it from the narration or change the `images` query to get another photo.",
     "How a picture Lesson plays: Step 1 sets the picture with `images` and `locate`, shows it, and says what it is. Each next Step says one thing about one part, and its operations `point`, `zoom` or `label` that part on the spoken Cue, so the word and the pointing land together. `unzoom` and `clear` before moving to a part far away, and finish by looking at the whole picture again.",
+    "Keep one located part out of the narration until the hinge: the hinge Step asks the child to tap the part that does a job no Step has tied to a part yet, such as \"Which part do you think helps the owl catch its food? Tap it.\", with a click Challenge on that part, and the Step after it names the part, points at it and says how it does that job.",
     "For a kid, `label` pulses the part's outline and writes nothing, and the picture shows no text, so say the part's name out loud every time it is pointed at.",
 ])
 

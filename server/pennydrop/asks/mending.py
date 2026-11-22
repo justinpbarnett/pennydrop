@@ -21,11 +21,13 @@ NUMBER_WORDS = {
 }
 PROMISE_WORDS = 14
 SENTENCE = re.compile(r"[^.!?]+[.!?]+")
+STORY_LABEL = re.compile(r"^\s*(?:the\s+)?(?:promise|normal case|break|cause(?: chain)?|hinge|reveal|point|close)\s*[:\-–]\s*", re.IGNORECASE)
 NUMBER_WITH_COMMAS = re.compile(r"^-?\d{1,3}(,\d{3})+(\.\d+)?$|^-?\d+(\.\d+)?$")
 
 
 def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     step = _with_run_entries_lifted(step)
+    step = _without_story_label(step)
     step = _with_promise_alone(step)
     step = _with_planned_arrays_dressed(step, stage)
     step = _with_trace_for_its_values(step, stage)
@@ -41,6 +43,14 @@ def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     step = stage.hops.without_hops_after_reveal(step)
     step = stage.setups.with_reveal_run(step)
     return _with_every_send_settled(_with_library_listing(step), stage.in_flight)
+
+
+def _without_story_label(step: dict[str, Any]) -> dict[str, Any]:
+    say = step.get("say")
+    labelled = STORY_LABEL.match(say) if isinstance(say, str) else None
+    if labelled is None or not (rest := say[labelled.end():].strip()):
+        return step
+    return {**step, "say": rest[0].upper() + rest[1:]}
 
 
 def _with_promise_alone(step: dict[str, Any]) -> dict[str, Any]:
