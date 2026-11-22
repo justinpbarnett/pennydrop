@@ -124,6 +124,29 @@ class Brief:
 WRITER_EFFORT = "low"
 WRITER_HEDGE_SECONDS = 1.5
 ANSWER_AT_ONCE = "Latency-sensitive; begin your visible answer immediately."
+MAX_CONTINUATIONS = 2
+
+
+def _missing_from_story(brief: Brief, steps: list[dict[str, Any] | Malformed]) -> str | None:
+    if not brief.plan.fine_for_young_child:
+        return None
+    asked = [number for number, step in enumerate(steps, 1) if isinstance(step, dict) and "challenge" in step]
+    if not asked:
+        return "no Step has asked the hinge's predict Challenge yet, so write the Steps still missing from the cause chain, the hinge that asks the Challenge, the reveal, and a last Step that says the point again"
+    if asked[-1] == len(steps):
+        return f"Step {len(steps)} asked the hinge's predict Challenge, so write the reveal that answers it and a last Step that says the point again"
+    return None
+
+
+def _continuation(brief: Brief, steps: list[dict[str, Any] | Malformed], missing: str) -> str:
+    return "\n".join([
+        brief.text(),
+        f"You began this Lesson and stopped after Step {len(steps)}, before its story was told. These are the Step lines you wrote, and the stage now holds what they built:",
+        *(step.text if isinstance(step, Malformed) else json.dumps(step) for step in steps),
+        f"Continue the same Lesson from Step {len(steps) + 1}: {missing}.",
+        "Reply with only the new Step lines, numbered on from there: no header and no Step already written.",
+        ANSWER_AT_ONCE,
+    ])
 
 
 class Writer:
@@ -134,8 +157,24 @@ class Writer:
     async def lines(self, brief: Brief, stopwatch: Stopwatch, lesson_id: str) -> AsyncIterator[ParsedLine]:
         system = await self._system()
         stopwatch.mark("writer_started")
+        steps: list[dict[str, Any] | Malformed] = []
+        async for parsed in self._streamed(brief, f"{brief.text()}\n{ANSWER_AT_ONCE}", system, lesson_id, stopwatch):
+            if not isinstance(parsed, Header):
+                steps.append(parsed)
+            yield parsed
+        for _ in range(MAX_CONTINUATIONS):
+            missing = _missing_from_story(brief, steps)
+            if not steps or missing is None:
+                return
+            async for parsed in self._streamed(brief, _continuation(brief, steps, missing), system, lesson_id, stopwatch):
+                if isinstance(parsed, Header) or (isinstance(parsed, dict) and isinstance(parsed.get("step"), int) and parsed["step"] <= len(steps)):
+                    continue
+                steps.append(parsed)
+                yield parsed
+
+    async def _streamed(self, brief: Brief, prompt: str, system: str, lesson_id: str, stopwatch: Stopwatch) -> AsyncIterator[ParsedLine]:
         buffer = ""
-        async for item in self._gateway.stream(brief.plan.tier.job, f"{brief.text()}\n{ANSWER_AT_ONCE}", system=system, lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS):
+        async for item in self._gateway.stream(brief.plan.tier.job, prompt, system=system, lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS):
             if isinstance(item, CallStats):
                 continue
             stopwatch.mark("writer_first_token")
