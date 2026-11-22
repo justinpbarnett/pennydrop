@@ -9,6 +9,7 @@ PROBE_POINTER = "probe"
 COUNTED_EVENTS = ("comparisons", "swaps", "writes")
 
 OPERATIONS = frozenset({"compare", "pointer", "counter", "swap", "set", "window", "sorted", "found"})
+ROOM_BANDS = (("pointers", "pointer"), ("window", "window"))
 
 GUIDE = "\n".join([
     "The `array` Lab plays a trace as compares, swaps and writes on its cells.",
@@ -38,9 +39,15 @@ def dressed(array: dict[str, Any], run: TracedRun, by_event: list[tuple[int, lis
     return _with_target(_with_room(_with_counters(array, [name for name in COUNTED_EVENTS if getattr(run.trace.counters, name)]), by_event), run)
 
 
+def room_for(*plays: list[tuple[int, list[dict[str, Any]]]]) -> list[str]:
+    drawn = {operation["op"] for by_event in plays for _, operations in by_event for operation in operations}
+    return [band for band, op in ROOM_BANDS if op in drawn]
+
+
 def _with_room(array: dict[str, Any], by_event: list[tuple[int, list[dict[str, Any]]]]) -> dict[str, Any]:
-    drawn = {operation["op"] for _, operations in by_event for operation in operations}
-    room = [band for band, op in (("pointers", "pointer"), ("window", "window")) if op in drawn]
+    held = array.get("room") if isinstance(array.get("room"), list) else []
+    drawn = room_for(by_event)
+    room = [band for band, _ in ROOM_BANDS if band in held or band in drawn]
     return {**array, "room": room} if room else array
 
 

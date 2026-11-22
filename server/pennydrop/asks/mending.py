@@ -8,7 +8,7 @@ from ..tracer import ALGORITHMS
 from .directives._support import operation_targets
 from .directives.simulate import filled_from, with_scene_figure_as_simulation
 from .directives.trace import library_filled
-from .directives.trace.array import dressed, holds_input, operations_by_event
+from .directives.trace.array import dressed, holds_input, operations_by_event, room_for
 from .directives.trace.code import shown_source
 from .played_hops import says_number
 from .stage import FRONTIER_OPERATIONS, TRACE_TOTAL_PREFIX, Stage, answer_given_away
@@ -83,7 +83,8 @@ def _with_planned_arrays_dressed(step: dict[str, Any], stage: Stage) -> dict[str
     planned = dict(stage.runs.planned)
     if not isinstance(scene, dict) or not planned:
         return step
-    return {**step, "scene": {name: dressed(spec, planned[name], operations_by_event(planned[name], name)) if name in planned and isinstance(spec, dict) and spec.get("lab") == "array" and holds_input(spec, planned[name].input) else spec for name, spec in scene.items()}}
+    shared = room_for(*(operations_by_event(run, name) for name, run in planned.items()))
+    return {**step, "scene": {name: dressed({**spec, **({"room": shared} if shared else {})}, planned[name], operations_by_event(planned[name], name)) if name in planned and isinstance(spec, dict) and spec.get("lab") == "array" and holds_input(spec, planned[name].input) else spec for name, spec in scene.items()}}
 
 
 def with_one_figure_on_stage(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
