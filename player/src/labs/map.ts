@@ -147,8 +147,9 @@ const ERA_LABEL_FADE = 0.3;
 const MOST_ABOVE_AXIS = EVENT_ROWS * EVENT_ROW_PITCH + STEM_LENGTH;
 const MOST_BELOW_AXIS = ERA_OFFSET + ERA_ROWS * ERA_HEIGHT + (ERA_ROWS - 1) * ERA_GAP;
 const PANEL_HEIGHT = 2 * PANEL_PAD + MOST_ABOVE_AXIS + MOST_BELOW_AXIS;
-const MAP: Size = { w: WIDTH, h: HEIGHT - PANEL_GAP - PANEL_HEIGHT };
-const PANEL_TOP = MAP.h + PANEL_GAP;
+const MAP_ABOVE_TIMELINE: Size = { w: WIDTH, h: HEIGHT - PANEL_GAP - PANEL_HEIGHT };
+const MAP_ALONE: Size = { w: WIDTH, h: HEIGHT };
+const PANEL_TOP = MAP_ABOVE_TIMELINE.h + PANEL_GAP;
 const AXIS_LEFT = AXIS_INSET;
 const AXIS_RIGHT = WIDTH - AXIS_INSET;
 
@@ -239,7 +240,7 @@ function readReading(spec: MapSpec, objectId: string): boolean {
   return readsWords({ ...spec });
 }
 
-function projectionFor(places: Omit<Place, "at">[]): Projection {
+function projectionFor(places: Omit<Place, "at">[], map: Size): Projection {
   const lats = places.map((place) => place.lat);
   const lons = places.map((place) => place.lon);
   const latPad = Math.max((Math.max(...lats) - Math.min(...lats)) * EXTENT_PAD, MIN_PAD_DEGREES);
@@ -249,10 +250,10 @@ function projectionFor(places: Omit<Place, "at">[]): Projection {
   const west = Math.min(...lons) - lonPad;
   const east = Math.max(...lons) + lonPad;
   const squeeze = Math.cos(degrees((south + north) / 2));
-  const scale = Math.min(MAP.w / ((east - west) * squeeze), MAP.h / (north - south));
+  const scale = Math.min(map.w / ((east - west) * squeeze), map.h / (north - south));
   return {
-    west: (west + east) / 2 - MAP.w / (2 * scale * squeeze),
-    north: (south + north) / 2 + MAP.h / (2 * scale),
+    west: (west + east) / 2 - map.w / (2 * scale * squeeze),
+    north: (south + north) / 2 + map.h / (2 * scale),
     scale,
     squeeze,
   };
@@ -262,9 +263,9 @@ function project(projection: Projection, lon: number, lat: number): Point {
   return { x: (lon - projection.west) * projection.squeeze * projection.scale, y: (projection.north - lat) * projection.scale };
 }
 
-function ringInView(ring: number[][], projection: Projection): boolean {
-  const east = projection.west + MAP.w / (projection.scale * projection.squeeze);
-  const south = projection.north - MAP.h / projection.scale;
+function ringInView(ring: number[][], projection: Projection, map: Size): boolean {
+  const east = projection.west + map.w / (projection.scale * projection.squeeze);
+  const south = projection.north - map.h / projection.scale;
   const lons = ring.map((point) => point[0]!);
   const lats = ring.map((point) => point[1]!);
   return Math.max(...lons) >= projection.west && Math.min(...lons) <= east && Math.max(...lats) >= south && Math.min(...lats) <= projection.north;
@@ -280,7 +281,9 @@ function clipEdge(axis: "x" | "y", limit: number, side: 1 | -1): ClipEdge {
   };
 }
 
-const MAP_EDGES: ClipEdge[] = [clipEdge("x", 0, 1), clipEdge("x", MAP.w, -1), clipEdge("y", 0, 1), clipEdge("y", MAP.h, -1)];
+function mapEdges(map: Size): ClipEdge[] {
+  return [clipEdge("x", 0, 1), clipEdge("x", map.w, -1), clipEdge("y", 0, 1), clipEdge("y", map.h, -1)];
+}
 
 function clipAgainst(points: Point[], edge: ClipEdge): Point[] {
   return points.flatMap((current, index) => {
@@ -309,11 +312,12 @@ function usableRing(points: Point[]): boolean {
   return points.length >= 3 && spansEnough(points);
 }
 
-function landRings(projection: Projection): Point[][] {
+function landRings(projection: Projection, map: Size): Point[][] {
+  const edges = mapEdges(map);
   return RINGS.flatMap((ring) => {
-    if (!ringInView(ring, projection)) return [];
+    if (!ringInView(ring, projection, map)) return [];
     const projected = ring.map((point) => project(projection, point[0]!, point[1]!));
-    const outline = thin(MAP_EDGES.reduce(clipAgainst, projected));
+    const outline = thin(edges.reduce(clipAgainst, projected));
     return usableRing(outline) ? [outline] : [];
   });
 }
@@ -322,9 +326,9 @@ function ringEdges(ring: Point[]): [Point, Point][] {
   return ring.map((point, index) => [point, ring[(index + 1) % ring.length]!]);
 }
 
-function coastGrid(rings: Point[][]): CoastGrid {
-  const cols = Math.ceil(MAP.w / COAST_CELL);
-  const rows = Math.ceil(MAP.h / COAST_CELL);
+function coastGrid(rings: Point[][], map: Size): CoastGrid {
+  const cols = Math.ceil(map.w / COAST_CELL);
+  const rows = Math.ceil(map.h / COAST_CELL);
   const counts = new Array<number>(cols * rows).fill(0);
   const mark = ({ x, y }: Point) => {
     counts[Math.min(rows - 1, Math.floor(y / COAST_CELL)) * cols + Math.min(cols - 1, Math.floor(x / COAST_CELL))]! += 1;
@@ -386,6 +390,26 @@ function placeList(state: MapState, op: LabOp, key: string, example: string): nu
 
 function withShown(state: MapState, places: number[]): MapState {
   return { ...state, shown: [...state.shown, ...places.filter((place, index) => !state.shown.includes(place) && places.indexOf(place) === index)] };
+}
+
+function hasTimeline(state: MapState): boolean {
+  return state.eras.length + state.events.length > 0;
+}
+
+function mapSize(state: MapState): Size {
+  return hasTimeline(state) ? MAP_ABOVE_TIMELINE : MAP_ALONE;
+}
+
+function fitted(state: MapState): MapState {
+  const map = mapSize(state);
+  const projection = projectionFor(state.places, map);
+  const rings = landRings(projection, map);
+  const places = state.places.map((place) => ({ ...place, at: project(projection, place.lon, place.lat) }));
+  return { ...state, places, land: rings, coast: coastGrid(rings, map), labels: [] };
+}
+
+function withTimelineRoom(before: MapState, after: MapState): MapState {
+  return hasTimeline(before) ? after : fitted(after);
 }
 
 function relabelled(state: MapState): MapState {
@@ -525,8 +549,8 @@ function overlaps(a: Rect, b: Rect): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
-function insideMap(rect: Rect): boolean {
-  return rect.x >= EDGE_CLEAR && rect.y >= EDGE_CLEAR && rect.x + rect.w <= MAP.w - EDGE_CLEAR && rect.y + rect.h <= MAP.h - EDGE_CLEAR;
+function insideMap(rect: Rect, map: Size): boolean {
+  return rect.x >= EDGE_CLEAR && rect.y >= EDGE_CLEAR && rect.x + rect.w <= map.w - EDGE_CLEAR && rect.y + rect.h <= map.h - EDGE_CLEAR;
 }
 
 function dotRect(at: Point): Rect {
@@ -622,9 +646,9 @@ function islandsCovered(islands: Rect[], plate: Rect, leader: [Point, Point] | n
   return { under: under.length, crossed: crossed.length };
 }
 
-function slidInside(plate: Rect): Rect {
-  const x = Math.min(Math.max(plate.x, EDGE_CLEAR), MAP.w - EDGE_CLEAR - plate.w);
-  const y = Math.min(Math.max(plate.y, EDGE_CLEAR), MAP.h - EDGE_CLEAR - plate.h);
+function slidInside(plate: Rect, map: Size): Rect {
+  const x = Math.min(Math.max(plate.x, EDGE_CLEAR), map.w - EDGE_CLEAR - plate.w);
+  const y = Math.min(Math.max(plate.y, EDGE_CLEAR), map.h - EDGE_CLEAR - plate.h);
   return { ...plate, x, y };
 }
 
@@ -641,6 +665,7 @@ function headOutline([base, tip]: [Point, Point]): [Point, Point][] {
 }
 
 function placeLabels(state: MapState): PlaceLabel[] {
+  const map = mapSize(state);
   const dots = state.shown.map((place) => dotRect(state.places[place]!.at));
   const legs = state.routes.flatMap((route) => routeLegs(state, route));
   const heads = arrowHeads(state);
@@ -656,7 +681,7 @@ function placeLabels(state: MapState): PlaceLabel[] {
     const otherLeaders = labels.flatMap((label) => (label.leader ? [label.leader] : []));
     const lines = [...legs, ...otherLeaders];
     return (
-      !insideMap(plate) ||
+      !insideMap(plate, map) ||
       labels.some((other) => overlaps(inflate(other.plate, PLATE_GAP), plate) || (leader !== null && nearText(leader, other.plate))) ||
       dots.some((dot, index) => overlaps(dot, inflate(textBox(plate), EDGE_CLEAR)) || (leader !== null && state.shown[index] !== place && segmentHitsRect(leader[0], leader[1], dot))) ||
       lines.some((line) => nearText(line, plate)) ||
@@ -675,7 +700,7 @@ function placeLabels(state: MapState): PlaceLabel[] {
     const at = state.places[place]!.at;
     const kept = previous.get(place);
     const spread = plateCandidates(at, plateSize(state.places[place]!.name));
-    const slid = spread.filter(({ plate }) => !insideMap(plate)).map(({ plate, preference }) => ({ plate: slidInside(plate), preference: preference + STRAIN_COST, slid: true }));
+    const slid = spread.filter(({ plate }) => !insideMap(plate, map)).map(({ plate, preference }) => ({ plate: slidInside(plate, map), preference: preference + STRAIN_COST, slid: true }));
     const options = [...(kept ? [{ plate: kept, preference: 0, slid: false }] : []), ...spread.map((option) => ({ ...option, slid: false })), ...slid];
     return options.map(({ plate, preference, slid: moved }) => {
       const leader = leaderFor(at, plate);
@@ -827,24 +852,27 @@ function timelineLayout(state: MapState): TimelineLayout {
   return { axisY, events: eventSlots(eventRows(state), axisY), eras: eraSlots(state, axisY) };
 }
 
-function mapFrame(): Drawable[] {
-  return [
-    boxDrawable("sea", { x: 0, y: 0, w: MAP.w, h: MAP.h }, { fill: "fill", stroke: "rule", strokeWidth: 1.5, z: 0 }),
-    boxDrawable("timeline-panel", { x: 0, y: PANEL_TOP, w: WIDTH, h: PANEL_HEIGHT }, { fill: "fill", stroke: "rule", strokeWidth: 1.5, z: 0 }),
-  ];
+function mapFrame(state: MapState): Drawable[] {
+  const map = mapSize(state);
+  const sea = boxDrawable("sea", { x: 0, y: 0, w: map.w, h: map.h }, { fill: "fill", stroke: "rule", strokeWidth: 1.5, z: 0 });
+  if (!hasTimeline(state)) return [sea];
+  return [sea, boxDrawable("timeline-panel", { x: 0, y: PANEL_TOP, w: WIDTH, h: PANEL_HEIGHT }, { fill: "fill", stroke: "rule", strokeWidth: 1.5, z: 0 })];
 }
 
-function onMapBorder([from, to]: [Point, Point]): boolean {
-  const alongSide = from.x === to.x && (from.x === 0 || from.x === MAP.w);
-  const alongTop = from.y === to.y && (from.y === 0 || from.y === MAP.h);
+const BORDER_TOLERANCE = 4;
+
+function onMapBorder([from, to]: [Point, Point], map: Size): boolean {
+  const near = (value: number, edge: number) => Math.abs(value - edge) < BORDER_TOLERANCE;
+  const alongSide = Math.abs(from.x - to.x) < BORDER_TOLERANCE && (near(from.x, 0) || near(from.x, map.w));
+  const alongTop = near(from.y, to.y) && (near(from.y, 0) || near(from.y, map.h));
   return alongSide || alongTop;
 }
 
-function coastLines(ring: Point[]): Point[][] {
+function coastLines(ring: Point[], map: Size): Point[][] {
   const lines: Point[][] = [];
   let joined = false;
   ringEdges(ring).forEach((edge) => {
-    if (onMapBorder(edge)) {
+    if (onMapBorder(edge, map)) {
       joined = false;
       return;
     }
@@ -861,8 +889,9 @@ function pathDrawable(id: string, points: Point[], closed: boolean, fill: Paint,
 }
 
 function landDrawables(state: MapState): Drawable[] {
-  const clip: Rect = { x: 0, y: 0, w: MAP.w, h: MAP.h };
-  const coast = state.land.flatMap(coastLines);
+  const map = mapSize(state);
+  const clip: Rect = { x: 0, y: 0, w: map.w, h: map.h };
+  const coast = state.land.flatMap((ring) => coastLines(ring, map));
   return [
     ...state.land.map((ring, index) => ({ ...pathDrawable(`land-${index}`, ring, true, "fill2", "fill2", 0), clip })),
     ...coast.map((line, index) => ({ ...pathDrawable(`coast-${index}`, line, false, "none", "muted", COAST_WIDTH), clip })),
@@ -977,6 +1006,7 @@ function eventDrawables(state: MapState, layout: TimelineLayout): Drawable[] {
 }
 
 function timelineDrawables(state: MapState): Drawable[] {
+  if (!hasTimeline(state)) return [];
   const layout = timelineLayout(state);
   return [...axisDrawables(state, layout.axisY), ...layout.eras.flatMap((slot) => eraDrawables(state, slot)), ...eventDrawables(state, layout)];
 }
@@ -1022,7 +1052,7 @@ export const lab: LabDef<MapSpec, MapState> = {
   reading: "optional",
   catalog: {
     summary:
-      "A real map with true coastlines above a timeline, for geography and history: places are dots at their real latitude and longitude, routes are drawn between places over time, eras are spans on the timeline and events are dated markers on it. The map zooms itself to fit the places you list. Every op targets the whole map object.",
+      "A real map with true coastlines, for geography and history: places are dots at their real latitude and longitude, routes are drawn between places over time, eras are spans on a timeline and events are dated markers on it. The map fills the whole object until the first era or event, then slides up to make room for the timeline below it. The map zooms itself to fit the places you list. Every op targets the whole map object.",
     spec: {
       places:
         'list of up to 12 {"name": "Rome", "lat": 41.9, "lon": 12.5}, every place the Lesson will use, in real degrees (south latitude and west longitude are negative); the map zooms to fit them all; places stay hidden until a places, routes or events op shows them',
@@ -1037,8 +1067,8 @@ export const lab: LabDef<MapSpec, MapState> = {
 
   init(spec, objectId) {
     const declared = readPlaces(spec.places, objectId);
-    const projection = projectionFor(declared);
-    const rings = landRings(projection);
+    const projection = projectionFor(declared, MAP_ALONE);
+    const rings = landRings(projection, MAP_ALONE);
     return {
       objectId,
       reading: readReading(spec, objectId),
@@ -1050,7 +1080,7 @@ export const lab: LabDef<MapSpec, MapState> = {
       labels: [],
       axis: timeAxis(readYear(spec, "from", objectId), readYear(spec, "to", objectId), objectId),
       land: rings,
-      coast: coastGrid(rings),
+      coast: coastGrid(rings, MAP_ALONE),
     };
   },
 
@@ -1071,7 +1101,7 @@ export const lab: LabDef<MapSpec, MapState> = {
       during: (before, after, _op, progress) => [...settle(before, after, settleShare(progress)), ...growingRoute(after, after.routes.length - 1, actShare(progress))],
     },
     eras: {
-      doc: '{"name": "Second Punic War", "from": -218, "to": -201}; a named span grows along the timeline from "from" to "to" (BC is negative); eras that overlap in time stack in two rows',
+      doc: '{"name": "Second Punic War", "from": -218, "to": -201}; a named span grows along the timeline from "from" to "to" (BC is negative); eras that overlap in time stack in two rows; the first era or event makes the map shrink to leave room for the timeline',
       seconds: 1.0,
       apply(state, op) {
         const name = stringArg(op.args, "name", "eras");
@@ -1080,7 +1110,7 @@ export const lab: LabDef<MapSpec, MapState> = {
         if (to <= from) fail(`op "eras": "to" (${to}) must be a later year than "from" (${from})`);
         const next = { ...state, eras: [...state.eras, { name, from, to, color: SERIES[state.eras.length % SERIES.length]! }] };
         eraSlots(next, 0);
-        return next;
+        return relabelled(withTimelineRoom(state, next));
       },
       during(before, after, _op, progress) {
         const { axisY, eras } = timelineLayout(after);
@@ -1101,7 +1131,7 @@ export const lab: LabDef<MapSpec, MapState> = {
         const shown = place === null ? state : withShown(state, [place]);
         const next = { ...shown, events: [...state.events, { name, year, place }] };
         eventRows(next);
-        return relabelled(next);
+        return relabelled(withTimelineRoom(state, next));
       },
       during(before, after, _op, progress) {
         const fresh = `event-${after.events.length - 1}-`;
@@ -1118,6 +1148,6 @@ export const lab: LabDef<MapSpec, MapState> = {
   },
 
   draw(state) {
-    return [...mapFrame(), ...landDrawables(state), ...changingDrawables(state)];
+    return [...mapFrame(state), ...landDrawables(state), ...changingDrawables(state)];
   },
 };
