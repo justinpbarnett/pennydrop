@@ -68,6 +68,7 @@ PLACEHOLDER = re.compile(r"\{[^}]*\}")
 ANSWERS_CUT_QUESTION = 'say: the Step before could not keep its Challenge, so the learner was never asked "{asked}", yet this narration announces its answer as if they had been; tell this beat as a plain statement over the stage, with no words that answer a question, and keep every other field as it is'
 STRESS_OFF_STAGE = 'say: the narration singles out a different syllable from the one this Step\'s stress marks, "{marked}" ("syllable": {index}) of "{word}", the word on stage; make "syllable" the index of the syllable the narration means, or rewrite "say" to name the syllable the stage marks, and when the narration means a syllable of another word, put that word on stage first; keep every other field as it is'
 DECLARED_AGAIN = 'scene: {name} is declared again in the state it had before {moves} were played on it, so it would show a state the story has moved past and the narration would contradict the stage; keep {name} on stage and continue it with "do", or give a spec that shows its state now, such as the change those operations made, because a spec sets the object to exactly what it describes'
+RECALLS_LEFT_OUT = 'say: the narration recalls something as already met that only a Step the Lesson left out told, so the learner never heard it; the left-out narration was {left_out}; rewrite "say" so it recalls only what earlier Steps told, or tells that fact afresh, and keep every other field as it is'
 ASKS_ANOTHER_QUESTION = 'challenge: this Step\'s "say" asks a different question from its Challenge, so the learner hears one question and is asked to answer another; make "say" ask the Challenge prompt\'s own question, for the same form of answer, and keep the Challenge as it is'
 ANSWER_FORMS = {"number": "The learner answers with a number.", "choice": "The learner picks one of: {choices}.", "click": "The learner answers by tapping a thing on the stage.", "order": "The learner puts these in order: {choices}.", "match": "The learner matches pairs."}
 CHALLENGE_FLAW = re.compile(r"^(step \d+ )?challenge:")
@@ -160,6 +161,7 @@ class LessonRun:
         self._asked_challenge = False
         self._cut_question: tuple[int, str] | None = None
         self._told: list[str] = []
+        self._left_out: list[str] = []
         self._stage = Stage()
         self._told_point: str | None = None
         self._refused = False
@@ -300,7 +302,7 @@ class LessonRun:
         if not checked.errors:
             if checked.still:
                 self._log_repair(pending.number, attempt + 1, checked.advice, "dropped the still Step, which the writer could not make play")
-                return None
+                return self._leave_out(written)
             if isinstance(written, dict) and "challenge" in written and any(CHALLENGE_FLAW.match(advice) for advice in checked.advice):
                 cut = (pending.number, _prompt_of(written["challenge"]))
                 unasked = await self._unasked(brief, pending, written, scene)
@@ -312,7 +314,7 @@ class LessonRun:
                 if pending.number > 1 and not (question.get("do") or question.get("scene")) and await pending.followed:
                     self._log_repair(pending.number, attempt + 1, checked.advice, "left out the question Step, whose Challenge the writer could not fix and which plays nothing without it")
                     self._cut_question = cut
-                    return None
+                    return self._leave_out(written)
             if (held := self._held_back(written, checked)) is not None:
                 rechecked = await self._check(held, pending, scene)
                 if not rechecked.errors and not rechecked.advice:
@@ -399,6 +401,7 @@ class LessonRun:
             self._stress_off_stage(step, scene),
             self._reveal_off_answer(step),
             self._answers_cut_question(step, pending.number),
+            self._recalls_left_out(step),
             self._answer_on_stage(step, written, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines] + [play.told() for play in events]),
             self._answer_told(step),
             self._asks_the_challenge(step),
@@ -582,6 +585,21 @@ class LessonRun:
             return None
         return ANSWERS_CUT_QUESTION.format(asked=self._cut_question[1]) if answers else None
 
+    def _leave_out(self, written: dict[str, Any] | Malformed) -> None:
+        if isinstance(written, dict) and isinstance(written.get("say"), str):
+            self._left_out.append(written["say"])
+
+    async def _recalls_left_out(self, step: dict[str, Any]) -> str | None:
+        say = step.get("say")
+        if not self._left_out or not isinstance(say, str):
+            return None
+        try:
+            recalls = await self._kit.classifier.recalls_left_out(say, self._told, self._left_out, self._record.id)
+        except GatewayError as error:
+            LOG.warning("lesson %s narration could not be checked against the left-out Steps: %s", self._record.id, error)
+            return None
+        return RECALLS_LEFT_OUT.format(left_out=" and ".join(json.dumps(line) for line in self._left_out)) if recalls else None
+
     async def _answer_on_stage(self, step: dict[str, Any], written: dict[str, Any], views: list[str]) -> str | None:
         asked = _predicted(step, self._stage.cell_place(step))
         if not views or asked is None or self._stage.asks_the_planned_hinge(written):
@@ -672,7 +690,7 @@ class LessonRun:
         say = await self._true_say(brief, step, recovered, last.disputed, scene) if last.disputed else recovered
         if say is None:
             self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, f"left the Step out, since its narration, rewritten {MAX_REPAIR_TRIES} more times, still disagreed with what running the Lesson's examples computed")
-            return None
+            return self._leave_out(written)
         validator = self._kit.validator
         lost_before = self._stage.lost_runs
         self._stage.lost_runs = lost_before or ran_something(written)
@@ -703,7 +721,7 @@ class LessonRun:
                 told = f"told the play plainly, {json.dumps(candidate['say'])}"
             elif number > 1 and await pending.followed:
                 self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, "left the Step out, since none of its play could be kept and its narration told that play")
-                return None
+                return self._leave_out(written)
             else:
                 if number > 1 and self._record.header.get("point"):
                     say, told = self._record.header["point"], "closed on the Lesson's point"

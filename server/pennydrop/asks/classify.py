@@ -166,6 +166,13 @@ class Classifier:
         result = await self._gateway.classify(say, {"answers": question}, lesson_id=lesson_id)
         return _yes(result.answers["answers"])
 
+    async def recalls_left_out(self, say: str, told: list[str], left_out: list[str], lesson_id: str) -> bool:
+        heard = "\n".join(f"- {line}" for line in told) or "- nothing yet"
+        cut = "\n".join(f"- {line}" for line in left_out)
+        question = YesNo("The learner never heard the cut lines. Does the narration recall something as already met, such as \"now we know the stem\" or \"like the stem we saw\", that only the cut lines told and the heard lines never did? Answer no when the narration tells a fact afresh, or recalls only what the heard lines told.")
+        result = await self._gateway.classify(f"Heard lines:\n{heard}\nCut lines:\n{cut}\nNarration: {say}", {"recalls": question}, lesson_id=lesson_id)
+        return _yes(result.answers["recalls"])
+
     async def restates_point(self, say: str, point: str, lesson_id: str) -> bool:
         question = YesNo("Does the narration state the point?")
         result = await self._gateway.classify(f"Point: {point}\nNarration: {say}", {"restates": question}, lesson_id=lesson_id)
