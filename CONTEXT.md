@@ -41,6 +41,10 @@ _Avoid_: flashcards, quiz
 One learner's identity, level and Theme, which set how Lessons are pitched and drawn.
 _Avoid_: account, user
 
+**Contrast run**:
+A second real run of a library algorithm, on its own object beside the main run, that serves the normal case or the break of a Lesson's story, such as linear search beside binary search.
+_Avoid_: comparison, baseline
+
 ## Drawing
 
 **Lab**:

@@ -64,15 +64,16 @@ def _how_to_fill(lab: str) -> str:
 
 
 class Stage:
-    def __init__(self, snapshot: Any = None):
+    def __init__(self, snapshot: Any = None, side_runs: frozenset[str] = frozenset()):
+        self.side_runs = side_runs
         self.specs: dict[str, dict[str, Any]] = {}
         self.labs: dict[str, str] = {}
         self.traces: set[str] = set()
         self.finished_traces: set[str] = set()
         self.last_trace: dict[str, Any] = {}
-        self.trace_until: int | None = None
+        self.trace_untils: dict[str, int | None] = {}
         self.trace_counters: dict[str, set[str]] = {}
-        self.shown_totals: dict[str, Any] = {}
+        self.shown_totals: dict[str, dict[str, Any]] = {}
         self.in_flight: set[str] = set()
         self.lost_runs = False
         self.drawn_labs: dict[str, None] = {}
@@ -102,20 +103,39 @@ class Stage:
             return
         self.traces.add(key)
         self.last_trace = {name: raw[name] for name in ("code", "input", "on") if name in raw}
-        self.trace_until = raw.get("until")
+        self.trace_untils[key] = raw.get("until")
         if "until" not in raw:
             self.finished_traces.add(key)
-        self.shown_totals = trace_totals(values)
+        if totals := trace_totals(values):
+            self.shown_totals[key] = totals
         for name, spec in (settled.get("scene") or {}).items():
             counters = spec.get("counters") if isinstance(spec, dict) else None
             if counters:
                 self.trace_counters[name] = {str(counter) for counter in counters}
 
+    @property
+    def trace_until(self) -> int | None:
+        return self.trace_untils.get(trace_key(self.last_trace))
+
+    def until_shown_by(self, written: Any) -> int | None:
+        raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
+        return self.trace_untils.get(trace_key(raw))
+
     def run_left_unfinished(self, written: Any, values: dict[str, Any]) -> bool:
-        if not self.traces or self.finished_traces or self.shown_totals or trace_totals(values):
+        main = self.traces - self.side_runs
+        if not main or main & (self.finished_traces | self.shown_totals.keys()):
             return False
         raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
-        return not (isinstance(raw, dict) and "until" not in raw)
+        if trace_key(raw) in self.side_runs:
+            return True
+        return not (trace_totals(values) or (isinstance(raw, dict) and "until" not in raw))
+
+    def side_run_unplayed(self) -> bool:
+        return bool(self.side_runs - self.traces)
+
+    def is_side_run(self, written: Any) -> bool:
+        raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
+        return trace_key(raw) in self.side_runs
 
     def remember_simulation(self, written: Any) -> None:
         raw = written.get("simulate") if isinstance(written, dict) else None
@@ -203,8 +223,8 @@ class Stage:
         answer = challenge.get("answer") if isinstance(challenge, dict) and challenge.get("kind") == "predict" else None
         if isinstance(answer, bool) or not isinstance(answer, int | float):
             return []
-        shown = trace_totals(values) if isinstance(written, dict) and "trace" in written else self.shown_totals
-        named = [name for name, total in shown.items() if total == answer]
+        shown = [trace_totals(values)] if isinstance(written, dict) and "trace" in written else list(self.shown_totals.values())
+        named = [name for totals in shown for name, total in totals.items() if total == answer]
         if not named:
             return []
         return [f'step {step.get("step")} challenge: its answer {answer} is {{{named[0]}}}, and by the time the Challenge waits the stage has played the run to its end and shows that total, so the learner reads it off instead of predicting it; ask this predict Challenge in a Step before the end of the run, one that repeats the trace with an "until", and let the next Step, which carries the trace without "until", play the end and reveal the total']
@@ -237,7 +257,7 @@ class Stage:
         replayed = [
             f'this Step asks the viewer to predict an insert of {value}, but an earlier Step already played that run with a trace, so the result is known; put the prediction in a Step before the Step that carries the trace'
             for value in dict.fromkeys(announced)
-            if self.finished_traces and value not in already
+            if self.finished_traces - self.side_runs and value not in already
         ]
         return shown_errors + replayed
 

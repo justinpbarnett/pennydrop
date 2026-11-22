@@ -18,6 +18,9 @@ TRACE_TOTALS = ("comparisons", "swaps", "writes")
 RUN_LABS = ("array", "code")
 RUN_OPERATIONS = ("compare", "swap", "set", "line", "call", "return", "print")
 ALGORITHM_MOVES = ("compare", "swap")
+MAIN_RUN = "main"
+CONTRAST_RUN = "contrast"
+SEARCHES = ("binary_search", "linear_search")
 CODE_ONLY = ("two_pointers_pair_sum", "sliding_window_max_sum")
 TARGETS = discover(sys.modules[__name__])
 
@@ -39,7 +42,8 @@ GUIDE = "\n".join([
     'A predict Challenge names a total as `"answer": "trace.comparisons"` (or `swaps`, `writes`) in a Step that repeats the trace with an `until`, before the run ends: the whole run is computed there, and the stage does not show the total yet. A Challenge waits after its Step plays, so in the Step that plays the run to its end, or any later Step, the counter already shows the total and the learner would read it off; that Step reveals it instead.',
     'For your own code, `code` is the whole source text of one function, such as `"def grow(balance, years):\\n    for _ in range(years):\\n        balance = balance * 1.05\\n    return balance"`, never a bare function name that is not in the library list',
     "Write the `input` with exactly the keys named above, such as `{\"array\": [2, 7, 11, 15], \"target\": 9}` for two_pointers_pair_sum, and never `arr` or other short names.",
-    "For binary_search leave `target` out of the input: the directive searches for the array's last value, which takes the most halvings, since a search that finds its target at the first middle shows none. So the narration names the last value as the target, such as thirteen in `[1, 3, 5, 7, 9, 11, 13]`, and never a value from the middle.",
+    "For binary_search and linear_search leave `target` out of the input: the directive searches for the array's last value, which takes the most halvings and the most looks, since a search that finds its target at the first look shows nothing. So the narration names the last value as the target, such as thirteen in `[1, 3, 5, 7, 9, 11, 13]`, and never a value from the middle. Turn k of linear_search looks at the cell at index k - 1.",
+    "A Lesson may play two runs, a contrast run beside the main one, when the brief outlines both. Each run plays on its own object of the Lab, which the Step's `scene` sets, and the trace's `on` names that object's id in every Step of the run, such as `\"on\": \"contrast\"`. Each Step carries one trace, and the Step that returns to the other run repeats that run's whole trace with its `code`, `input` and `on`. A run's totals are named by its object, as `{trace.contrast.comparisons}` and `{trace.main.comparisons}`: once two runs have ended, the plain `{trace.comparisons}` is refused as ambiguous. The Labs' notes on showing a Lab twice do not apply to a contrast run, which sits beside the main run's object.",
     "When the brief outlines a real run of a library algorithm, use exactly that input in every Step, whatever the examples above show; its turns say what each `until` plays. For any other input, keep it small, 3 to 6 numbers. A Step plays at most 40 operations, so stage a longer run with `until`.",
 ])
 
@@ -122,7 +126,7 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     step = _without_hand_run(step, {object_id: target.OPERATIONS, **({code_id: code.OPERATIONS} if code_id else {})})
     played = len(step.get("do", []))
     if continuing and not window.of(by_event):
-        return _settled(_without_replay(step, object_id), spec, run, window)
+        return _settled(_without_replay(step, object_id), spec, run, window, object_id)
     if continuing:
         step = _without_replay(step, object_id)
         expanded = {**step, "do": [*step.get("do", []), *window.of(by_event)]}
@@ -136,22 +140,22 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     elif code_id:
         expanded = _with_code_following(expanded, played, code_id, by_event, run, window)
     _require_within_a_step(expanded.get("do", [])[played:], bool(turns))
-    return _settled(expanded, spec, run, window)
+    return _settled(expanded, spec, run, window, object_id)
 
 
 def _held_for_prediction(step: dict[str, Any], until: int | None, turns: list[int]) -> int | None:
     challenge = step.get("challenge")
     answer = challenge.get("answer") if isinstance(challenge, dict) and challenge.get("kind") == "predict" else None
-    predicts_a_total = answer in {f"trace.{name}" for name in TRACE_TOTALS}
+    predicts_a_total = isinstance(answer, str) and answer.startswith("trace.") and answer.rsplit(".", 1)[1] in TRACE_TOTALS
     return len(turns) - 1 if predicts_a_total and until is not None and until >= len(turns) > 1 else until
 
 
-def _settled(step: dict[str, Any], spec: TraceSpec, run: TracedRun, window: Window) -> tuple[dict[str, Any], dict[str, Any]]:
+def _settled(step: dict[str, Any], spec: TraceSpec, run: TracedRun, window: Window, object_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     inputs = _inputs_named(spec)
     if window.finished:
-        return step, {**inputs, **_totals(run)}
-    _require_totals_unsaid(step, spec.until)
-    return with_answer_from(step, {**inputs, **_totals(run)}), inputs
+        return step, {**inputs, **_totals(run, object_id)}
+    _require_totals_unsaid(step, spec.until, object_id)
+    return with_answer_from(step, {**inputs, **_totals(run, object_id)}), inputs
 
 
 def describe_value(name: str) -> str | None:
@@ -159,19 +163,21 @@ def describe_value(name: str) -> str | None:
 
 
 def _inputs_named(spec: TraceSpec) -> dict[str, Any]:
-    return {"trace.target": spec.input["target"]} if spec.code == "binary_search" and isinstance(spec.input, dict) and "target" in spec.input else {}
+    return {"trace.target": spec.input["target"]} if spec.code in SEARCHES and isinstance(spec.input, dict) and "target" in spec.input else {}
 
 
 def _with_search_target(spec: TraceSpec) -> TraceSpec:
     values = spec.input.get("array") if isinstance(spec.input, dict) else None
-    if spec.code != "binary_search" or not isinstance(values, list) or not values or "target" in spec.input:
+    if spec.code not in SEARCHES or not isinstance(values, list) or not values or "target" in spec.input:
         return spec
     return spec.model_copy(update={"input": {**spec.input, "target": values[-1]}})
 
 
-def _totals(run: TracedRun) -> dict[str, Any]:
-    counts = {f"trace.{name}": getattr(run.trace.counters, name) for name in TRACE_TOTALS}
-    return counts if any(counts.values()) else {}
+def _totals(run: TracedRun, object_id: str) -> dict[str, Any]:
+    counts = {name: getattr(run.trace.counters, name) for name in TRACE_TOTALS}
+    if not any(counts.values()):
+        return {}
+    return {**{f"trace.{name}": count for name, count in counts.items()}, **{f"trace.{object_id}.{name}": count for name, count in counts.items()}}
 
 
 def _without_hand_run(step: dict[str, Any], owned: dict[str, frozenset[str]]) -> dict[str, Any]:
@@ -191,8 +197,8 @@ def _following_code(pool: dict[str, Any], data_id: str) -> str | None:
     return next((name for name, obj in pool.items() if isinstance(obj, dict) and obj.get("lab") == "code" and name != data_id), None)
 
 
-def _require_totals_unsaid(step: dict[str, Any], until: int | None) -> None:
-    said = values_said(step, [f"trace.{name}" for name in TRACE_TOTALS])
+def _require_totals_unsaid(step: dict[str, Any], until: int | None, object_id: str) -> None:
+    said = values_said(step, [f"trace.{prefix}{name}" for name in TRACE_TOTALS for prefix in ("", f"{object_id}.")])
     if said:
         raise DirectiveError(f'trace directive: {{{said[0]}}} is a total of the whole run, and this Step stops it after turn {until}, so the stage does not show it yet; leave the number out of the narration here, and say it in the Step that plays the run to its end, which carries the trace without "until". A predict Challenge here may still name it as its "answer"')
 
@@ -291,7 +297,8 @@ async def _run(spec: TraceSpec, tracer: Tracer) -> TracedRun:
         raise DirectiveError(f"trace directive: the traced code raised {trace.error}{hint}")
     if trace.truncated:
         raise DirectiveError("trace directive: the traced code ran too long to play; trace a smaller input")
-    return TracedRun(trace, spec.input, source, ALGORITHMS[spec.code].pointers if spec.code in ALGORITHMS else ())
+    known = ALGORITHMS.get(spec.code)
+    return TracedRun(trace, spec.input, source, *(((known.pointers, known.window, known.placed)) if known else ()))
 
 
 def _entry_point(source: str) -> str:
@@ -317,6 +324,8 @@ def _plays(lab: str, code: str) -> bool:
 
 def _traced_object(written: dict[str, Any], on_stage: dict[str, Any], spec: TraceSpec) -> str:
     pool = {**on_stage, **written}
+    if spec.on is not None and spec.on not in pool:
+        raise DirectiveError(f'trace directive: "on" names {spec.on!r}, and no object of that id is on stage or in this Step\'s scene, which holds {", ".join(sorted(name for name, obj in pool.items() if obj.get("lab") in TARGETS)) or "no object that can play a trace"}; set {spec.on!r} in this Step\'s scene, or name one of those')
     named = spec.on if spec.on in pool and pool[spec.on].get("lab") != "code" else None
     candidates = [name for name, obj in pool.items() if obj.get("lab") in TARGETS and (named is None or name == named)]
     if len(candidates) > 1 and named is None:
@@ -325,9 +334,12 @@ def _traced_object(written: dict[str, Any], on_stage: dict[str, Any], spec: Trac
         in_step = [name for name in playing if name in written]
         chosen = sorted(in_step or playing, key=lambda name: list(TARGETS).index(pool[name]["lab"]))
         candidates = chosen[:1] if len({pool[name]["lab"] for name in chosen}) > 1 else chosen
+    if len(candidates) > 1 and spec.on is None and MAIN_RUN in candidates:
+        candidates = [MAIN_RUN]
     if len(candidates) == 1:
         return candidates[0]
     raise DirectiveError(
         f"trace directive: the Step's own scene or the Scene on stage must hold exactly one object of a Lab that can play a trace ({', '.join(TARGETS)}); found {len(candidates)}"
         + (f" named {spec.on!r}" if spec.on else "")
+        + ("; to play a second run beside the first, name the object it plays on with the trace's \"on\"" if len(candidates) > 1 and not spec.on else "")
     )

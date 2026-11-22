@@ -16,7 +16,7 @@ from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
-from .directives import DirectiveError, DirectiveTools, as_promise, computed_facts, directive_briefs, expand_directives, fill_values, run_outline, staged_directives, with_sources
+from .directives import DirectiveError, DirectiveTools, as_promise, computed_facts, directive_briefs, expand_directives, fill_values, contrast_run_keys, run_outline, staged_directives, with_sources
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import mended, mended_by_verdict, mended_cues, with_one_figure_on_stage
@@ -44,12 +44,15 @@ RUN_LEFT_UNFINISHED = 'the run on stage stopped part way, and this is the last S
 ANSWER_TOLD = 'challenge: the narration so far, this Step\'s "say" included, already tells the answer to this Challenge, so the learner remembers it instead of predicting; take the answer out of this Step\'s "say", and when an earlier Step told it, ask about the next thing the run or story does that no Step has said or played yet, and let the next Step show it'
 STILL_STAGE = 'this Step plays nothing on the stage and asks nothing, so the learner hears new words over a still picture; add to "do" the operations that show what "say" tells, such as the next part of the run, the next line of a plot or a highlight on what the narration names, and keep the narration'
 END_TOLD_EARLY = 'say: the narration gives {value}, where the {line} line ends, but the {plot} plot has not drawn that line to its end yet, so the narration tells the result before the stage shows it; leave that number out of "say" here and tell it in the Step that graphs the {line} line to its end and marks it'
+STILL_SIDE_RUN = "; the contrast run is not played yet, so carry its trace in this Step exactly as the brief gives it, and play it here"
 STILL_RUN = 'this Step plays nothing on the stage and asks nothing: its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
 QUOTED = re.compile(r'"[^"]*"')
 SAY_FIELD = re.compile(r'"say"\s*:\s*("(?:[^"\\]|\\.)*")')
 
+
+PROMISE_WORDS = 14
 
 class LessonError(RuntimeError):
     pass
@@ -158,7 +161,7 @@ class LessonRun:
             self._warm_picture = asyncio.create_task(prefetch(kit.directive_tools.images, photo_search, not self._is_kid, self._record.id))
         self._record = replace(self._record, tier=plan.tier.value)
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
-        self._stage = Stage(start_scene)
+        self._stage = Stage(start_scene, contrast_run_keys(plan.algorithm))
         outline = await run_outline(plan.algorithm, kit.directive_tools.tracer) if plan.algorithm else None
         brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, photo_search, outline)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()
@@ -298,7 +301,7 @@ class LessonRun:
             self._answer_on_stage(step, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines]),
             self._answer_told(step),
             self._story_off_lab(step, number),
-            self._ends_before_hinge(step, values, plots, pending.followed),
+            self._ends_before_hinge(step, written, values, plots, pending.followed),
             self._still_stage(step, written, number, pending.followed),
             _end_told_early(step, plots),
             self._run_left_unfinished(written, values, pending.followed),
@@ -323,6 +326,8 @@ class LessonRun:
         advice.extend(found for found in further_advice if found)
         if number > 1 and "challenge" not in step and isinstance(step.get("say"), str) and step["say"].rstrip().endswith("?"):
             advice.append(OPEN_QUESTION)
+        if number == 1 and isinstance(step.get("say"), str) and len(step["say"].split()) > PROMISE_WORDS:
+            advice.append(f"the promise must be one question of at most {PROMISE_WORDS} words, and this one has {len(step['say'].split())}; cut it down and keep its concrete example")
         return Checked(errors, step, verdict.scene, advice, values)
 
     async def _missing_hinge(self, step: dict[str, Any], number: int, last_after: asyncio.Future[dict[str, Any] | Malformed | None]) -> str | None:
@@ -345,11 +350,11 @@ class LessonRun:
             return None
         return " ".join([STORY_OFF_LAB.format(labs=" or ".join(sorted(planned))), *directive_briefs(tuple(sorted(planned)))])
 
-    async def _ends_before_hinge(self, step: dict[str, Any], values: dict[str, Any], plots: list[PlotView], followed: asyncio.Future[bool]) -> str | None:
+    async def _ends_before_hinge(self, step: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any], plots: list[PlotView], followed: asyncio.Future[bool]) -> str | None:
         if self._asked_challenge or "challenge" in step:
             return None
-        if trace_totals(values):
-            until = self._stage.trace_until
+        if trace_totals(values) and not self._stage.is_side_run(written):
+            until = self._stage.until_shown_by(written)
             advice = RUN_ENDS_AFTER_STOP.format(until=until) if isinstance(until, int) and until > 0 else RUN_ENDS_BEFORE_HINGE
         elif finished := next((view for view in plots if view.graphed and not view.unfinished), None):
             advice = PLOT_ENDS_BEFORE_HINGE.format(plot=finished.name, line=finished.graphed[-1])
@@ -368,7 +373,9 @@ class LessonRun:
         if not await followed:
             return None
         staged = next(iter(staged_directives(written)), None)
-        return STILL_RUN.format(directive=staged) if staged else STILL_STAGE
+        if staged:
+            return STILL_RUN.format(directive=staged)
+        return STILL_STAGE + STILL_SIDE_RUN if self._stage.side_run_unplayed() else STILL_STAGE
 
     async def _narration_off_stage(self, step: dict[str, Any], plays: list[ArrayPlay]) -> str | None:
         played = "; and ".join(play.told() for play in plays if play.moves)
