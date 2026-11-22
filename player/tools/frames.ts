@@ -20,7 +20,7 @@ function option(name: string): string | undefined {
 }
 
 function usage(message: string): never {
-  console.error(`${message}\nusage: bun player/tools/frames.ts --lesson <id|file> [--theme pattern | --themes pattern,film] [--times 1,2.5,8] [--out dir] [--check] [--dist built-player-dir] [--minted built-minted-labs-dir]`);
+  console.error(`${message}\nusage: bun player/tools/frames.ts --lesson <id|file> [--theme pattern | --themes pattern,film] [--times 1,2.5,8 | --steps] [--out dir] [--check] [--dist built-player-dir] [--minted built-minted-labs-dir]`);
   process.exit(2);
 }
 
@@ -126,7 +126,10 @@ if (stepErrors.length) {
 }
 const duration = await page.evaluate(() => window.pennydrop.duration());
 
-const times = option("times")
+const STEP_END_LEAD = 0.05;
+const times = process.argv.includes("--steps")
+  ? (await page.evaluate(() => window.pennydrop.stepEnds())).map((end) => +Math.max(0, end - STEP_END_LEAD).toFixed(2))
+  : option("times")
   ? option("times")!.split(",").map(Number)
   : Array.from({ length: DEFAULT_FRAME_COUNT }, (_, index) => +(((index + 0.5) / DEFAULT_FRAME_COUNT) * duration).toFixed(2));
 if (times.some(Number.isNaN)) usage("--times must be comma separated seconds");
