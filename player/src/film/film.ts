@@ -122,7 +122,7 @@ export function buildFilm(source: FilmSource, inks: InkBoxes = new Map()): Film 
   } catch (error) {
     errors.push(`header start: ${describe(error)}`);
   }
-  const timeline = new Timeline(startScene);
+  const timeline = new Timeline(startScene, planeStage);
   const lineScenes: SceneState[] = [];
   const cues: CueRecord[] = [];
   const accents: Accent[] = [];

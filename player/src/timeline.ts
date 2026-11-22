@@ -3,7 +3,9 @@ import { clamp01, LabError } from "./lab";
 import { type Narration, narrate, resolveCues } from "./narration";
 import { planStep, type PlannedOp } from "./plan";
 import { EMPTY_SCENE, type SceneState } from "./scene";
-import { arrivedObjects, buildStage, reshapedDrawables } from "./stage";
+import { arrivedObjects, buildStage, movedObjects, reshapedDrawables, type Stage } from "./stage";
+import { layoutScene } from "./layout";
+import { THEMES } from "./theme";
 import type { Touch } from "./verbs";
 
 export type Ease = (progress: number) => number;
@@ -11,6 +13,7 @@ export type Ease = (progress: number) => number;
 export interface Segment {
   start: number;
   lead: number;
+  clear: number;
   exits: boolean;
   relayout: boolean;
   baseDuration: number;
@@ -48,23 +51,24 @@ export interface Located {
   touches: Touch[];
   replaced: string[];
   exits: boolean;
+  relayout: boolean;
 }
 
 const SCENE_CHANGE_SECONDS = 0.9;
 const STEP_TAIL_SECONDS = 0.5;
 const STEP_SETTLE_SECONDS = 0.2;
 const EXIT_SHARE = 0.38;
+const ROOM_MAKING_MOVE = 8;
 const SAME_TIME = 1e-6;
 
 export function segmentProgress(segment: Segment, time: number, motionScale: number, ease: Ease): SegmentProgress {
   const elapsed = time - segment.start;
-  const clearsFirst = segment.exits || segment.relayout;
-  const moveSpan = segment.baseDuration * motionScale * (clearsFirst ? 1 - EXIT_SHARE : 1);
+  const moveSpan = (segment.baseDuration - segment.clear) * motionScale;
   const moveEnd = Math.min(segment.start + moveSpan, segment.cutAt);
   if (time >= Math.max(moveEnd, segment.start + segment.trueSeconds)) return { exit: 1, shift: 1, move: 1, eased: 1, elapsed, done: true };
   const exit = segment.lead > 0 ? clamp01((elapsed + segment.lead) / segment.lead) : Number(elapsed >= 0);
   const shiftStart = segment.start - segment.lead;
-  const shiftEnd = segment.relayout ? Math.min(shiftStart + EXIT_SHARE * segment.baseDuration, moveEnd) : segment.start;
+  const shiftEnd = segment.relayout ? Math.min(shiftStart + segment.clear, moveEnd) : segment.start;
   const arrivalStart = Math.max(segment.start, shiftEnd);
   const span = moveEnd - arrivalStart;
   const move = time < arrivalStart ? 0 : span < SAME_TIME ? 1 : clamp01((time - arrivalStart) / span);
@@ -84,13 +88,16 @@ interface Clearing {
 
 const NO_CLEARING: Clearing = { exits: false, relayout: false };
 
-function clearingOf(before: SceneState, after: SceneState, replaced: string[]): Clearing {
+export const measuredStage = (scene: SceneState): Stage => buildStage(scene, layoutScene, THEMES.pattern);
+
+function clearingOf(before: SceneState, after: SceneState, replaced: string[], measure: (scene: SceneState) => Stage): Clearing {
   if (before === after) return { exits: replaced.length > 0, relayout: false };
-  const [from, to] = [buildStage(before), buildStage(after)];
+  const [from, to] = [measure(before), measure(after)];
   const kept = new Set(to.objects.flatMap((object) => object.drawables.map((drawable) => drawable.id)));
+  const exits = replaced.length > 0 || from.objects.some((object) => object.drawables.some((drawable) => !kept.has(drawable.id)));
   return {
-    exits: replaced.length > 0 || from.objects.some((object) => object.drawables.some((drawable) => !kept.has(drawable.id))),
-    relayout: arrivedObjects(from, to).size > 0 && reshapedDrawables(from, to),
+    exits,
+    relayout: arrivedObjects(from, to).size > 0 ? reshapedDrawables(from, to) : !exits && movedObjects(from, to, ROOM_MAKING_MOVE).size > 0,
   };
 }
 
@@ -152,7 +159,10 @@ export class Timeline {
   private scene: SceneState;
   private trueEnd = 0;
 
-  constructor(readonly startScene: SceneState = EMPTY_SCENE) {
+  constructor(
+    readonly startScene: SceneState = EMPTY_SCENE,
+    private readonly measure: (scene: SceneState) => Stage = measuredStage,
+  ) {
     this.scene = startScene;
   }
 
@@ -191,11 +201,11 @@ export class Timeline {
       const { exits, relayout } = this.clearingOf(before, after, replaced, errors, step);
       const previous = this.segments.at(-1);
       const previousStart = previous?.start ?? 0;
-      const naturalLead = exits || relayout ? EXIT_SHARE * baseDuration : 0;
-      const time = Math.max(group.time, this.trueEnd + naturalLead, previousStart);
-      const lead = Math.min(naturalLead, time - previousStart);
+      const clear = exits || relayout ? EXIT_SHARE * Math.min(baseDuration, SCENE_CHANGE_SECONDS) : 0;
+      const time = Math.max(group.time, this.trueEnd + clear, previousStart);
+      const lead = Math.min(clear, time - previousStart);
       if (previous) previous.cutAt = time - lead;
-      this.segments.push({ start: time, lead, exits, relayout, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches: sharedStart(group.ops.flatMap((planned) => planned.touches)), replaced });
+      this.segments.push({ start: time, lead, clear, exits, relayout, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches: sharedStart(group.ops.flatMap((planned) => planned.touches)), replaced });
       opStarts.push(...group.ops.map((planned) => ({ index: planned.op.index, time })));
       cursor = after;
       if (trueSeconds > 0) this.trueEnd = Math.max(this.trueEnd, time + trueSeconds);
@@ -220,7 +230,7 @@ export class Timeline {
   private clearingOf(before: SceneState, after: SceneState, replaced: string[], errors: string[], step: Step): Clearing {
     if (errors.length > 0) return NO_CLEARING;
     try {
-      return clearingOf(before, after, replaced);
+      return clearingOf(before, after, replaced, this.measure);
     } catch (error) {
       if (!(error instanceof LabError)) throw error;
       errors.push(`step ${step.step} draw: ${error.message}`);
@@ -255,10 +265,10 @@ export class Timeline {
     const segment = this.segments[low]!;
     const progress = segmentProgress(segment, time, motionScale, ease);
     if (progress.done) return this.still(segment.after);
-    return { before: segment.before, after: segment.after, progress, touches: segment.touches, replaced: segment.replaced, exits: segment.exits };
+    return { before: segment.before, after: segment.after, progress, touches: segment.touches, replaced: segment.replaced, exits: segment.exits, relayout: segment.relayout };
   }
 
   private still(scene: SceneState): Located {
-    return { before: scene, after: scene, progress: { exit: 1, shift: 1, move: 1, eased: 1, elapsed: 0, done: true }, touches: [], replaced: [], exits: false };
+    return { before: scene, after: scene, progress: { exit: 1, shift: 1, move: 1, eased: 1, elapsed: 0, done: true }, touches: [], replaced: [], exits: false, relayout: false };
   }
 }

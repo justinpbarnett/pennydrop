@@ -121,13 +121,13 @@ export function ownDrawables(scene: SceneState, object: SceneObject): Drawable[]
 
 const BOX_MOVE_THRESHOLD = 0.5;
 
-export function movedObjects(before: Stage, after: Stage): Set<string> {
+export function movedObjects(before: Stage, after: Stage, beyond = BOX_MOVE_THRESHOLD): Set<string> {
   const earlier = new Map(before.objects.map((object) => [object.id, object.box]));
   return new Set(
     after.objects
       .filter((object) => {
         const was = earlier.get(object.id);
-        return was !== undefined && (["x", "y", "w", "h", "scale"] as const).some((key) => Math.abs(was[key] - object.box[key]) > BOX_MOVE_THRESHOLD);
+        return was !== undefined && (["x", "y", "w", "h", "scale"] as const).some((key) => Math.abs(was[key] - object.box[key]) > beyond);
       })
       .map((object) => object.id),
   );

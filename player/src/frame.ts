@@ -3,7 +3,7 @@ import { definitionOf, type SceneState } from "./scene";
 import { type Camera, buildStage, HOME_CAMERA, arrivedObjects, movedObjects, type PlacedObject, placeDrawables, type Stage } from "./stage";
 import { clamp01, type Drawable, duringLabOp, lerp, lerpRect, type Paint, PATH_KINDS, type Rect, WORD_KINDS } from "./lab";
 import { parseHex, type Rgba, shownText, type Theme } from "./theme";
-import { type SegmentProgress, type Timeline, trueProgress } from "./timeline";
+import { type Located, type SegmentProgress, type Timeline, trueProgress } from "./timeline";
 import { applyEffect, type Touch } from "./verbs";
 import type { Box } from "./layout";
 
@@ -146,6 +146,8 @@ function contentKey(item: Painted): string {
   return `${item.kind}|${item.text ?? ""}|${item.latex ?? ""}|${item.href ?? ""}|${item.spans?.map((span) => span.text).join("") ?? ""}`;
 }
 
+const FADING_OUT = "~out";
+
 function blend(before: Painted, after: Painted, progress: number): Painted[] {
   const mixed: Painted = {
     ...after,
@@ -172,7 +174,7 @@ function blend(before: Painted, after: Painted, progress: number): Painted[] {
   if (contentKey(before) === contentKey(after)) return [mixed];
   const clamped = clamp01(progress);
   return [
-    { ...mixed, kind: before.kind, text: before.text, spans: before.spans, latex: before.latex, href: before.href, id: `${before.id}~out`, opacity: before.opacity * Math.max(0, 1 - clamped * 2) },
+    { ...mixed, kind: before.kind, text: before.text, spans: before.spans, latex: before.latex, href: before.href, id: `${before.id}${FADING_OUT}`, opacity: before.opacity * Math.max(0, 1 - clamped * 2) },
     { ...mixed, opacity: after.opacity * Math.max(0, clamped * 2 - 1) },
   ];
 }
@@ -202,9 +204,12 @@ function applyTouches(
   stages: { before: Stage; after: Stage },
   progress: SegmentProgress,
   theme: Theme,
+  replaced: Set<string>,
 ): void {
   const moving = movedObjects(stages.before, stages.after);
   const arrived = arrivedObjects(stages.before, stages.after);
+  const entering = (objectId: string, painted: Painted): Painted =>
+    arrived.has(objectId) ? arriving(painted, progress.eased) : replaced.has(objectId) ? { ...painted, opacity: painted.opacity * clamp01(progress.eased) } : painted;
   for (const touch of touches) {
     const box = lerpBox(boxOf(stages.before, touch.objectId), boxOf(stages.after, touch.objectId), moving.has(touch.objectId) ? progress.shift : progress.eased);
     if (touch.action.type === "effect") {
@@ -218,26 +223,62 @@ function applyTouches(
       const local = duringLabOp(definitionOf(touch.after), touch.before.state, touch.after.state, { name, parts, args }, drive, { objectId: touch.objectId, links: {} });
       placeDrawables(touch.objectId, local, box).forEach((drawable) => {
         const painted = paintDrawable(drawable, theme);
-        items.set(drawable.id, arrived.has(touch.objectId) ? arriving(painted, progress.eased) : painted);
+        items.set(drawable.id, entering(touch.objectId, painted));
+        items.delete(`${drawable.id}${FADING_OUT}`);
       });
     }
   }
 }
 
+const roomStages = new WeakMap<Stage, WeakMap<Stage, Stage>>();
+
+const mean = (values: number[]) => values.reduce((total, value) => total + value, 0) / values.length;
+
+function roomBox(was: PlacedObject, will: PlacedObject): Box {
+  const scale = will.box.scale;
+  const size = { w: (was.box.w / was.box.scale) * scale, h: (was.box.h / was.box.scale) * scale };
+  const landing = new Map(will.drawables.map((drawable) => [drawable.id, drawable]));
+  const shared = was.drawables.filter((drawable) => landing.has(drawable.id));
+  if (shared.length === 0) return { ...size, x: will.box.x + (will.box.w - size.w) / 2, y: will.box.y + (will.box.h - size.h) / 2, scale };
+  const offset = (axis: "x" | "y") => mean(shared.map((drawable) => landing.get(drawable.id)![axis] - ((drawable[axis] - was.box[axis]) / was.box.scale) * scale));
+  return { ...size, x: offset("x"), y: offset("y"), scale };
+}
+
+function roomStage(before: SceneState, beforeStage: Stage, after: Stage, replaced: Set<string>): Stage {
+  let perAfter = roomStages.get(after);
+  if (!perAfter) roomStages.set(after, (perAfter = new WeakMap()));
+  let room = perAfter.get(beforeStage);
+  if (!room) {
+    const earlier = new Map(beforeStage.objects.map((object) => [object.id, object]));
+    const boxes = new Map(after.objects.flatMap((object) => (earlier.has(object.id) ? [[object.id, roomBox(earlier.get(object.id)!, object)] as const] : [])));
+    const kept = new Set(after.objects.flatMap((object) => object.drawables.map((drawable) => drawable.id)));
+    const staying = buildStage({ ...before, objects: before.objects.filter((object) => boxes.has(object.id) && !replaced.has(object.id)) }, () => boxes);
+    room = { ...staying, objects: staying.objects.map((object) => ({ ...object, drawables: object.drawables.filter((drawable) => kept.has(drawable.id)) })) };
+    perAfter.set(beforeStage, room);
+  }
+  return room;
+}
+
+function relayoutPhase(located: Located, staged: { before: Stage; after: Stage }): { before: Stage; after: Stage; progress: SegmentProgress; touches: Touch[]; replaced: Set<string> } {
+  const replaced = new Set(located.replaced);
+  const room = roomStage(located.before, staged.before, staged.after, replaced);
+  const { progress } = located;
+  if (progress.shift < 1) return { before: staged.before, after: room, progress: { ...progress, eased: 0 }, touches: [], replaced: new Set() };
+  return { before: room, after: staged.after, progress: { ...progress, shift: progress.eased, exit: 1 }, touches: located.touches, replaced };
+}
+
 export function renderFrame(timeline: Timeline, time: number, theme: Theme, stageOf: (scene: SceneState) => Stage = (scene) => buildStage(scene, undefined, theme)): Frame {
   const located = timeline.locate(time, theme.motionScale, easeFor(theme));
-  const before = stageOf(located.before);
-  const after = stageOf(located.after);
-  const beforeItems = paintedStage(before, theme);
-  const afterItems = paintedStage(after, theme);
-  const replaced = new Set(located.replaced);
-  const { progress } = located;
-  const settled = progress.done || before === after;
+  const staged = { before: stageOf(located.before), after: stageOf(located.after) };
+  const settled = located.progress.done || staged.before === staged.after;
+  const { before, after, progress, touches, replaced } = settled || !located.relayout ? { ...staged, progress: located.progress, touches: located.touches, replaced: new Set(located.replaced) } : relayoutPhase(located, staged);
 
   const items = new Map<string, Painted>();
   if (settled) {
-    afterItems.forEach((item, id) => items.set(id, item));
+    paintedStage(after, theme).forEach((item, id) => items.set(id, item));
   } else {
+    const beforeItems = paintedStage(before, theme);
+    const afterItems = paintedStage(after, theme);
     const oldObjects = new Set(before.objects.map((object) => object.id));
     const moved = movedObjects(before, after);
     const clamped = clamp01(progress.eased);
@@ -258,13 +299,13 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
       if (replaced.has(objectOf(id))) items.set(`${id}~replaced`, { ...item, id: `${id}~replaced`, opacity: item.opacity * (1 - progress.exit) });
       else if (!afterItems.has(id)) items.set(id, { ...item, opacity: item.opacity * (1 - progress.exit) });
     });
-    applyTouches(items, located.touches, { before, after }, progress, theme);
+    applyTouches(items, touches, { before, after }, progress, theme, replaced);
   }
 
   const camera = settled ? after.camera : {
-    cx: lerp(before.camera.cx, after.camera.cx, progress.eased),
-    cy: lerp(before.camera.cy, after.camera.cy, progress.eased),
-    zoom: lerp(before.camera.zoom, after.camera.zoom, progress.eased),
+    cx: lerp(before.camera.cx, after.camera.cx, progress.shift),
+    cy: lerp(before.camera.cy, after.camera.cy, progress.shift),
+    zoom: lerp(before.camera.zoom, after.camera.zoom, progress.shift),
   };
   const painted = timeline.startScene.reading === false ? [...items.values()].filter((item) => !WORD_KINDS.includes(item.kind)) : [...items.values()];
   const ordered = painted.map((item, order) => ({ item, order })).sort((a, b) => a.item.z - b.item.z || a.order - b.order);
