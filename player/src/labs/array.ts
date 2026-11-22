@@ -323,12 +323,11 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
       during: (before, after, _op, progress) => [...tickingCounters(before, after, progress), ...swapArcs(before, after, progress)],
     },
     sorted: {
-      doc: 'on cells or ranges like arr[5-7], or {"from": index} through the last cell; marks cells that already hold their final sorted value',
+      doc: 'on cells or ranges like arr[5-7], on the whole array, or {"from": index} through the last cell; marks cells that already hold their final sorted value',
       seconds: 0.6,
       apply(state, op) {
-        const from = op.args.from;
-        const slots = typeof from === "number" ? Array.from({ length: state.cells.length - checkedSlot(state, from) }, (_, offset) => from + offset) : expandParts(state, op.parts);
-        if (slots.length === 0) fail(`op "sorted" needs cells in "on" or a "from" index`);
+        const from = typeof op.args.from === "number" ? checkedSlot(state, op.args.from) : op.parts.length === 0 ? 0 : null;
+        const slots = from === null ? expandParts(state, op.parts) : Array.from({ length: state.cells.length - from }, (_, offset) => from + offset);
         placedSlots(state, slots);
         const slotRoles = state.slotRoles.map((role, slot) => (slots.includes(slot) ? "done" : role));
         return { ...state, slotRoles };
