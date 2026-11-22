@@ -124,10 +124,10 @@ function readSyllables(spec: WordsSpec, objectId: string): Syllable[] {
   if (/\s/.test(word)) fail(`${objectId}: "word" must be one word with no spaces, got "${word}"; use one words Lab per word`);
   const parts = word.split("-");
   if (parts.some((part) => part === "")) fail(`${objectId}: "word" "${word}" has an empty syllable; put one hyphen between syllables, as in "ba-na-na"`);
-  if (parts.length > MAX_SYLLABLES) fail(`${objectId}: "word" has ${parts.length} syllables, at most ${MAX_SYLLABLES} fit; pick a shorter word`);
+  if (parts.length > MAX_SYLLABLES) fail(`${objectId}: "word" has ${parts.length} syllables, at most ${MAX_SYLLABLES} fit; pick a shorter word, and show a longer phrase one word at a time, bringing in each word as the narration says it`);
   const syllables = parts.map((text) => ({ text, letters: [...text] }));
   const letterCount = syllables.reduce((sum, syllable) => sum + syllable.letters.length, 0);
-  if (letterCount > MAX_LETTERS) fail(`${objectId}: "word" has ${letterCount} letters, at most ${MAX_LETTERS} fit; pick a shorter word`);
+  if (letterCount > MAX_LETTERS) fail(`${objectId}: "word" has ${letterCount} letters, at most ${MAX_LETTERS} fit; pick a shorter word, and show a longer phrase one word at a time, bringing in each word as the narration says it`);
   return syllables;
 }
 
