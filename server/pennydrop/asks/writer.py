@@ -122,7 +122,7 @@ class Brief:
         return "\n".join(lines)
 
 WRITER_EFFORT = "low"
-WRITER_HEDGE_SECONDS = 2.0
+WRITER_HEDGE_SECONDS = 1.5
 ANSWER_AT_ONCE = "Latency-sensitive; begin your visible answer immediately."
 
 
