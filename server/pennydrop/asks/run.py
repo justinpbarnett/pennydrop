@@ -289,11 +289,18 @@ class LessonRun:
             return Checked([coached(str(error))], None, scene)
         known = {**self._remembered_values, **values}
         facts = computed_facts(known)
+        verdict = await self._kit.validator.check(step, scene, self._reading)
+        for _ in range(MAX_MENDS):
+            if (roomier := mended_by_verdict(step, verdict.errors, self._stage)) is None:
+                break
+            retry = await self._kit.validator.check(roomier, scene, self._reading)
+            if retry.errors == verdict.errors:
+                break
+            step, verdict = roomier, retry
         arrays, figures = array_plays(scene, step), shapes_plays(scene, step)
         plays: list[StagePlay] = [*arrays, *figures]
         plots = plot_views(scene, step)
-        verdict, fine_for_child, keeps_honor_code, restates_point, claims_agree, *further_advice = await asyncio.gather(
-            self._kit.validator.check(step, scene, self._reading),
+        fine_for_child, keeps_honor_code, restates_point, claims_agree, *further_advice = await asyncio.gather(
             self._fine_for_child(step),
             self._keeps_honor_code(step),
             self._restates_point(step, number, pending.followed),
@@ -308,13 +315,6 @@ class LessonRun:
             _end_told_early(step, plots),
             self._run_left_unfinished(written, values, pending.followed),
         )
-        for _ in range(MAX_MENDS):
-            if (roomier := mended_by_verdict(step, verdict.errors, self._stage)) is None:
-                break
-            retry = await self._kit.validator.check(roomier, scene, self._reading)
-            if retry.errors == verdict.errors:
-                break
-            step, verdict = roomier, retry
         errors = [coached(error) for error in verdict.errors] + self._stage.errors_in(step, written, values)
         if not keeps_honor_code:
             errors.append(HONOR_CODE_ERROR)

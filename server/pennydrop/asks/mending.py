@@ -335,7 +335,9 @@ def _without_operations_on_missing(step: dict[str, Any], errors: list[str]) -> d
     if not missing or not isinstance(operations, list):
         return None
     kept = [operation for operation in operations if not (isinstance(operation, dict) and any(str(name).split("[")[0] in missing for name in operation.get("on", [])))]
-    return {**step, "do": kept} if len(kept) < len(operations) else None
+    if len(kept) == len(operations) or not (kept or step.get("scene") or "challenge" in step):
+        return None
+    return {**step, "do": kept}
 
 
 def _without_the_answer_said(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
