@@ -19,7 +19,7 @@ from .coaching import coached
 from .directives import DirectiveError, DirectiveTools, as_promise, computed_facts, directive_briefs, expand_directives, fill_values, contrast_run_keys, run_outline, staged_directives, with_sources
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
-from .mending import mended, mended_by_verdict, mended_cues, with_one_figure_on_stage
+from .mending import PROMISE_WORDS, mended, mended_by_verdict, mended_cues, with_one_figure_on_stage
 from .stage import Stage, question_without_challenge, ran_something, trace_totals
 from .stage_words import ArrayPlay, PlotView, array_plays, plot_views
 from .stopwatch import Stopwatch
@@ -52,8 +52,6 @@ SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
 QUOTED = re.compile(r'"[^"]*"')
 SAY_FIELD = re.compile(r'"say"\s*:\s*("(?:[^"\\]|\\.)*")')
 
-
-PROMISE_WORDS = 14
 
 class LessonError(RuntimeError):
     pass

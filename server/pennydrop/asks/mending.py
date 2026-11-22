@@ -16,10 +16,13 @@ NUMBER_WORDS = {
         "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split()
     )
 }
+PROMISE_WORDS = 14
+SENTENCE = re.compile(r"[^.!?]+[.!?]+")
 NUMBER_WITH_COMMAS = re.compile(r"^-?\d{1,3}(,\d{3})+(\.\d+)?$|^-?\d+(\.\d+)?$")
 
 
 def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    step = _with_promise_alone(step)
     step = _with_trace_for_its_values(step, stage)
     step = _with_simulation_filled(step, stage)
     step = _with_trace_filled(step, stage)
@@ -30,6 +33,16 @@ def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     step = _without_the_answer_said(step, stage)
     step = stage.setups.with_reveal_run(step)
     return _with_every_send_settled(_with_library_listing(step), stage.in_flight)
+
+
+def _with_promise_alone(step: dict[str, Any]) -> dict[str, Any]:
+    say = step.get("say")
+    if step.get("step") != 1 or step.get("do") or not isinstance(say, str):
+        return step
+    question, *after = [sentence.strip() for sentence in SENTENCE.findall(say)] or [""]
+    if not after or not question.endswith("?") or any(sentence.endswith("?") for sentence in after) or len(question.split()) > PROMISE_WORDS:
+        return step
+    return {**step, "say": question}
 
 
 def with_one_figure_on_stage(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
