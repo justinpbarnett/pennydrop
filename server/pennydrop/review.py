@@ -18,18 +18,6 @@ class Schedule:
 
 NEW_ITEM = Schedule(ease=2.5, interval_days=0, reps=0, lapses=0)
 
-ANSWER_SHAPES = {
-    "number": "a number",
-    "choice": "one of the choices, as its text",
-    "click": "the id of one object on the stage",
-    "order": "all the choices, in order, as a list of their text",
-    "match": "a list of [left, right] pairs",
-}
-
-
-def answer_shape(challenge: dict) -> str:
-    return ANSWER_SHAPES[challenge["type"]]
-
 
 def quality_for(correct: bool) -> int:
     return CORRECT_QUALITY if correct else WRONG_QUALITY

@@ -15,13 +15,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.gzip import GZipMiddleware
 
 from .asks import AskRequest, FromStep
-from .courses import Course
 from .intake import IntakeError
 from .mint import minted_labs_router
 from .mint.paths import MintPaths
-from .review import answer_shape
+from .practice.progress import CourseProgress, course_progress
+from .practice.records import RuleReview
 from .services import Services
-from .store import ReviewItem
 from .system_lines import SYSTEM_LINES
 from .tts import MEDIA_PREFIX, TtsError
 
@@ -50,9 +49,15 @@ class AnswerSubmission(BaseModel):
     correct: bool
 
 
-class ReviewAnswer(BaseModel):
+class PracticeSubmission(BaseModel):
+    profile_id: int
+    case_id: int
     answer: Any
-    correct: bool
+    correct: bool | None = None
+
+
+class CaseRequest(BaseModel):
+    profile_id: int
 
 
 def _lesson_title(services: Services, lesson_id: str) -> str | None:
@@ -62,18 +67,27 @@ def _lesson_title(services: Services, lesson_id: str) -> str | None:
         return None
 
 
-def _review_payload(services: Services, item: ReviewItem) -> dict[str, Any]:
+def _review_payload(services: Services, review: RuleReview) -> dict[str, Any]:
     return {
-        **asdict(item),
-        "lesson_title": _lesson_title(services, item.lesson_id),
-        "kind": item.prompt.get("kind"),
-        "type": item.prompt.get("type"),
-        "answer_shape": answer_shape(item.prompt),
+        "rule_id": review.rule.id, "rule": review.rule.statement, "condition": review.rule.condition,
+        "lesson_id": review.rule.lesson_id, "lesson_title": _lesson_title(services, review.rule.lesson_id),
+        "form": review.next_form.value, "direction": review.next_direction.value,
+        "passed": [form.value for form in review.passed], "held": review.held,
+        "schedule": asdict(review.schedule), "due": review.due.isoformat(timespec="seconds"),
     }
 
 
-def _course_payload(services: Services, course: Course) -> dict[str, Any]:
-    return {**asdict(course), "topics": [asdict(topic) for topic in services.store.course_topics(course.id)]}
+def _course_payload(services: Services, progress: CourseProgress) -> dict[str, Any]:
+    return {
+        **asdict(progress.course),
+        "topics": [
+            {**asdict(item.topic), "rules": [{"rule_id": item.rule.id, "rule": item.rule.statement, "condition": item.rule.condition, "held": item.held}] if item.rule else []}
+            for item in progress.topics
+        ],
+        "rules_held": progress.rules_held,
+        "rules_total": progress.rules_total,
+        "links": [{"lesson_id": link.lesson_id, "title": _lesson_title(services, link.lesson_id), "rules": list(link.rule_ids)} for link in progress.links],
+    }
 
 
 def create_app(services: Services) -> FastAPI:
@@ -108,7 +122,7 @@ def create_app(services: Services) -> FastAPI:
     @app.get("/api/lessons/{lesson_id}")
     async def get_lesson(lesson_id: str):
         document = await services.library.document(lesson_id)
-        return {"id": document.id, "lesson": document.lesson, "steps": document.steps, "done": document.done, "error": document.error}
+        return {"id": document.id, "lesson": document.lesson, "steps": document.steps, "done": document.done, "error": document.error, "practice": document.practice}
 
     @app.get("/api/lessons/{lesson_id}/events")
     async def lesson_events(lesson_id: str):
@@ -149,29 +163,51 @@ def create_app(services: Services) -> FastAPI:
 
     @app.post("/api/answers")
     async def submit_answer(body: AnswerSubmission):
-        item = services.store.record_answer(body.profile_id, body.lesson_id, body.step, body.prompt, body.answer, body.correct)
-        return asdict(item)
+        services.store.log_challenge_answer(body.profile_id, body.lesson_id, body.step, body.answer, body.correct)
+        review = services.queue.enroll(body.profile_id, body.lesson_id)
+        return {"recorded": True, "review": _review_payload(services, review) if review else None}
+
+    @app.post("/api/practice/answers")
+    async def submit_practice_answer(body: PracticeSubmission):
+        case = services.store.practice_case(body.case_id)
+        profile = services.store.profile(body.profile_id)
+        if case.is_graded_by_model:
+            grade = await services.grader.grade(services.store.rule(case.rule_id), case, str(body.answer), profile)
+            correct, feedback = grade.correct, grade.feedback
+        elif body.correct is None:
+            raise HTTPException(422, "a Practice answer to a Challenge that is not in words needs `correct`")
+        else:
+            correct, feedback = body.correct, ""
+        review = services.queue.answer(profile.id, case, body.answer, correct, feedback)
+        return {"correct": correct, "feedback": feedback, "review": _review_payload(services, review)}
 
     @app.get("/api/review")
-    async def due_reviews(profile_id: int | None = None):
-        return [_review_payload(services, item) for item in services.store.due_reviews(profile_id)]
+    async def due_reviews(profile_id: int):
+        return [_review_payload(services, review) for review in services.queue.due(profile_id)]
 
     @app.get("/api/review/queue")
     async def review_queue(profile_id: int):
-        return [_review_payload(services, item) for item in services.store.review_queue(profile_id)]
+        return [_review_payload(services, review) for review in services.queue.queue(profile_id)]
 
-    @app.post("/api/review/{item_id}")
-    async def review_item(item_id: int, body: ReviewAnswer):
-        item = services.store.review_item(item_id)
-        return _review_payload(services, services.store.record_answer(item.profile_id, item.lesson_id, item.step_n, item.prompt, body.answer, body.correct))
+    @app.post("/api/review/{rule_id}/case")
+    async def review_case(rule_id: int, body: CaseRequest):
+        case = await services.queue.next_case(body.profile_id, rule_id, services.asks.practice)
+        return {**case.item, "step": 1, "case_id": case.id}
+
+    @app.get("/api/practice/rates")
+    async def practice_rates(profile_id: int | None = None):
+        return [
+            {"rule_id": rate.rule_id, "rule": rate.rule, "form": rate.form.value, "answered": rate.answered, "passed": rate.passed, "rate": round(rate.rate, 3)}
+            for rate in services.store.practice_rates(profile_id)
+        ]
 
     @app.get("/api/courses")
-    async def list_courses():
-        return [_course_payload(services, course) for course in services.store.courses()]
+    async def list_courses(profile_id: int | None = None):
+        return [_course_payload(services, course_progress(services.store, course, profile_id)) for course in services.store.courses()]
 
     @app.get("/api/courses/{reference}")
-    async def get_course(reference: str):
-        return _course_payload(services, services.store.course(reference))
+    async def get_course(reference: str, profile_id: int | None = None):
+        return _course_payload(services, course_progress(services.store, services.store.course(reference), profile_id))
 
     @app.get("/api/profiles")
     async def list_profiles():

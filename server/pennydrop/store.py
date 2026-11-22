@@ -3,14 +3,16 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from .courses import Course, CourseContext, CourseSeed, CourseTopic
+from .practice import FORMS, Direction, Form, Practice
+from .practice.records import FormRate, PracticeCase, PracticeWire, RuleLink, RuleRecord, RuleReview
+from .review import Schedule
 from .settings import Job
-from .review import NEW_ITEM, Schedule, next_schedule, quality_for
 
 SCHEMA = [
     """
@@ -207,6 +209,62 @@ SCHEMA = [
     """
     alter table lessons drop column tier;
     """,
+    """
+    create table rules (
+        id integer primary key,
+        lesson_id text not null unique,
+        topic_id integer references topics(id),
+        statement text not null,
+        condition text not null,
+        slots text not null,
+        created_at text not null
+    );
+    create table practice_cases (
+        id integer primary key,
+        rule_id integer not null references rules(id),
+        form text not null check (form in ('say', 'applies', 'fresh')),
+        direction text check (direction in ('forward', 'back')),
+        item text not null,
+        origin text not null check (origin in ('lesson', 'review')),
+        current integer not null default 1,
+        created_at text not null
+    );
+    create index practice_cases_rule on practice_cases (rule_id);
+    create table rule_reviews (
+        profile_id integer not null references profiles(id),
+        rule_id integer not null references rules(id),
+        next_form text not null check (next_form in ('say', 'applies', 'fresh')),
+        next_direction text not null check (next_direction in ('forward', 'back')),
+        latest text not null default '{}',
+        ease real not null,
+        interval_days integer not null,
+        reps integer not null,
+        lapses integer not null,
+        due text not null,
+        primary key (profile_id, rule_id)
+    );
+    create table practice_answers (
+        id integer primary key,
+        profile_id integer not null references profiles(id),
+        rule_id integer not null references rules(id),
+        case_id integer not null references practice_cases(id),
+        form text not null,
+        answer text not null,
+        correct integer not null,
+        feedback text not null default '',
+        created_at text not null
+    );
+    create index practice_answers_rule on practice_answers (profile_id, rule_id);
+    create table rule_links (
+        id integer primary key,
+        course_id integer not null references courses(id),
+        rule_a integer not null references rules(id),
+        rule_b integer not null references rules(id),
+        lesson_id text not null,
+        created_at text not null,
+        unique (rule_a, rule_b)
+    );
+    """,
 ]
 
 
@@ -251,17 +309,6 @@ class LessonRecord:
     repairs: list[dict[str, Any]] = field(default_factory=list)
     profile_id: int | None = None
     topic_id: int | None = None
-
-
-@dataclass(frozen=True)
-class ReviewItem:
-    id: int
-    profile_id: int
-    lesson_id: str
-    step_n: int
-    prompt: dict[str, Any]
-    schedule: Schedule
-    due: str
 
 
 @dataclass(frozen=True)
@@ -413,52 +460,146 @@ class Store:
         row = self._connection.execute("select coalesce(sum(cost_usd), 0) as total from model_calls where lesson_id = ?", (lesson_id,)).fetchone()
         return row["total"]
 
-    def record_answer(self, profile_id: int, lesson_id: str, step_n: int, prompt: dict[str, Any], answer: Any, correct: bool) -> ReviewItem:
+    def log_challenge_answer(self, profile_id: int, lesson_id: str, step_n: int, answer: Any, correct: bool) -> None:
         self.profile(profile_id)
-        now = _now()
         self._connection.execute(
             "insert into challenge_answers (profile_id, lesson_id, step_n, answer, correct, created_at) values (?, ?, ?, ?, ?, ?)",
-            (profile_id, lesson_id, step_n, json.dumps(answer), int(correct), _iso(now)),
+            (profile_id, lesson_id, step_n, json.dumps(answer), int(correct), _iso(_now())),
         )
-        existing = self._connection.execute(
-            "select * from review_items where profile_id = ? and lesson_id = ? and step_n = ?",
-            (profile_id, lesson_id, step_n),
-        ).fetchone()
-        current = NEW_ITEM if existing is None else _schedule_from(existing)
-        updated = next_schedule(current, quality_for(correct))
-        due = _iso(now + timedelta(days=updated.interval_days))
+
+    def save_practice(self, lesson_id: str, practice: Practice, topic_id: int | None) -> PracticeWire:
+        self._connection.execute("begin")
+        try:
+            self._connection.execute(
+                """
+                insert into rules (lesson_id, topic_id, statement, condition, slots, created_at) values (?, ?, ?, ?, ?, ?)
+                on conflict(lesson_id) do update set topic_id = excluded.topic_id, statement = excluded.statement,
+                    condition = excluded.condition, slots = excluded.slots
+                """,
+                (lesson_id, topic_id, practice.rule.statement, practice.rule.condition, json.dumps(practice.rule.slots), _iso(_now())),
+            )
+            rule = self.rule_for_lesson(lesson_id)
+            current = {case.form: case for case in self._cases(rule.id, lesson_only=True)}
+            for item in practice.items:
+                form = Form(item["form"])
+                kept = current.get(form)
+                if kept is not None and kept.item == item:
+                    continue
+                if kept is not None:
+                    self._connection.execute("update practice_cases set current = 0 where id = ?", (kept.id,))
+                self._insert_case(rule.id, item, "lesson")
+            self._connection.execute("commit")
+        except BaseException:
+            self._connection.execute("rollback")
+            raise
+        return self.lesson_practice(lesson_id)
+
+    def lesson_practice(self, lesson_id: str) -> PracticeWire | None:
+        rule = self.rule_for_lesson(lesson_id)
+        if rule is None:
+            return None
+        cases = sorted(self._cases(rule.id, lesson_only=True), key=lambda case: FORMS.index(case.form))
+        return {
+            "rule_id": rule.id, "rule": rule.statement, "condition": rule.condition, "slots": list(rule.slots),
+            "items": [{**case.item, "case_id": case.id} for case in cases],
+        }
+
+    def add_review_case(self, rule_id: int, item: dict[str, Any]) -> PracticeCase:
+        return self._insert_case(rule_id, item, "review")
+
+    def _insert_case(self, rule_id: int, item: dict[str, Any], origin: str) -> PracticeCase:
+        cursor = self._connection.execute(
+            "insert into practice_cases (rule_id, form, direction, item, origin, created_at) values (?, ?, ?, ?, ?, ?)",
+            (rule_id, item["form"], item.get("direction"), json.dumps(item), origin, _iso(_now())),
+        )
+        return self.practice_case(cursor.lastrowid)
+
+    def practice_case(self, case_id: int) -> PracticeCase:
+        row = self._connection.execute("select * from practice_cases where id = ?", (case_id,)).fetchone()
+        if row is None:
+            raise LookupError(f"no Practice case with id {case_id}")
+        return _case_from(row)
+
+    def rule_cases(self, rule_id: int) -> list[PracticeCase]:
+        return self._cases(rule_id, lesson_only=False)
+
+    def _cases(self, rule_id: int, lesson_only: bool) -> list[PracticeCase]:
+        rows = self._connection.execute("select * from practice_cases where rule_id = ? and (? = 0 or (origin = 'lesson' and current = 1)) order by id", (rule_id, int(lesson_only)))
+        return [_case_from(row) for row in rows]
+
+    def rule(self, rule_id: int) -> RuleRecord:
+        row = self._connection.execute("select * from rules where id = ?", (rule_id,)).fetchone()
+        if row is None:
+            raise LookupError(f"no Rule with id {rule_id}")
+        return _rule_from(row)
+
+    def rule_for_lesson(self, lesson_id: str) -> RuleRecord | None:
+        row = self._connection.execute("select * from rules where lesson_id = ?", (lesson_id,)).fetchone()
+        return _rule_from(row) if row else None
+
+    def rule_review(self, profile_id: int, rule_id: int) -> RuleReview | None:
+        row = self._connection.execute("select * from rule_reviews where profile_id = ? and rule_id = ?", (profile_id, rule_id)).fetchone()
+        return self._review_from(row) if row else None
+
+    def rule_reviews(self, profile_id: int, due_by: datetime | None = None) -> list[RuleReview]:
+        query, arguments = "select * from rule_reviews where profile_id = ?", [profile_id]
+        if due_by is not None:
+            query += " and due <= ?"
+            arguments.append(_iso(due_by))
+        return [self._review_from(row) for row in self._connection.execute(query + " order by due, rule_id", arguments)]
+
+    def save_rule_review(self, review: RuleReview) -> None:
         self._connection.execute(
             """
-            insert into review_items (profile_id, lesson_id, step_n, prompt, ease, interval_days, due, reps, lapses)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            on conflict(profile_id, lesson_id, step_n) do update set prompt = excluded.prompt, ease = excluded.ease,
-                interval_days = excluded.interval_days, due = excluded.due, reps = excluded.reps, lapses = excluded.lapses
+            insert into rule_reviews (profile_id, rule_id, next_form, next_direction, latest, ease, interval_days, reps, lapses, due)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            on conflict(profile_id, rule_id) do update set next_form = excluded.next_form, next_direction = excluded.next_direction,
+                latest = excluded.latest, ease = excluded.ease, interval_days = excluded.interval_days, reps = excluded.reps,
+                lapses = excluded.lapses, due = excluded.due
             """,
-            (profile_id, lesson_id, step_n, json.dumps(prompt), updated.ease, updated.interval_days, due, updated.reps, updated.lapses),
+            (
+                review.profile_id, review.rule.id, review.next_form.value, review.next_direction.value,
+                json.dumps({form.value: passed for form, passed in review.latest.items()}),
+                review.schedule.ease, review.schedule.interval_days, review.schedule.reps, review.schedule.lapses, _iso(review.due),
+            ),
         )
-        row = self._connection.execute(
-            "select * from review_items where profile_id = ? and lesson_id = ? and step_n = ?",
-            (profile_id, lesson_id, step_n),
-        ).fetchone()
-        return _review_from(row)
 
-    def due_reviews(self, profile_id: int | None = None) -> list[ReviewItem]:
-        query = "select * from review_items where due <= ?"
-        arguments: list[Any] = [_iso(_now())]
-        if profile_id is not None:
-            query += " and profile_id = ?"
-            arguments.append(profile_id)
-        return [_review_from(row) for row in self._connection.execute(query + " order by due", arguments)]
+    def _review_from(self, row: sqlite3.Row) -> RuleReview:
+        return RuleReview(
+            row["profile_id"], self.rule(row["rule_id"]), Form(row["next_form"]), Direction(row["next_direction"]),
+            {Form(form): passed for form, passed in json.loads(row["latest"]).items()},
+            Schedule(row["ease"], row["interval_days"], row["reps"], row["lapses"]), datetime.fromisoformat(row["due"]),
+        )
 
-    def review_queue(self, profile_id: int) -> list[ReviewItem]:
-        rows = self._connection.execute("select * from review_items where profile_id = ? order by due, id", (profile_id,))
-        return [_review_from(row) for row in rows]
+    def log_practice_answer(self, profile_id: int, case: PracticeCase, answer: Any, correct: bool, feedback: str) -> None:
+        self._connection.execute(
+            "insert into practice_answers (profile_id, rule_id, case_id, form, answer, correct, feedback, created_at) values (?, ?, ?, ?, ?, ?, ?, ?)",
+            (profile_id, case.rule_id, case.id, case.form.value, json.dumps(answer), int(correct), feedback, _iso(_now())),
+        )
 
-    def review_item(self, item_id: int) -> ReviewItem:
-        row = self._connection.execute("select * from review_items where id = ?", (item_id,)).fetchone()
-        if row is None:
-            raise LookupError(f"no review item with id {item_id}")
-        return _review_from(row)
+    def practice_rates(self, profile_id: int | None) -> list[FormRate]:
+        rows = self._connection.execute(
+            """
+            select practice_answers.rule_id, rules.statement, practice_answers.form, count(*) as answered, sum(practice_answers.correct) as passed
+            from practice_answers join rules on rules.id = practice_answers.rule_id
+            where ? is null or practice_answers.profile_id = ?
+            group by practice_answers.rule_id, practice_answers.form order by practice_answers.rule_id
+            """,
+            (profile_id, profile_id),
+        )
+        return sorted(
+            (FormRate(row["rule_id"], row["statement"], Form(row["form"]), row["answered"], row["passed"]) for row in rows),
+            key=lambda rate: (rate.rule_id, FORMS.index(rate.form)),
+        )
+
+    def save_rule_link(self, course_id: int, rule_a: int, rule_b: int, lesson_id: str) -> None:
+        self._connection.execute(
+            "insert into rule_links (course_id, rule_a, rule_b, lesson_id, created_at) values (?, ?, ?, ?, ?)", (course_id, rule_a, rule_b, lesson_id, _iso(_now()))
+        )
+
+    def rule_links(self, course_id: int) -> list[RuleLink]:
+        rows = self._connection.execute("select * from rule_links where course_id = ? order by id", (course_id,))
+        return [RuleLink(row["lesson_id"], (row["rule_a"], row["rule_b"])) for row in rows]
 
     def seed_course(self, seed: CourseSeed) -> Course:
         self._connection.execute("begin")
@@ -509,8 +650,8 @@ class Store:
         rows = self._connection.execute(
             """
             select topics.id, topics.code, topics.title, topics.part,
-                (select lessons.id from lessons where lessons.topic_id = topics.id order by lessons.status = 'ready' desc, lessons.created_at desc limit 1) as lesson_id,
-                (select lessons.status from lessons where lessons.topic_id = topics.id order by lessons.status = 'ready' desc, lessons.created_at desc limit 1) as lesson_status
+                (select lessons.id from lessons where lessons.topic_id = topics.id and lessons.id not in (select lesson_id from rule_links) order by lessons.status = 'ready' desc, lessons.created_at desc limit 1) as lesson_id,
+                (select lessons.status from lessons where lessons.topic_id = topics.id and lessons.id not in (select lesson_id from rule_links) order by lessons.status = 'ready' desc, lessons.created_at desc limit 1) as lesson_status
             from topics where topics.course_id = ? and topics.parent_id is null order by topics.position
             """,
             (course_id,),
@@ -673,9 +814,9 @@ def _mint_from(row: sqlite3.Row) -> MintRecord:
     )
 
 
-def _schedule_from(row: sqlite3.Row) -> Schedule:
-    return Schedule(row["ease"], row["interval_days"], row["reps"], row["lapses"])
+def _rule_from(row: sqlite3.Row) -> RuleRecord:
+    return RuleRecord(row["id"], row["lesson_id"], row["topic_id"], row["statement"], row["condition"], tuple(json.loads(row["slots"])))
 
 
-def _review_from(row: sqlite3.Row) -> ReviewItem:
-    return ReviewItem(row["id"], row["profile_id"], row["lesson_id"], row["step_n"], json.loads(row["prompt"]), _schedule_from(row), row["due"])
+def _case_from(row: sqlite3.Row) -> PracticeCase:
+    return PracticeCase(row["id"], row["rule_id"], Form(row["form"]), Direction(row["direction"]) if row["direction"] else None, json.loads(row["item"]))

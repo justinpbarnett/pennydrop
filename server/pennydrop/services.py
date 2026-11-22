@@ -7,6 +7,8 @@ from .gateway import Gateway
 from .intake import Transcriber
 from .judge import Judge
 from .lessons import LessonLibrary
+from .practice.grade import WordsGrader
+from .practice.queue import RuleQueue
 from .settings import Settings, load_settings
 from .store import Store
 from .tracer import Tracer
@@ -24,6 +26,8 @@ class Services:
     library: LessonLibrary
     asks: Asks
     judge: Judge
+    queue: RuleQueue
+    grader: WordsGrader
 
     @classmethod
     def open(cls) -> Services:
@@ -34,4 +38,4 @@ class Services:
         speaker = Speaker(settings, transcriber)
         tracer = Tracer(settings)
         library = LessonLibrary(settings, store, speaker)
-        return cls(settings, store, gateway, speaker, transcriber, tracer, library, Asks(settings, store, library, gateway, speaker, tracer), Judge(gateway, library))
+        return cls(settings, store, gateway, speaker, transcriber, tracer, library, Asks(settings, store, library, gateway, speaker, tracer), Judge(gateway, library), RuleQueue(store), WordsGrader(gateway))

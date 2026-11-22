@@ -21,6 +21,7 @@ from .judge import Comparison, Scorecard
 from .loudness import TARGET_LUFS, TARGET_TRUE_PEAK
 from .mint import MintError
 from .mint import cli as mint_cli
+from .practice import cli as practice_cli
 from .services import Services
 from .settings import Job
 from .store import ProfileKind
@@ -103,6 +104,7 @@ def _parser() -> argparse.ArgumentParser:
 
     mint_cli.add_parser(commands)
     course_cli.add_parser(commands)
+    practice_cli.add_parser(commands)
 
     profile = commands.add_parser("profile", help="manage learner profiles")
     profile_commands = profile.add_subparsers(required=True, metavar="profile-command")
