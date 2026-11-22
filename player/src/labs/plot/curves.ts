@@ -1,4 +1,5 @@
 import { boxDrawable, fail, fitText, textDrawable, type Drawable, type LabOp, type Role } from "../../lab";
+import { textWidth } from "../../text-metrics";
 
 type Point = [number, number];
 
@@ -41,6 +42,7 @@ const X_NAME_Y = BOTTOM + 92;
 const COLORS: Role[] = ["series1", "series2", "series3"];
 const MAX_LINES = COLORS.length;
 const LABEL_GAP = 36;
+const PLATE_PAD = 8;
 
 export function curvesHeight(plot: CurvesPlot): number {
   return plot.reading ? X_NAME_Y + 44 : BOTTOM + 40;
@@ -137,7 +139,11 @@ function markDrawables(x: number, lines: Line[], reading: boolean, px: (x: numbe
   const overflow = Math.max(0, (heights.at(-1) ?? 0) - (BOTTOM - LABEL_GAP / 2));
   const onLeft = at > (LEFT + RIGHT) / 2;
   labels.forEach(({ line, y }, index) => {
-    marks.push({ ...label(`mark-value-${line.name}`, formatNumber(y), at + (onLeft ? -18 : 18), heights[index]! - overflow, 28, 260, onLeft ? "end" : "start"), backdrop: true });
+    const text = label(`mark-value-${line.name}`, formatNumber(y), at + (onLeft ? -18 : 18), heights[index]! - overflow, 28, 260, onLeft ? "end" : "start");
+    const w = textWidth(text.text!, text.size!, "read") + 2 * PLATE_PAD;
+    const h = text.size! + PLATE_PAD;
+    const x = onLeft ? text.x - w + PLATE_PAD : text.x - PLATE_PAD;
+    marks.push(boxDrawable(`mark-plate-${line.name}`, { x, y: text.y - h / 2, w, h }, { fill: "fill", radius: 6, z: 5 }), text);
   });
   return marks;
 }
