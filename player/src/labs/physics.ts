@@ -1,5 +1,5 @@
 import { clamp01, type Drawable, fail, type FontRole, type LabDef, type LabOp, lerp, type OpDef, type Paint, type Point, readsWords, type Rect, type Role, segmentDrawable, type Size, textDrawable } from "../lab";
-import { type Body, bodyAt, endTime, integrate, type Leg, legStart, SIM_STEP, type System, timesBetween, type Trajectory } from "../physics-sim";
+import { advance, type Body, bodyAt, endTime, integrate, type Leg, legStart, SIM_STEP, type System, timesBetween, type Trajectory } from "../physics-sim";
 import { textWidth } from "../text-metrics";
 
 type Args = Record<string, unknown>;
@@ -111,6 +111,7 @@ const ARROW_MIN_PX = 28;
 const NET_MIN_PX = 44;
 const TICK_LABEL_DROP = 36;
 const VELOCITY_PX = 120;
+const TAP_RADIUS = 56;
 const RUN_MIN_SECONDS = 0.8;
 const RUN_MAX_SECONDS = 9;
 const ORBIT_SECONDS_PER_ORBIT = 4.5;
@@ -146,6 +147,13 @@ function line(id: string, from: Point, to: Point, stroke: Paint, strokeWidth: nu
 
 function circle(id: string, at: Point, r: number, fill: Paint, stroke: Paint, strokeWidth: number, z: number, extra: Partial<Drawable> = {}): Drawable {
   return { id, kind: "circle", x: at.x, y: at.y, r, fill, stroke, strokeWidth, z, ...extra };
+}
+
+function tappableBody(index: number, at: Point, r: number, role: Role, part: string): Drawable[] {
+  return [
+    circle(`tap-pad-${index}`, at, Math.max(r, TAP_RADIUS), role, "none", 0, 5.9, { opacity: 0, part }),
+    circle(`body-${index}`, at, r, role, "ink", 3, 6, { part }),
+  ];
 }
 
 function trace(id: string, points: Point[], stroke: Paint, strokeWidth: number, z: number, opacity = 1): Drawable[] {
@@ -470,6 +478,7 @@ function clamp01Seconds(span: number): number {
 interface DropParams {
   height: number;
   masses: number[];
+  bounciness: number[];
   gravity: number;
 }
 
@@ -489,44 +498,78 @@ const DROP_TOP = 56;
 const DROP_PITCH = 180;
 const STROBE_DOT = 6;
 const STROBE_GAP = 20;
+const BOUNCE_MAX = 0.95;
+const BOUNCE_SETTLE_FRACTION = 0.01;
+const BOUNCE_CAP_SECONDS = 8;
+
+function dropRebound(params: DropParams, system: () => System): NonNullable<System["rebound"]> {
+  const settledPeak = params.height * BOUNCE_SETTLE_FRACTION;
+  return (before, after, time) => {
+    const resting = (index: number) => before.q[index]! <= 0 && before.v[index]! === 0;
+    const landing = after.q.flatMap((height, index) => (before.q[index]! > 0 && height <= 0 ? [{ index, fraction: before.q[index]! / (before.q[index]! - height) }] : []));
+    const first = landing.reduce<{ index: number; fraction: number } | null>((earliest, one) => (earliest === null || one.fraction < earliest.fraction ? one : earliest), null);
+    if (first === null && !after.q.some((_, index) => resting(index))) return null;
+    const reached = first === null ? after : advance(system(), before, SIM_STEP * first.fraction);
+    const touching = (index: number) => !resting(index) && (index === first?.index || reached.q[index]! <= 0);
+    const q = reached.q.map((height, index) => (resting(index) || touching(index) ? 0 : height));
+    const v = reached.v.map((speed, index) => {
+      if (resting(index)) return 0;
+      if (!touching(index)) return speed;
+      const rebound = -speed * params.bounciness[index]!;
+      return time >= BOUNCE_CAP_SECONDS || (rebound * rebound) / (2 * params.gravity) < settledPeak ? 0 : rebound;
+    });
+    return { fraction: first?.fraction ?? 1, body: { q, v } };
+  };
+}
+
+const droppedAndSettled = (body: Body) => body.q.every((height) => height <= 0) && body.v.every((speed) => speed === 0);
 
 const drop: Kind<DropParams, DropLayout> = {
   startOp: "release",
   spec: {
     height: "release height in m, 0.5 to 200, default 10",
-    masses: "optional list of 2 or 3 masses in kg, each 0.1 to 100, default [1, 5]; the bigger one is drawn bigger, and they still land together",
+    masses: "optional list of 1 to 3 masses in kg, each 0.1 to 100, default [1, 5]; the bigger one is drawn bigger, and they still land together",
+    bounciness: "optional list, one per ball in the order of masses, each 0 to 0.95, default all 0; the share of its speed a ball keeps when it hits the ground: 0 is soft clay that lands and stops, 0.3 a dull thud, 0.9 a rubber ball; each bounce is lower than the last until the ball settles",
     gravity: "optional gravity in m/s^2, 0.5 to 30, default 9.81",
   },
-  settable: { height: "m", masses: "list of kg", gravity: "m/s^2" },
-  runArgs: "no arguments; both objects fall until they land",
+  settable: { height: "m", masses: "list of kg", bounciness: "list, 0 to 0.95", gravity: "m/s^2" },
+  runArgs: "no arguments; the objects fall, bounce as much as their bounciness lets them, and run until every one has settled",
   vectors: { velocity: "the downward velocity", gravity: "the downward pull, the same on every object" },
   marks: { height: "ruler from the ground up to the release height with the distance" },
   ghosts: false,
   events: {
     lands: {
       terminal: true,
-      stuck: "the objects did not land within 160 s",
+      stuck: "the objects did not settle within 160 s",
       make: () => () => ({
-        stop: (before, after) => (before.q.some((height) => height > 0) && after.q.every((height) => height <= 0) ? Math.max(...before.q.map((height, index) => (height > 0 ? height / (height - after.q[index]!) : 0))) : null),
+        stop: (before, after) => (!droppedAndSettled(before) && droppedAndSettled(after) ? 1 : null),
         maxSteps: MAX_STEPS,
       }),
     },
   },
   init(spec, objectId) {
-    return drop.change({ height: 10, masses: [1, 5], gravity: GRAVITY }, spec, objectId);
+    return drop.change({ height: 10, masses: [1, 5], bounciness: [0, 0], gravity: GRAVITY }, spec, objectId);
   },
   change(params, args, who = "op set") {
     const masses = args.masses ?? params.masses;
-    if (!Array.isArray(masses) || masses.length < 2 || masses.length > 3 || masses.some((mass) => typeof mass !== "number" || !(mass >= 0.1 && mass <= 100))) {
-      fail(`${who}: "masses" must be a list of 2 or 3 numbers from 0.1 to 100 kg, such as [1, 5], got ${JSON.stringify(masses)}`);
+    if (!Array.isArray(masses) || masses.length < 1 || masses.length > 3 || masses.some((mass) => typeof mass !== "number" || !(mass >= 0.1 && mass <= 100))) {
+      fail(`${who}: "masses" must be a list of 1 to 3 numbers from 0.1 to 100 kg, such as [1, 5], got ${JSON.stringify(masses)}`);
+    }
+    const bounciness = args.bounciness ?? (masses.length === params.bounciness.length ? params.bounciness : masses.map(() => 0));
+    if (!Array.isArray(bounciness) || bounciness.length !== masses.length || bounciness.some((value) => typeof value !== "number" || !(value >= 0 && value <= BOUNCE_MAX))) {
+      fail(`${who}: "bounciness" must be a list of ${masses.length} numbers from 0 to ${BOUNCE_MAX}, one per mass, such as ${JSON.stringify(masses.map((_, index) => (index === 0 ? 0.8 : 0.2)))}, got ${JSON.stringify(bounciness)}`);
     }
     return {
       height: boundedNumber(args, "height", params.height, 0.5, 200, who, " m"),
       masses: masses as number[],
+      bounciness: bounciness as number[],
       gravity: boundedNumber(args, "gravity", params.gravity, 0.5, 30, who, " m/s^2"),
     };
   },
-  system: (params) => ({ step: SIM_STEP, accel: (q) => q.map(() => -params.gravity) }),
+  system(params) {
+    const system: System = { step: SIM_STEP, accel: (q) => q.map(() => -params.gravity), rebound: dropRebound(params, () => system) };
+    return system;
+  },
   ready: (params) => ({ q: params.masses.map(() => params.height), v: params.masses.map(() => 0) }),
   legSpec: () => ({ event: "lands", count: 1 }),
   seconds: (_params, span) => clamp01Seconds(span),
@@ -561,7 +604,7 @@ const drop: Kind<DropParams, DropLayout> = {
           if (tick * stride <= view.time + 1e-9) out.push(circle(`strobe-${index}-${tick}`, { x: xs[index]!, y }, STROBE_DOT, role, "none", 0, 3, { opacity: 0.55 }));
         }
       }
-      out.push(circle(`body-${index}`, at, radii[index]!, role, "ink", 3, 6, { part: `${view.objectId}[${index}]` }));
+      out.push(...tappableBody(index, at, radii[index]!, role, `${view.objectId}[${index}]`));
       const massText = `${fmt(mass, mass < 10 ? 1 : 0)} kg`;
       const massAt = { x: xs[index]! + MASS_LABEL_SIDE + textWidth(massText, LABEL_TEXT, "read") / 2, y: groundY + 42 };
       out.push(...arrows(`${index}-`, view, at, {
@@ -1030,7 +1073,7 @@ const orbit: Kind<OrbitParams, OrbitLayout> = {
       out.push(
         ...trace(`guide-${index}`, pathOf(guide, 0, endTime(guide), 240, (sample) => where(sample.q[0]!, sample.q[1]!)), "edge", 2.5, 1, 0.55),
         ...(view.trail && view.ran ? trace(`trail-${index}`, pathOf(view.trajectory, 0, view.time, Math.min(500, Math.max(2, Math.ceil(view.time * 120))), place), role, 6, 3, 0.9) : []),
-        circle(`body-${index}`, at, radius, role, "ink", 3, 6, { part: `${view.objectId}[${planet.id}]` }),
+        ...tappableBody(index, at, radius, role, `${view.objectId}[${planet.id}]`),
         ...arrows(`${index}-`, view, at, {
           velocity: { x: (state.v[0]! * VELOCITY_PX) / fastest, y: (-state.v[1]! * VELOCITY_PX) / fastest },
           gravity: (() => {
@@ -1261,12 +1304,12 @@ function runOp(doc: string, resuming: boolean): OpDef<PhysicsState> {
 
 const ops: Record<string, OpDef<PhysicsState>> = {
   launch: runOp('{"until": "lands"|"apex"}; for a launch setup: fire the ball from the start and run until it lands (default) or reaches its highest point; a new launch keeps the earlier flights on screen as fainter trails with their landing spots', false),
-  release: runOp("no arguments; for a drop or a ramp setup: let go; the objects fall until they land, or the block slides to the bottom, or stays put when friction holds it", false),
+  release: runOp("no arguments; for a drop or a ramp setup: let go; the objects fall, bounce as their bounciness allows and run until every one has settled, or the block slides to the bottom, or stays put when friction holds it", false),
   swing: runOp('{"swings": 2}; for a pendulum setup: let go and run this many swings, out and back to the start side (halves like 0.5 allowed, 0.5 to 20, default 1)', false),
   orbit: runOp('{"orbits": 1}; for an orbit setup: run until the first planet has gone round this many times (0.25 to 20, default 1); the other planets move for the same time, and the playback is sped up so one orbit takes about 4.5 s', false),
   resume: runOp("same arguments as the run op of the setup (launch, swing or orbit); continues the current run from where it stopped, for example from the highest point on to the landing; not allowed once a run has ended", true),
   set: {
-    doc: 'launch: angle, speed, height, gravity; drop: height, masses, gravity; ramp: angle, friction, length, gravity; pendulum: length, angle, damping, gravity; orbit: speed or distance, for every planet or one planet with "planet": "Mars"; puts the setup back to its start with the new values, ready for the next run',
+    doc: 'launch: angle, speed, height, gravity; drop: height, masses, bounciness, gravity; ramp: angle, friction, length, gravity; pendulum: length, angle, damping, gravity; orbit: speed or distance, for every planet or one planet with "planet": "Mars"; puts the setup back to its start with the new values, ready for the next run',
     seconds: 0.8,
     apply: setOp,
   },
@@ -1308,7 +1351,7 @@ export const lab: LabDef<Args, PhysicsState> = {
   title: "Physics",
   reading: "optional",
   catalog: {
-    summary: "Motion computed, not drawn: a fixed step integrator runs real Newtonian physics and every path on screen comes from it. Setups: launch (a ball fired at an angle and speed over a ground line), drop (objects of different mass falling from a height together), ramp (a block on a slope with friction that slides or stays), pendulum (a bob on a rod, optionally with drag), orbit (planets circling a fixed sun). A tap on a dropped ball names it by its place in \"masses\" (drop[0] is the first), and a tap on a planet names it by its id (sky[Mars]). You give intent (angle, speed, length, friction); the Lab owns the layout and every number. Set \"reading\": false for a small child: nothing on screen needs reading.",
+    summary: "Motion computed, not drawn: a fixed step integrator runs real Newtonian physics and every path on screen comes from it. Setups: launch (a ball fired at an angle and speed over a ground line), drop (one to three balls falling from a height together, each with its own mass and bounciness: balls of different bounciness make a good \"which one bounces higher? tap it\" Challenge), ramp (a block on a slope with friction that slides or stays), pendulum (a bob on a rod, optionally with drag), orbit (planets circling a fixed sun). A tap on a dropped ball names it by its place in \"masses\" (drop[0] is the first), and a tap on a planet names it by its id (sky[Mars]). You give intent (angle, speed, length, friction); the Lab owns the layout and every number. Set \"reading\": false for a small child: nothing on screen needs reading.",
     spec: specDocs(),
     example: [
       '{"step":1,"say":"A ball leaves the ground at forty five degrees. Watch where it lands, then see its top.","scene":{"shot":{"lab":"physics","setup":"launch","angle":45,"speed":20}},"do":[{"cue":"Watch","op":"launch","on":["shot"]},{"cue":"top","op":"mark","on":["shot"],"what":"apex"}]}',

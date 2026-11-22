@@ -9,6 +9,7 @@ export interface System {
   step: number;
   accel(q: readonly number[]): number[];
   damping?: number;
+  rebound?(before: Body, after: Body, time: number): { fraction: number; body: Body } | null;
 }
 
 export type Stop = (before: Body, after: Body) => number | null;
@@ -48,14 +49,17 @@ export function integrate(system: System, start: Body, legs: ((from: Body) => Le
     const leg = makeLeg(body);
     let reached = false;
     for (let count = 0; count < leg.maxSteps && !reached; count++) {
-      const next = advance(system, body, system.step);
+      const advanced = advance(system, body, system.step);
+      const touch = system.rebound?.(body, advanced, time) ?? null;
+      const next = touch?.body ?? advanced;
+      const used = system.step * (touch?.fraction ?? 1);
       const hit = leg.stop(body, next);
       if (hit === null) {
         body = next;
-        time += system.step;
+        time += used;
       } else {
-        body = hit >= 1 ? next : advance(system, body, system.step * hit);
-        time += system.step * hit;
+        body = hit >= 1 ? next : advance(system, body, used * hit);
+        time += used * hit;
         reached = true;
       }
       times.push(time);
