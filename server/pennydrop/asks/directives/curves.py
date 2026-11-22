@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -11,7 +12,8 @@ from .math import evaluate_over
 TARGETS = ("plot",)
 MAX_LINES = 3
 HALF_WAY_WHOLE_FROM = 10
-MAX_WHOLE_STEPS = 60
+MOST_WHOLE_STEPS = 200
+NICE_STRIDES = (1, 2, 5)
 SAMPLES = 61
 LINE_NAME = re.compile(r"^[a-z][a-z_]{0,19}$")
 
@@ -108,9 +110,19 @@ def describe_value(name: str) -> str:
 
 
 def _samples(start: float, end: float) -> list[int | float]:
-    if start.is_integer() and end.is_integer() and end - start <= MAX_WHOLE_STEPS:
-        return list(range(int(start), int(end) + 1))
+    if start.is_integer() and end.is_integer():
+        stride = _whole_stride(end - start)
+        return sorted({int(start), *range(math.ceil(start / stride) * stride, int(end) + 1, stride), int(end)})
     return [round(start + (end - start) * index / (SAMPLES - 1), 6) for index in range(SAMPLES)]
+
+
+def _whole_stride(span: float) -> int:
+    scale = 1
+    while True:
+        for nice in NICE_STRIDES:
+            if span / (nice * scale) <= MOST_WHOLE_STEPS:
+                return nice * scale
+        scale *= 10
 
 
 def _shown(value: int | float) -> int | float:
