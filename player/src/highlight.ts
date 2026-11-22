@@ -66,10 +66,30 @@ export function languageField(spec: Record<string, unknown>, objectId: string): 
   return language;
 }
 
+const NUMBER_LITERAL = /(?<![\w.])(?:0[xX][\da-fA-F_]*(?:\.[\da-fA-F_]*)?(?:[pP][+-]?\d+)?|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)[uUlLfFjJn]*(?!\w)/g;
+const LITERAL_ROLE: Role = "swap";
+const PROSE_ROLES: readonly Role[] = ["ok", "muted"];
+
+function withWholeNumbers(spans: Span[]): Span[] {
+  const text = spans.map((span) => span.text).join("");
+  const roles = spans.flatMap((span) => Array.from({ length: span.text.length }, () => span.role));
+  for (const match of text.matchAll(NUMBER_LITERAL)) {
+    const range = roles.slice(match.index, match.index + match[0].length);
+    if (!range.some((role) => PROSE_ROLES.includes(role))) roles.fill(LITERAL_ROLE, match.index, match.index + match[0].length);
+  }
+  const merged: Span[] = [];
+  [...text].forEach((char, index) => {
+    const last = merged[merged.length - 1];
+    if (last && last.role === roles[index]) last.text += char;
+    else merged.push({ text: char, role: roles[index]! });
+  });
+  return merged;
+}
+
 export function tokenizeCode(source: string, language: string): Span[][] {
   if (!highlighter) return fail("the code highlighter is not loaded; await prepareStepAssets(step) before adding a Step that uses code");
   const lines = highlighter.codeToTokensBase(source, { lang: language, theme: "pennydrop-roles" });
-  return lines.map((line) => line.map((token) => ({ text: token.content, role: SENTINELS[(token.color ?? "").toLowerCase().slice(0, 7)] ?? "ink" })));
+  return lines.map((line) => withWholeNumbers(line.map((token) => ({ text: token.content, role: SENTINELS[(token.color ?? "").toLowerCase().slice(0, 7)] ?? "ink" }))));
 }
 
 const ELLIPSIS = "…";
