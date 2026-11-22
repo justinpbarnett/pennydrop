@@ -581,7 +581,7 @@ export const lab: LabDef<WordsSpec, WordsState> = {
       during: sayFrame,
     },
     stress: {
-      doc: '{"syllable": 1}; index from 0 of the stressed syllable; it turns the active color and keeps the same size as the others, replacing an earlier stress',
+      doc: '{"syllable": 1}; index from 0 of the stressed syllable; it turns the active color and keeps the same size as the others, replacing an earlier stress; only for a language whose words carry a stressed syllable, such as English, Spanish or Italian, never for Japanese, Chinese or French, whose words have none, so their narration claims no stress either',
       seconds: 0.7,
       apply: (state, op) => ({ ...state, stressed: syllableArg(state, op) }),
     },
