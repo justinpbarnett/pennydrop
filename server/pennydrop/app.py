@@ -245,6 +245,8 @@ def create_app(services: Services) -> FastAPI:
     app.mount(MEDIA_PREFIX, StaticFiles(directory=services.settings.tts_cache_dir), name="tts-media")
     services.settings.media_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/media", StaticFiles(directory=services.settings.media_dir), name="media")
+    services.settings.films_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/films", StaticFiles(directory=services.settings.films_dir), name="films")
     _mount_player(app, services)
     return app
 
@@ -281,7 +283,7 @@ def _mount_player(app: FastAPI, services: Services) -> None:
 
     @app.get("/{path:path}", include_in_schema=False)
     async def player(path: str):
-        if path.startswith(("api/", "media/")):
+        if path.startswith(("api/", "media/", "films/")):
             raise HTTPException(404)
         candidate = (dist / path).resolve()
         if path and candidate.is_file() and dist.resolve() in candidate.parents:
