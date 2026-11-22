@@ -1,6 +1,6 @@
 import { definitionByKey, definitionIfRegistered, definitionKeyForSpec, specText, wordlessKeys } from "./registry";
 import type { LessonHeader, ObjectSpec } from "./format";
-import { type AnyLabDef, type Color, fail, isColor, isRole, type Role } from "./lab";
+import { type AnyLabDef, type Color, type Drawable, fail, isColor, isRole, type Role } from "./lab";
 import { shareRadius } from "./primitives/node";
 import { parseRelation, type Relation } from "./relation";
 
@@ -9,6 +9,7 @@ export interface SceneObject {
   defKey: string;
   state: unknown;
   at?: Relation;
+  caption?: string;
   tint?: Color;
   highlight?: Role;
   highlightParts?: readonly string[];
@@ -21,7 +22,7 @@ export interface SceneState {
 }
 
 export interface SceneSnapshot {
-  objects: { id: string; defKey: string; state: unknown; at?: Relation; tint?: Color; highlight?: Role; highlightParts?: readonly string[] }[];
+  objects: { id: string; defKey: string; state: unknown; at?: Relation; caption?: string; tint?: Color; highlight?: Role; highlightParts?: readonly string[] }[];
   focus: string | null;
 }
 
@@ -29,7 +30,7 @@ export const EMPTY_SCENE: SceneState = { objects: [], focus: null };
 
 export function snapshotOf(scene: SceneState): SceneSnapshot {
   return {
-    objects: scene.objects.map(({ id, defKey, state, at, tint, highlight, highlightParts }) => ({ id, defKey, state, at, tint, highlight, highlightParts })),
+    objects: scene.objects.map(({ id, defKey, state, at, caption, tint, highlight, highlightParts }) => ({ id, defKey, state, at, caption, tint, highlight, highlightParts })),
     focus: scene.focus,
   };
 }
@@ -37,7 +38,7 @@ export function snapshotOf(scene: SceneState): SceneSnapshot {
 function snapshotObject(value: unknown, index: number): SceneObject {
   const where = `scene.objects[${index}]`;
   if (typeof value !== "object" || value === null) return fail(`${where} must be an object with "id", "defKey" and "state"`);
-  const { id, defKey, state, at, tint, highlight, highlightParts } = value as Record<string, unknown>;
+  const { id, defKey, state, at, caption, tint, highlight, highlightParts } = value as Record<string, unknown>;
   if (typeof id !== "string" || !id) return fail(`${where} needs an "id" as text`);
   if (typeof defKey !== "string" || !definitionIfRegistered(defKey)) return fail(`${where} (${id}) has defKey ${JSON.stringify(defKey)}, which is not a registered Lab or primitive`);
   if (state === undefined || state === null) return fail(`${where} (${id}) needs a "state"`);
@@ -49,6 +50,7 @@ function snapshotObject(value: unknown, index: number): SceneObject {
     defKey,
     state,
     ...(at == null ? {} : { at: parseRelation(id, at) }),
+    ...(caption == null ? {} : { caption: checkedCaption(id, caption) }),
     ...(tint === undefined ? {} : { tint }),
     ...(highlight === undefined ? {} : { highlight: highlight as Role }),
     ...(highlightParts == null ? {} : { highlightParts: highlightParts as string[] }),
@@ -82,9 +84,32 @@ export function createObject(id: string, spec: ObjectSpec, scene: SceneState): S
   if (!reading && def.reading === "required") {
     fail(`${id}: ${specText(defKey)} needs reading, and this Lesson has "reading": false, for a child who cannot read; use a Lab or kind that works without words (${wordlessKeys().join(", ")})`);
   }
-  const { at, ...fields } = spec;
+  const { at, caption, ...fields } = spec;
+  if (caption !== undefined && !reading) fail(`${id}: "caption" is text, and this Lesson has "reading": false, for a child who cannot read; leave "caption" out`);
   const state = def.init({ ...fields, reading }, id);
-  return at === undefined ? { id, defKey, state } : { id, defKey, state, at: parseRelation(id, at) };
+  return {
+    id,
+    defKey,
+    state,
+    ...(at === undefined ? {} : { at: parseRelation(id, at) }),
+    ...(caption === undefined ? {} : { caption: checkedCaption(id, caption) }),
+  };
+}
+
+const CAPTION_MAX_LENGTH = 32;
+const CAPTION_SIZE = 26;
+const CAPTION_GAP = 32;
+
+function checkedCaption(id: string, caption: unknown): string {
+  if (typeof caption !== "string" || !caption.trim() || caption.length > CAPTION_MAX_LENGTH || /[\p{Cc}$<>]/u.test(caption)) {
+    return fail(`${id}: "caption" must be plain text of 1 to ${CAPTION_MAX_LENGTH} characters, a short name for the object such as "mixed hand"; got ${JSON.stringify(caption)}`);
+  }
+  return caption;
+}
+
+export function captionDrawable(object: SceneObject, width: number, inkTop: number): Drawable | null {
+  if (!object.caption) return null;
+  return { id: "_caption", kind: "text", x: width / 2, y: -Math.max(0, inkTop) - CAPTION_GAP, text: object.caption, size: CAPTION_SIZE, font: "read", fill: "muted", anchor: "middle" };
 }
 
 export function findObject(scene: SceneState, id: string): SceneObject | undefined {
@@ -126,7 +151,7 @@ export function applySceneSpecs(scene: SceneState, specs: Record<string, ObjectS
 }
 
 function alreadyOnStage(existing: SceneObject | undefined, created: SceneObject): boolean {
-  return existing !== undefined && !existing.tint && !existing.highlight && existing.defKey === created.defKey && sameValue(existing.at, created.at) && sameValue(existing.state, created.state);
+  return existing !== undefined && !existing.tint && !existing.highlight && existing.defKey === created.defKey && existing.caption === created.caption && sameValue(existing.at, created.at) && sameValue(existing.state, created.state);
 }
 
 function sameValue(a: unknown, b: unknown): boolean {

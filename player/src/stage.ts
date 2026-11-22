@@ -1,6 +1,6 @@
 import type { Color, Drawable, Link, Paint, Role } from "./lab";
 import { type Box, type Layout, layoutScene, STAGE } from "./layout";
-import { definitionOf, type SceneObject, type SceneState } from "./scene";
+import { captionDrawable, definitionOf, type SceneObject, type SceneState } from "./scene";
 import { reachOf } from "./ink";
 import { type Theme, THEMES } from "./theme";
 
@@ -68,6 +68,10 @@ function highlightOutline(role: Role, [left, top, right, bottom]: Bounds, pad: n
   };
 }
 
+function inkTopOf(local: Drawable[], box: Box, theme: Theme): number {
+  return reachOf(local, { w: box.w / box.scale, h: box.h / box.scale }, theme).top;
+}
+
 function inkBounds(local: Drawable[], box: Box, theme: Theme): Bounds {
   const [w, h] = [box.w / box.scale, box.h / box.scale];
   const reach = reachOf(local, { w, h }, theme);
@@ -130,8 +134,9 @@ export function buildStage(scene: SceneState, layout: LayoutOf = layoutScene, th
     }
     const drawn = object.tint ? local.map((drawable) => tinted(drawable, object.tint!)) : local;
     const outline = def.overlay ? null : outlined(object, local, box, theme ?? THEMES.pattern);
+    const caption = def.overlay ? null : captionDrawable(object, box.w / box.scale, inkTopOf(local, box, theme ?? THEMES.pattern));
     const withOutline = outline ? [...drawn, outline] : drawn;
-    return { id: object.id, box, drawables: placeDrawables(object.id, withOutline, box) };
+    return { id: object.id, box, drawables: placeDrawables(object.id, caption ? [...withOutline, caption] : withOutline, box) };
   });
   const stage = { objects, camera: cameraFor(scene, boxes) };
   stages.set(scene, stage);

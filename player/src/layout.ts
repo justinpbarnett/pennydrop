@@ -2,7 +2,7 @@ import { fail, type Rect, type Size, STAGE, STAGE_MARGIN } from "./lab";
 import { NO_REACH, type Reach, reachOf } from "./ink";
 import { EDGE_SPAN } from "./primitives/edge";
 import { groupOf, type GroupKind, type Region, type Relation, RELATION_GAP, regionOf, sideClear, sideOf, sideSpot } from "./relation";
-import { definitionOf, type SceneObject, type SceneState } from "./scene";
+import { captionDrawable, definitionOf, type SceneObject, type SceneState } from "./scene";
 import type { Theme } from "./theme";
 
 export { STAGE };
@@ -321,11 +321,18 @@ function reachFor(object: SceneObject, theme: Theme): Reach {
   let reach = perTheme.get(theme);
   if (!reach) {
     const def = definitionOf(object);
-    const ink = def.overlay ? NO_REACH : reachOf(def.draw(object.state, { objectId: object.id, links: {} }), def.size(object.state), theme);
+    const size = def.size(object.state);
+    const ink = def.overlay ? NO_REACH : reachOf(def.draw(object.state, { objectId: object.id, links: {} }), size, theme);
+    const caption = def.overlay ? null : captionDrawable(object, size.w, ink.top);
     reach = def.framed ? outward(ink) : ink;
+    if (caption) reach = widest(reach, reachOf([caption], size, theme));
     perTheme.set(theme, reach);
   }
   return reach;
+}
+
+function widest(a: Reach, b: Reach): Reach {
+  return { left: Math.max(a.left, b.left), top: Math.max(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) };
 }
 
 function outward(reach: Reach): Reach {

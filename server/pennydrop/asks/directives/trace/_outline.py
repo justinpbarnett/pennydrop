@@ -194,7 +194,7 @@ def _contrast_outline(main: Told, side: Told, contrast: Contrast) -> Outline:
     proof = _proof(main, side, contrast)
     main_stops = main.stops(proof.hinge if asked is main else None)
     side_stops = side.stops(proof.hinge if asked is side else None)
-    brief = "\n".join([*_run_brief(main, MAIN_RUN, main_stops), *_contrast_brief(side, contrast, side_stops, main.code_beside, proof, beside), _story_order(contrast, proof, beside, len(main_stops) + 1, len(side_stops) + 1)])
+    brief = "\n".join([*_run_brief(main, MAIN_RUN, main_stops), *_contrast_brief(side, contrast, side_stops, main.code_beside, proof, beside), *_caption_brief(main, side, beside), _story_order(contrast, proof, beside, len(main_stops) + 1, len(side_stops) + 1)])
     return Outline(
         brief,
         Runs(
@@ -345,6 +345,13 @@ def _contrast_brief(told: Told, contrast: Contrast, stops: list[int], code_besid
     ]
 
 
+def _caption_brief(main: Told, side: Told, beside: bool) -> list[str]:
+    if not beside:
+        return []
+    names = "the story name of each input, such as \"mixed hand\" and \"ordered hand\"" if main.spec.code == side.spec.code else "the name of each algorithm, such as \"binary search\" and \"linear search\""
+    return [f'Both runs sit side by side, so give each object a `"caption"` in Step 1, where you declare it: a name of two to four words, {names}. Use the same words for that run in "say", and keep each caption as it is in every later Step.']
+
+
 def _story_order(contrast: Contrast, proof: Proof, beside: bool, main_steps: int, side_steps: int) -> str:
     start = 'Step 1 is the promise, with the main trace at "until": 0' + (" and the contrast object on stage beside it" if beside else "")
     if contrast.serves == NORMAL_CASE:
@@ -354,10 +361,11 @@ def _story_order(contrast: Contrast, proof: Proof, beside: bool, main_steps: int
     first, second, second_steps = (CONTRAST_RUN, MAIN_RUN, main_steps) if contrast.serves == NORMAL_CASE else (MAIN_RUN, CONTRAST_RUN, side_steps)
     least_steps = main_steps + side_steps + 2
     budget = f"With the promise and the last Step, these stops make {least_steps} Steps, so add at most {max(0, MAX_LESSON_STEPS - least_steps)} more and keep the Lesson within {MAX_LESSON_STEPS} Steps: the {first} run ends by Step {MAX_LESSON_STEPS - second_steps - 1}, the {second} run ends by Step {MAX_LESSON_STEPS - 1}, and the last Step, which says the point, is Step {MAX_LESSON_STEPS} at the latest. Plan each run's Steps to fit, and never start the {second} run before the {first} run ends."
-    return f"Suggested order of the Steps: {order}. {budget} {RUNS_UNNAMED} The order is a guide, and the Steps in it must follow from one another by cause."
+    return f"Suggested order of the Steps: {order}. {budget} {RUNS_CAPTIONED if beside else RUNS_UNNAMED} The order is a guide, and the Steps in it must follow from one another by cause."
 
 
 MAX_LESSON_STEPS = 8
+RUNS_CAPTIONED = 'The learner sees each run under its "caption", so "main" and "contrast" are words for you alone: never say them in "say", and call each run by its caption.'
 RUNS_UNNAMED = 'The learner sees the two runs with no names, so "main" and "contrast" are words for you alone: never say them in "say", and call each run by what the learner sees, such as its list ("the first list", "the reversed list") or its algorithm ("binary search", "linear search").'
 STAGES = {
     "array": "one `array` object{named} whose `values` are {values}",

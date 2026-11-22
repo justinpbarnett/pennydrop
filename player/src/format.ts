@@ -104,6 +104,7 @@ export function parseJsonl(id: string, text: string): LessonSource {
 
 export const SCENE_RULES = [
   'A Step\'s "scene" entry for an id that already exists replaces that object: the old one fades out and the new one fades in, with no motion between them; use the "morph" verb when the object should change shape in place.',
+  'A scene spec may carry "caption": a short plain-text name of up to 32 characters, drawn above the object, for when two objects of one Lab share the stage (for example "mixed hand" and "ordered hand"). It needs reading.',
 ];
 
 export const DO_RULES = [
