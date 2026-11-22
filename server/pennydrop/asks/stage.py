@@ -155,14 +155,15 @@ class Stage:
         raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
         return self.trace_untils.get(trace_key(raw))
 
-    def run_left_unfinished(self, written: Any, values: dict[str, Any]) -> bool:
-        main = self.traces - self.runs.side
-        if not main or main & (self.finished_traces | self.shown_totals.keys()):
-            return False
+    def run_left_unfinished(self, written: Any, values: dict[str, Any]) -> NextRun | None:
         raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
-        if trace_key(raw) in self.runs.side:
-            return True
-        return not (trace_totals(values) or (isinstance(raw, dict) and "until" not in raw))
+        played = self.finished_traces | self.shown_totals.keys()
+        if isinstance(raw, dict) and ("until" not in raw or trace_totals(values)):
+            played = played | {trace_key(raw)}
+        left = sorted(self.traces - played)
+        if not left:
+            return None
+        return NextRun(left[0] in self.runs.side, bool(self.runs.side), self.trace_untils.get(left[0]))
 
     def main_stop_before_side_run(self, written: Any) -> int | None:
         key = trace_key(self.filled_trace(written.get("trace")) if isinstance(written, dict) else None)

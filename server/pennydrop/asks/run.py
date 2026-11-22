@@ -48,7 +48,7 @@ SIDE_RUN_TOO_SOON = 'this Step starts the contrast run while the main run is sto
 MAIN_RUN_TOO_SOON = 'this Step plays the main run while the contrast run is stopped at "until": {until}, but the story plays the contrast run, the normal case, to its end before the main run answers it, so the learner never sees the contrast run finish and its whole order or total is never shown; play the contrast run on in this Step instead, with its trace at the next stop the brief gives after {until}, or with no "until" when no stop is left, narrate the turns it plays, and play the main run only in a Step after the contrast run ends'
 PLANNED_HINGE = '; the story asks its hinge right after "until": {until} of the run on "{on}", so carry that run\'s trace in this Step with "until": {until}, which leaves the rest of the run to the last Step, and ask {question}'
 OFF_THE_HINGE = 'this Step\'s predict Challenge is not the one the story asks at its hinge, which comes right after "until": {until} of the run on "{on}"; take the Challenge out of this Step, and ask it in the Step that plays that run to "until": {until}, which is {question}'
-RUN_LEFT_UNFINISHED = 'the run on stage stopped part way, and this is the last Step, so the learner never sees how it ends; carry the trace directive here with no "until", so this Step plays the rest of the run to its end, and let the narration tell what the finished run shows'
+RUN_LEFT_UNFINISHED = 'the {run} stopped part way at "until": {until}, and this is the last Step, so the learner never sees how it ends; carry that run\'s trace directive here with no "until", so this Step plays the rest of the run to its end, and let the narration tell what the finished run shows'
 ANSWER_TOLD = 'challenge: the narration so far, this Step\'s "say" included, already tells the answer to this Challenge, so the learner remembers it instead of predicting; take the answer out of this Step\'s "say", and when an earlier Step told it, ask about the next thing the run or story does that no Step has said or played yet, and let the next Step show it'
 STILL_OPENING = "this Step plays nothing on the stage and asks nothing"
 STILL_STAGE = STILL_OPENING + ', so the learner hears new words over a still picture; add to "do" the operations that show what "say" tells, such as the next part of the run, the next line of a plot or a highlight on what the narration names, and keep the narration'
@@ -447,9 +447,9 @@ class LessonRun:
         return spoiler if await followed else None
 
     async def _run_left_unfinished(self, written: dict[str, Any] | Malformed, values: dict[str, Any], followed: asyncio.Future[bool]) -> str | None:
-        if not self._stage.run_left_unfinished(written, values):
+        if (left := self._stage.run_left_unfinished(written, values)) is None:
             return None
-        return None if await followed else RUN_LEFT_UNFINISHED
+        return None if await followed else RUN_LEFT_UNFINISHED.format(run=left.name, until=left.until)
 
     def _side_run_too_soon(self, written: dict[str, Any] | Malformed) -> list[str]:
         if (until := self._stage.main_stop_before_side_run(written)) is not None:
