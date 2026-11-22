@@ -30,7 +30,7 @@ GUIDE = "\n".join([
     *(f"- `{algorithm.name}`: {algorithm.input_help}" for algorithm in ALGORITHMS.values()),
     "The first Step that carries the trace sets the traced object in its own `scene`, and `on` names it when the scene holds several objects of those Labs; without `on`, the first Lab below that can play the algorithm is traced. Labs that can play a trace: " + ", ".join(TARGETS) + ".",
     "A Step that carries a trace plays the whole run, unless the trace has an `until`. To tell one run across several Steps, repeat the same trace, with the same `code` and `input`, in each Step, give every Step but the last a later `until` than the Step before, and leave `until` out of the Step that plays the end of the run. Each Step then plays only the part no earlier Step played, on the same objects, and its narration talks only about that part.",
-    "`until` counts turns: one turn of the traced function's outer loop for the array and code Labs, and one node taken for the graph Lab, so `\"until\": 2` stops the run after its second turn. bubble_sort, selection_sort and insertion_sort take one turn fewer than the number of values, and their first turn already moves values: turn 1 of insertion_sort inserts the second value into the sorted first one, so a Step that only shows the first value as sorted uses `\"until\": 0`, and turn k inserts the value at index k; turn k of bubble_sort carries the k-th largest value to its place at the end, and turn k of selection_sort puts the k-th smallest value at index k - 1. So on 4 values `\"until\": 3` already plays the whole run, and the Step before a predict Challenge on their total stops at `\"until\": 2` or earlier. `\"until\": 0` draws the objects with the run's input and plays none of it, for Step 1 or any Step that asks a question before the run starts. A Step with the same `until` as the Step before keeps the stage as it is. merge_sort and quick_sort call themselves, so one of their turns is one merge or one partition: `\"until\": 1` stops quick_sort after its first partition has placed the first pivot. partition is that first partition alone, told value by value: its pivot is the last value, turn k compares the value at index k - 1 with the pivot and, when it is smaller, swaps it onto the boundary and moves the boundary one cell right, and only the Step without `until` swaps the pivot onto the boundary at the end. So on 6 values `\"until\": 5` plays all 5 compares with the pivot still last, and the next Step, without `until`, places it. Trace partition when the Ask is about how one partition works, and quick_sort when it is about the whole sort.",
+    "`until` counts turns: one turn of the traced function's outer loop for the array and code Labs, and one node taken for the graph Lab, so `\"until\": 2` stops the run after its second turn. bubble_sort, selection_sort and insertion_sort take one turn fewer than the number of values, and their first turn already moves values: turn 1 of insertion_sort inserts the second value into the sorted first one, so a Step that only shows the first value as sorted uses `\"until\": 0`, and turn k inserts the value at index k; turn k of bubble_sort carries the k-th largest value to its place at the end, and turn k of selection_sort puts the k-th smallest value at index k - 1. So on 4 values `\"until\": 3` already plays the whole run, and the Step before a predict Challenge on their total stops at `\"until\": 2` or earlier. `\"until\": 0` draws the objects with the run's input and plays none of it, for Step 1 or any Step that asks a question before the run starts. A Step with the same `until` as the Step before keeps the stage as it is, which only the Step that asks the predict Challenge does: every other Step plays a later turn than the Step before. merge_sort and quick_sort call themselves, so one of their turns is one merge or one partition: `\"until\": 1` stops quick_sort after its first partition has placed the first pivot. partition is that first partition alone, told value by value: its pivot is the last value, turn k compares the value at index k - 1 with the pivot and, when it is smaller, swaps it onto the boundary and moves the boundary one cell right, and only the Step without `until` swaps the pivot onto the boundary at the end. So on 6 values `\"until\": 5` plays all 5 compares with the pivot still last, and the next Step, without `until`, places it. Trace partition when the Ask is about how one partition works, and quick_sort when it is about the whole sort.",
     *(target.GUIDE for target in TARGETS.values()),
     "An `array` object is played only when its `values` equal the traced `input` list. A hash table, a stack or any other structure that the code builds is not that, so trace it on a `code` object alone, and show any array of buckets with plain operations after the run.",
     "The directive writes the operations and counters for you, so write no `do` entries for the traced run.",
@@ -38,7 +38,7 @@ GUIDE = "\n".join([
     'A predict Challenge names a total as `"answer": "trace.comparisons"` (or `swaps`, `writes`) in a Step that repeats the trace with an `until`, before the run ends: the whole run is computed there, and the stage does not show the total yet. A Challenge waits after its Step plays, so in the Step that plays the run to its end, or any later Step, the counter already shows the total and the learner would read it off; that Step reveals it instead.',
     'For your own code, `code` is the whole source text of one function, such as `"def grow(balance, years):\\n    for _ in range(years):\\n        balance = balance * 1.05\\n    return balance"`, never a bare function name that is not in the library list',
     "Write the `input` with exactly the keys named above, such as `{\"array\": [1, 3, 5], \"target\": 3}` for binary_search, and never `arr` or other short names.",
-    "For binary_search choose a target that is not the middle value of the array: the first guess is the middle, and a search that ends at once shows no halving, so aim for at least 3 comparisons.",
+    "For binary_search make the target the first or the last value of the sorted array: the first guess is the middle, so a value at an end takes the most halvings, and a search that ends at once shows none.",
     "Keep the input small, 3 to 6 numbers. A Step plays at most 40 operations, so stage a longer run with `until`.",
 ])
 
@@ -191,7 +191,24 @@ def _require_totals_unsaid(step: dict[str, Any], until: int | None) -> None:
 def _require_a_search_worth_watching(spec: TraceSpec, run: TracedRun) -> None:
     values = spec.input.get("array") if isinstance(spec.input, dict) else None
     if spec.code == "binary_search" and isinstance(values, list) and len(values) >= 7 and run.trace.counters.comparisons < 3:
-        raise DirectiveError(f"trace directive: binary_search found its target in {run.trace.counters.comparisons} comparisons, which shows no halving; to fix it, pick a \"target\" that sits near an end of the sorted array (not the middle value), so the search takes at least 3 comparisons")
+        probes = {value: _binary_search_probes(values, value) for value in values}
+        deepest = [value for value in values if probes[value] == max(probes.values())]
+        targets = " or ".join(str(value) for value in dict.fromkeys([deepest[0], deepest[-1]]))
+        raise DirectiveError(f"trace directive: binary_search found its target in {run.trace.counters.comparisons} comparisons, which shows no halving; set the trace's \"target\" to {targets}, which the search reaches only after {max(probes.values())} halvings, and name that same target in \"say\" wherever the narration names it")
+
+
+def _binary_search_probes(values: list[Any], target: Any) -> int:
+    low, high, probes = 0, len(values) - 1, 0
+    while low <= high:
+        middle = (low + high) // 2
+        probes += 1
+        if values[middle] == target:
+            return probes
+        if values[middle] < target:
+            low = middle + 1
+        else:
+            high = middle - 1
+    return probes
 
 
 def _require_the_array_shown(spec: TraceSpec, pool: dict[str, Any]) -> None:

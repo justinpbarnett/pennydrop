@@ -17,7 +17,7 @@ from .codex import CodexRoute
 from .jev import Answer, Choice, ChoiceAnswer, JevRoute, Question, Score, ScoreAnswer, YesNo, YesNoAnswer
 from .types import Completion, GatewayError, Image, Request, RouteError, Thinking, Usage
 
-MAX_HEDGED_ATTEMPTS = 3
+MAX_HEDGED_ATTEMPTS = 5
 LOG = logging.getLogger("pennydrop.gateway")
 
 __all__ = [
