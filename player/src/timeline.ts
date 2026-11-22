@@ -174,6 +174,14 @@ export class Timeline {
     return this.steps.at(-1)?.end ?? 0;
   }
 
+  get stepStills(): number[] {
+    return this.steps.map((span, index) => {
+      const next = this.steps[index + 1];
+      const exit = next && this.segments.find((segment) => segment.start >= next.start);
+      return exit ? Math.min(span.end, exit.start - exit.lead) : span.end;
+    });
+  }
+
   addStep(step: Step): StepSpan {
     const start = this.duration;
     const narration = narrate(typeof step.say === "string" ? step.say : "", step.voice);

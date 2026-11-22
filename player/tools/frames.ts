@@ -128,7 +128,7 @@ const duration = await page.evaluate(() => window.pennydrop.duration());
 
 const STEP_END_LEAD = 0.05;
 const times = process.argv.includes("--steps")
-  ? (await page.evaluate(() => window.pennydrop.stepEnds())).map((end) => +Math.max(0, end - STEP_END_LEAD).toFixed(2))
+  ? (await page.evaluate(() => window.pennydrop.stepStills())).map((still) => +Math.max(0, still - STEP_END_LEAD).toFixed(2))
   : option("times")
   ? option("times")!.split(",").map(Number)
   : Array.from({ length: DEFAULT_FRAME_COUNT }, (_, index) => +(((index + 0.5) / DEFAULT_FRAME_COUNT) * duration).toFixed(2));
