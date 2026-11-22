@@ -1,3 +1,4 @@
+import ast
 import dataclasses
 import json
 import operator
@@ -12,6 +13,7 @@ from trace_events import (
 )
 
 USER_FILE = "<user>"
+hidden_names = frozenset()
 MAX_LIST_ITEMS = 64
 MAX_TEXT = 200
 MAX_STDOUT = 10000
@@ -160,6 +162,19 @@ def snapshot(value, depth=0):
     return repr(value)[:MAX_TEXT]
 
 
+def comprehension_only_names(source):
+    tree = ast.parse(source)
+    targets = [name for node in ast.walk(tree) if isinstance(node, ast.comprehension) for name in ast.walk(node.target) if isinstance(name, ast.Name)]
+    owned = {id(name) for name in targets}
+    elsewhere = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and id(node) not in owned}
+    elsewhere |= {node.arg for node in ast.walk(tree) if isinstance(node, ast.arg)}
+    return frozenset(name.id for name in targets) - elsewhere
+
+
+def frame_variables(frame):
+    return {name: snapshot(value) for name, value in frame.f_locals.items() if name not in hidden_names}
+
+
 def user_stack(frame):
     names = []
     while frame is not None and frame.f_code.co_filename == USER_FILE and frame.f_code.co_name != "<module>":
@@ -172,14 +187,14 @@ def trace_calls(frame, event, argument):
     if frame.f_code.co_filename != USER_FILE or frame.f_code.co_name == "<module>":
         return None
     recorder.check_deadline()
-    recorder.emit(CallEvent(frame.f_code.co_name, frame.f_lineno, {k: snapshot(v) for k, v in frame.f_locals.items()}))
+    recorder.emit(CallEvent(frame.f_code.co_name, frame.f_lineno, frame_variables(frame)))
     return trace_lines
 
 
 def trace_lines(frame, event, argument):
     recorder.check_deadline()
     if event == "line":
-        recorder.emit(LineEvent(frame.f_lineno, {k: snapshot(v) for k, v in frame.f_locals.items()}, user_stack(frame)))
+        recorder.emit(LineEvent(frame.f_lineno, frame_variables(frame), user_stack(frame)))
     elif event == "return":
         recorder.emit(ReturnEvent(frame.f_code.co_name, frame.f_lineno, snapshot(argument)))
     return trace_lines
@@ -211,7 +226,7 @@ def build_arguments(raw):
 
 
 def main():
-    global recorder
+    global recorder, hidden_names
     request = json.loads(sys.stdin.read())
     real_stdout = sys.stdout
     recorder = Recorder(request["max_events"], time.monotonic() + request["deadline_seconds"])
@@ -222,6 +237,7 @@ def main():
     sys.stdout = capture
     try:
         namespace = {"__name__": "__traced__"}
+        hidden_names = comprehension_only_names(request["source"])
         exec(compile(request["source"], USER_FILE, "exec"), namespace)
         if request["entry"] not in namespace:
             raise NameError(f"the source defines no function named '{request['entry']}'")
