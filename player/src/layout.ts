@@ -302,12 +302,14 @@ function fitToStage(rects: Map<string, Rect>, maxScale: number): Layout {
   const minY = Math.min(...all.map((rect) => rect.y));
   const maxY = Math.max(...all.map((rect) => rect.y + rect.h));
   const scale = Math.min(maxScale, (STAGE.w - 2 * MARGIN) / (maxX - minX), (STAGE.h - 2 * MARGIN) / (maxY - minY));
-  const centerX = STAGE.w / 2;
-  const centerY = STAGE.h / 2;
+  const scaledAboutCenter = (at: number, center: number) => center + (at - center) * scale;
+  const intoStage = (low: number, high: number, size: number) => Math.max(MARGIN - low, Math.min(0, size - MARGIN - high));
+  const shiftX = intoStage(scaledAboutCenter(minX, STAGE.w / 2), scaledAboutCenter(maxX, STAGE.w / 2), STAGE.w);
+  const shiftY = intoStage(scaledAboutCenter(minY, STAGE.h / 2), scaledAboutCenter(maxY, STAGE.h / 2), STAGE.h);
   return new Map(
     [...rects].map(([id, rect]) => [
       id,
-      { x: centerX + (rect.x - centerX) * scale, y: centerY + (rect.y - centerY) * scale, w: rect.w * scale, h: rect.h * scale, scale },
+      { x: scaledAboutCenter(rect.x, STAGE.w / 2) + shiftX, y: scaledAboutCenter(rect.y, STAGE.h / 2) + shiftY, w: rect.w * scale, h: rect.h * scale, scale },
     ]),
   );
 }
