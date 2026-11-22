@@ -10,6 +10,7 @@ from .math import evaluate_over
 
 TARGETS = ("plot",)
 MAX_LINES = 3
+HALF_WAY_WHOLE_FROM = 10
 MAX_WHOLE_STEPS = 60
 SAMPLES = 61
 LINE_NAME = re.compile(r"^[a-z][a-z_]{0,19}$")
@@ -89,6 +90,17 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
         raise DirectiveError(f'curves directive: "on" names {spec.on}, but this Step\'s "scene" makes {spec.on} a {written.get("kind") or written.get("lab") or "different"} object; give the plot its own name, such as {spec.on}_plot, and keep that name in every graph and mark')
     plot = {**({"reading": written["reading"]} if "reading" in written else {}), "lab": "plot", "x": spec.x, "y": spec.y, "curves": lines}
     return {**step, "scene": {**scene, spec.on: plot}}, values
+
+
+def graphed_half_way(step: dict[str, Any], plot: str, line: str, points: list[list[float]] | None) -> dict[str, Any] | None:
+    operations = step.get("do") if isinstance(step.get("do"), list) else []
+    drawn = [index for index, operation in enumerate(operations) if isinstance(operation, dict) and operation.get("op") == "graph" and operation.get("curve") == line and plot in (operation.get("on") or [])]
+    if not points or not drawn:
+        return None
+    start, end = points[0][0], points[-1][0]
+    half = start + (end - start) / 2
+    cut = {**operations[drawn[-1]], "to": round(half) if end - start >= HALF_WAY_WHOLE_FROM else round(half, 1)}
+    return {**step, "do": [*operations[: drawn[-1]], cut, *operations[drawn[-1] + 1 :]]}
 
 
 def describe_value(name: str) -> str:

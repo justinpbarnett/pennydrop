@@ -8,34 +8,30 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ....tracer import ALGORITHMS, Tracer
-from ....tracer.library import BREAK, NORMAL_CASE
-from .._support import MAX_STEP_OPERATIONS, TracedRun, trace_key
+from ....tracer.library import FOUND, NEXT_LOOK, NORMAL_CASE, PLACED, SHORTEST_HOME, Contrast
+from .._support import MAX_STEP_OPERATIONS, Hinge, Runs, TracedRun, trace_key, with_answer
 from ._stages import Window
-from .array import COUNTED_EVENTS
+from .array import COUNTED_EVENTS, PROBE_POINTER
 from . import CONTRAST_RUN, MAIN_RUN, SEARCHES, TARGETS, TraceSpec, _run, _with_search_target, code, outline_lab
 
 MAX_LISTED = 6
 CODE_LINE_ROOM = 12
+CELL = re.compile(r"\[(\d+)\]")
 CODE_OBJECT_WARNING = f" Show no `code` object beside it: a code object adds a line operation for every step of the run, and a turn of this run would then pass the {MAX_STEP_OPERATIONS} operation limit of a Step."
 CODE_OBJECT = "code"
 GRAPH_BESIDE_CODE = "The Ask asks to see the code run, and a graph and the code each fill the stage, so this Lesson plays the run on the code object alone: show no `graph` object, and let the code's variables, such as the queue, the stack and the visited nodes, show where the run is. Narrate the lines the code runs as well as what they do."
-SPINE_PART = {
-    (NORMAL_CASE, True): "the normal case, in the Steps right after the promise, where the cost its own counter shows is the break, so say that cost plainly before the main run solves it",
-    (NORMAL_CASE, False): "the normal case, in the Steps right after the promise, where the order it plays shows the break, so say plainly what that order gets wrong before the main run solves it",
-    (BREAK, True): "the break, in the Steps after the main run's normal case, where the learner's assumption fails",
-    (BREAK, False): "the break, in the Steps after the main run's normal case, where the learner's assumption fails",
-}
 SIDE_BY_SIDE_LABS = frozenset({"array"})
+KID_RUN = "bars"
+KID_HINGE = 1
 _OUTLINES: dict[tuple[str, bool], Outline] = {}
+_KID_OUTLINES: dict[str, Outline | None] = {}
 
 
 @dataclass(frozen=True)
 class Outline:
     brief: str
-    side_runs: frozenset[str] = frozenset()
-    main_first: bool = False
-    kept_on_stage: frozenset[str] = frozenset()
-    hinge: tuple[str, int] | None = None
+    runs: Runs = Runs()
+    point: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +46,7 @@ class Turn:
 @dataclass(frozen=True)
 class Told:
     spec: TraceSpec
+    example: Any
     run: TracedRun
     lab: str
     turns: list[Turn]
@@ -71,12 +68,17 @@ class Told:
                 played = 0
         return stops
 
-    def hinge(self, counted: bool) -> int:
-        settling = [number for number, turn in enumerate(self.turns, 1) if any(not counted or operation.get("op") == "compare" for operation in turn.operations)]
+    def hinge(self, total: str | None) -> int:
+        settling = [number for number, turn in enumerate(self.turns, 1) if any(total is None or _adds_to(operation, total) for operation in turn.operations)]
         return (settling[-1] if settling else len(self.turns)) - 1
 
+    def landing(self, number: int) -> tuple[int, Any] | None:
+        turn = self.turns[number - 1]
+        cells = [_index(operation["on"][0]) for operation in turn.operations if operation["op"] == "sorted" and CELL.search(operation["on"][0])]
+        return (cells[-1], _played(turn.values, turn.operations).values[cells[-1]]) if cells else None
+
     def key(self) -> str:
-        return trace_key({"code": self.spec.code, "input": self.spec.input}) or ""
+        return trace_key({"code": self.spec.code, "input": self.example}) or ""
 
     def parted_from(self, other: Told) -> int | None:
         return next((index for index, (mine, theirs) in enumerate(zip(self.order(), other.order())) if mine != theirs), None)
@@ -95,16 +97,60 @@ async def run_outline(algorithm: str, tracer: Tracer, shows_code: bool = False) 
     return _OUTLINES[key]
 
 
+async def kid_outline(algorithm: str, tracer: Tracer) -> Outline | None:
+    if algorithm not in _KID_OUTLINES:
+        _KID_OUTLINES[algorithm] = await _kid_outline(algorithm, tracer)
+    return _KID_OUTLINES[algorithm]
+
+
+async def _kid_outline(algorithm: str, tracer: Tracer) -> Outline | None:
+    known = ALGORITHMS[algorithm]
+    kid = known.kid
+    if kid is None:
+        return None
+    told = await _told(algorithm, kid.example, tracer, "array", False)
+    answer = f"{KID_RUN}[{KID_ANSWERS[kid.answer](told)}]"
+    shown = json.dumps({"code": algorithm, "input": kid.example, "on": KID_RUN})
+    hinge = Hinge(told.key(), KID_RUN, KID_HINGE, f'the predict Challenge of type "click" that asks the child to tap {kid.question}', answer)
+    last_stop = len(kid.reveal) - 1
+    point = f"{kid.point[0].upper()}{kid.point[1:]}."
+    reveal = [f"Step {4 + offset} plays the run {f'to \"until\": {KID_HINGE + 1 + offset}' if offset < last_stop else 'to its end, with no \"until\"'}, and {said}" for offset, said in enumerate(kid.reveal)]
+    brief = [
+        f"Real run to tell: the Ask is about {known.summary}. The server already ran it on fixed bars, and it has {len(told.turns)} turns. Carry exactly `\"trace\": {shown}` in every Step that plays it, on one `array` object with the id \"{KID_RUN}\" whose `values` are {json.dumps(_array_of(kid.example))}, which a child sees as bars as tall as their values, and write none of its operations by hand. Its turns are:",
+        *told.lines(""),
+        _ending(told),
+        f'Tell it in this order: Step 1 brings in the bars with the trace at "until": 0, plays nothing, and its narration asks the child\'s own question, told about bars, and says that {kid.opening}; Step 2 plays {kid.first_turn}, with "until": {KID_HINGE}; Step 3 keeps "until": {KID_HINGE} and is {hinge.asked}, and its narration asks only that, without giving the answer or saying anything else about the bars; {"; ".join(reveal)}; and the last Step, Step {4 + len(reveal)}, says the point in a child\'s words. The Lesson\'s "point" is "{point}", word for word.',
+        "A child sees bars as tall as their values and no numbers, so speak of bars, how tall they are and where they stand, never of a number, an index, a cell, an array, a pointer or a comparison, and never name the algorithm. Say only what the bars on stage do, and bring in no other search or sort the stage does not play. Never ask a child how many: a child answers by tapping a bar or a spot.",
+    ]
+    return Outline("\n".join(brief), Runs(hinge=hinge, told=frozenset({told.key()})), point)
+
+
+def _shortest_home(told: Told) -> int:
+    values = told.turns[0].values
+    return sorted(values).index(min(values))
+
+
+def _next_look(told: Told) -> int:
+    return next(_index(operation["on"][0]) for operation in told.turns[KID_HINGE].operations if operation["op"] == "pointer" and operation.get("name") == PROBE_POINTER)
+
+
+def _found(told: Told) -> int:
+    return next(_index(operation["on"][0]) for turn in told.turns for operation in turn.operations if operation["op"] == "found")
+
+
+KID_ANSWERS: dict[str, Callable[[Told], int]] = {SHORTEST_HOME: _shortest_home, NEXT_LOOK: _next_look, FOUND: _found}
+
+
 async def _outline(algorithm: str, tracer: Tracer, shows_code: bool) -> Outline:
     known = ALGORITHMS[algorithm]
     lab = outline_lab(algorithm)
     if shows_code and lab == "graph":
         main = await _told(algorithm, known.example, tracer, "code", False)
-        return Outline("\n".join([*_run_brief(main, None, main.stops()), GRAPH_BESIDE_CODE]))
+        return Outline("\n".join([*_run_brief(main, None, main.stops()), GRAPH_BESIDE_CODE]), Runs(told=frozenset({main.key()})))
     contrast = known.contrast
     if not contrast:
         main = await _told(algorithm, known.example, tracer, lab, shows_code)
-        return Outline("\n".join(_run_brief(main, None, main.stops())))
+        return Outline("\n".join(_run_brief(main, None, main.stops())), Runs(told=frozenset({main.key()})))
     main, side = await asyncio.gather(_told(algorithm, known.example, tracer, lab, shows_code), _told(contrast.algorithm, contrast.input, tracer, outline_lab(contrast.algorithm), False))
     return _contrast_outline(main, side, contrast)
 
@@ -115,8 +161,8 @@ async def _told(algorithm: str, example: Any, tracer: Tracer, lab: str, shows_co
     if shows_code:
         followed = _turns(run, lab, example, code_beside=True)
         if all(turn.cost <= MAX_STEP_OPERATIONS for turn in followed):
-            return Told(spec, run, lab, followed, code_beside=True)
-    return Told(spec, run, lab, _turns(run, lab, example, code_beside=False))
+            return Told(spec, example, run, lab, followed, code_beside=True)
+    return Told(spec, example, run, lab, _turns(run, lab, example, code_beside=False))
 
 
 def _turns(run: TracedRun, lab: str, example: Any, code_beside: bool) -> list[Turn]:
@@ -132,6 +178,8 @@ def _turns(run: TracedRun, lab: str, example: Any, code_beside: bool) -> list[Tu
         operations = window.of(by_event)
         cost = _followed_cost(run, by_event, window) if code_beside else len(operations)
         turns.append(Turn(operations, run, end, values, cost))
+        if lab == "array":
+            values = _played(values, operations).values
     return turns
 
 
@@ -140,22 +188,112 @@ def _followed_cost(run: TracedRun, by_event: list[tuple[int, list[dict[str, Any]
     return full if full <= MAX_STEP_OPERATIONS else len(code.follow({"do": []}, CODE_OBJECT, run, by_event, window, lines_only=True)["do"])
 
 
-def _contrast_outline(main: Told, side: Told, contrast: Any) -> Outline:
+def _contrast_outline(main: Told, side: Told, contrast: Contrast) -> Outline:
     beside = main.lab in SIDE_BY_SIDE_LABS and side.lab in SIDE_BY_SIDE_LABS
-    counted = bool(main.run.trace.counters.comparisons and side.run.trace.counters.comparisons)
-    asked, other = (main, side) if contrast.serves == NORMAL_CASE else (side, main)
-    parted = None if counted else asked.parted_from(other)
-    hinge = parted or asked.hinge(counted)
-    main_stops = main.stops(hinge if asked is main else None)
-    side_stops = side.stops(hinge if asked is side else None)
-    brief = "\n".join([*_run_brief(main, MAIN_RUN, main_stops), *_contrast_brief(side, contrast, side_stops, main.code_beside, counted, beside), _story_order(main, side, contrast, counted, beside, bool(parted), hinge, len(main_stops) + len(side_stops) + 3)])
+    asked = main if contrast.serves == NORMAL_CASE else side
+    proof = _proof(main, side, contrast)
+    main_stops = main.stops(proof.hinge if asked is main else None)
+    side_stops = side.stops(proof.hinge if asked is side else None)
+    brief = "\n".join([*_run_brief(main, MAIN_RUN, main_stops), *_contrast_brief(side, contrast, side_stops, main.code_beside, proof, beside), _story_order(contrast, proof, beside, len(main_stops) + 1, len(side_stops) + 1)])
     return Outline(
         brief,
-        frozenset({side.key()}),
-        contrast.serves != NORMAL_CASE,
-        frozenset({MAIN_RUN, CONTRAST_RUN}) if beside else frozenset(),
-        (asked.key(), hinge) if parted else None,
+        Runs(
+            frozenset({side.key()}),
+            contrast.serves != NORMAL_CASE,
+            frozenset({MAIN_RUN, CONTRAST_RUN}) if beside else frozenset(),
+            Hinge(asked.key(), MAIN_RUN if asked is main else CONTRAST_RUN, proof.hinge, f"{proof.question}, which the learner can work out from what the other run did; {proof.versus}", proof.answer) if proof.pinned else None,
+            frozenset({main.key(), side.key()}),
+            tuple((name, told.run) for name, told in ((MAIN_RUN, main), (CONTRAST_RUN, side)) if told.lab == "array"),
+        ),
     )
+
+
+@dataclass(frozen=True)
+class Proof:
+    hinge: int
+    pinned: bool
+    breaks: str
+    told_apart: str
+    versus: str
+    question: str
+    last: str
+    shown: str
+    compared: str
+    answer: str | None = None
+
+
+def _proof(main: Told, side: Told, contrast: Contrast) -> Proof:
+    asked, other = (main, side) if contrast.serves == NORMAL_CASE else (side, main)
+    names = (MAIN_RUN, CONTRAST_RUN) if asked is main else (CONTRAST_RUN, MAIN_RUN)
+    if contrast.measure == PLACED:
+        return _placed_proof(main, side, asked, names[0], contrast)
+    if getattr(main.run.trace.counters, contrast.measure) and getattr(side.run.trace.counters, contrast.measure):
+        return _total_proof(asked, other, names, contrast.measure)
+    return _order_proof(main, asked, other, names[0])
+
+
+def _total_proof(asked: Told, other: Told, names: tuple[str, str], total: str) -> Proof:
+    mine, theirs = (getattr(told.run.trace.counters, total) for told in (asked, other))
+    answer = "more" if mine > theirs else "fewer" if mine < theirs else "the same"
+    return Proof(
+        hinge=asked.hinge(total),
+        pinned=False,
+        breaks="the cost its own counter shows is the break, so say that cost plainly before the main run solves it",
+        told_apart=f"the last Step highlights the two {total} counters while it says the point. Say a total with the run's own placeholder, {{trace.{MAIN_RUN}.{total}}} for the main run and {{trace.{CONTRAST_RUN}.{total}}} for the contrast run, never the plain {{trace.{total}}}. Name no total in the Step before the hinge that the learner is asked to predict.",
+        versus="the hinge is a choice Challenge and its Step never says the answer",
+        question=f"whether the {names[0]} run will end with more, fewer or the same {total} as the {names[1]} run, which it has already finished",
+        last=f"the last Step highlights the main run's {total} counter and the contrast run's {total} counter, which both stay on stage, while it says the point",
+        shown="so its counter shows its total, and say what that costs",
+        compared="the two totals",
+        answer=answer,
+    )
+
+
+def _order_proof(main: Told, asked: Told, other: Told, name: str) -> Proof:
+    parted = asked.parted_from(other)
+    next_turn = "at its next turn, the first turn where its order parts from the other run's, so the answer is the node where the two orders differ" if parted else "at its last turn"
+    return Proof(
+        hinge=parted or asked.hinge(None),
+        pinned=bool(parted),
+        breaks="the order it plays shows the break, so say plainly what that order gets wrong before the main run solves it",
+        told_apart=f"the last Step says the point over the main run's finished {main.lab} and names both orders. These runs count nothing, so name no total and use no placeholder; tell each run by the order it plays.",
+        versus="the hinge Challenge asks what the run does at its next turn, and its Step never says it",
+        question=f"which node the {name} run takes {next_turn}",
+        last=f"the last Step says the point over the main run's finished {main.lab} and names both orders",
+        shown="so its whole order shows, and say what that order gets wrong",
+        compared="the two orders",
+    )
+
+
+def _placed_proof(main: Told, side: Told, asked: Told, name: str, contrast: Contrast) -> Proof:
+    hinge = asked.hinge(None)
+    runs = ((MAIN_RUN, main, main.landing(len(main.turns))), (CONTRAST_RUN, side, side.landing(len(side.turns))))
+    if any(landing is None for _, _, landing in runs):
+        raise ValueError(f"the {contrast.algorithm} contrast is told by where its last value lands, but a run's last turn puts no cell in its final place")
+    cell, value = next(landing for run, _, landing in runs if run == name)
+    if _array_of(asked.example)[cell] == value:
+        raise ValueError(f"the {contrast.algorithm} contrast asks where {value} lands, but {value} already sits in that cell before the run, so the stage shows the answer")
+    lands = "; ".join(f"the {run} run puts {landed} at index {at}, with {_counted(at, 'value')} on its left and {_counted(len(told.turns[0].values) - at - 1, 'value')} on its right" for run, told, (at, landed) in runs)
+    comparisons = {told.run.trace.counters.comparisons for told in (main, side)}
+    totals = f"Both runs make the same {comparisons.pop()} comparisons, so" if len(comparisons) == 1 else "Their totals are not the proof, so"
+    return Proof(
+        hinge=hinge,
+        pinned=True,
+        breaks="the cell its last value lands in shows the break, so say plainly where it lands before the main run solves it",
+        told_apart=f"the last Step says the point over both finished arrays, where the cell each run's last turn puts in its final place tells the two runs apart: {lands}. {totals} the Lesson's point and every Step name no total, use no placeholder and never say one run does more or less work; the point is where the last value lands and what that leaves on each side of it.",
+        versus='the hinge is a predict Challenge of type "click", which the learner answers by tapping a cell, and its Step never says the answer',
+        question=f"which cell {value} lands in when the {name} run's last turn puts it in its final place",
+        last="the last Step says the point over both finished arrays, which both stay on stage, and names the cell where each run's last value landed",
+        shown="so the cell where its last value lands shows, and say what that costs",
+        compared="where the two runs' last values landed",
+        answer=f"{name}[{cell}]",
+    )
+
+
+def _spine_part(serves: str, proof: Proof) -> str:
+    if serves == NORMAL_CASE:
+        return f"the normal case, in the Steps right after the promise, where {proof.breaks}"
+    return "the break, in the Steps after the main run's normal case, where the learner's assumption fails"
 
 
 def _staging(run: str, stops: list[int]) -> str:
@@ -186,7 +324,7 @@ def _promise_hint(algorithm: str) -> list[str]:
     return [f'Step 1, the promise, can be as close to this as the Ask allows, which is one question in the learner\'s own world of at most 14 words: "{promise}"'] if promise else []
 
 
-def _contrast_brief(told: Told, contrast: Any, stops: list[int], code_beside: bool, counted: bool, beside: bool) -> list[str]:
+def _contrast_brief(told: Told, contrast: Contrast, stops: list[int], code_beside: bool, proof: Proof, beside: bool) -> list[str]:
     spec = told.spec
     shown = json.dumps({"code": spec.code, "input": contrast.input, "on": CONTRAST_RUN})
     stage = STAGES[told.lab].format(values=json.dumps(_array_of(contrast.input)), source=spec.code, named=f' with the id "{CONTRAST_RUN}"')
@@ -198,42 +336,29 @@ def _contrast_brief(told: Told, contrast: Any, stops: list[int], code_beside: bo
         else f"Play it on a second object, {stage}. The stage fits one {told.lab} at a time, so a Step that brings one run on stage sets the other run's object to null, and a run that comes back replays its trace from the start up to its stop"
     )
     staying = "keep both objects on stage through to the last Step, never setting either to null, so that the two runs side by side are the proof" if beside else "the two runs never share the stage, so the proof is the two orders told one after the other"
-    proof = (
-        f"{staying}: the last Step highlights the two counters while it says the point. Say a total with the run's own placeholder, {{trace.{MAIN_RUN}.comparisons}} for the main run and {{trace.{CONTRAST_RUN}.comparisons}} for the contrast run, never the plain {{trace.comparisons}}. Name no total in the Step before the hinge that the learner is asked to predict."
-        if counted
-        else f"{staying}: the last Step says the point over the main run's finished {told.lab} and names both orders. These runs count nothing, so name no total and use no placeholder; tell each run by the order it plays."
-    )
     alone = " The code object steps only the main run, so a Step that plays the contrast run leaves the code where the main run left it." if code_beside else CODE_OBJECT_WARNING if told.crowded() else ""
     return [
-        f"Contrast run, which serves {SPINE_PART[contrast.serves, counted]}: {contrast.why}. It is {ALGORITHMS[spec.code].summary}, and it has {len(told.turns)} turns. {placed}, and carry exactly `\"trace\": {shown}` in every Step that plays it.{alone} A Step carries one trace, so each Step plays one of the two runs, and a Step that returns to a run repeats that run's whole trace. {_staging("contrast run", stops)} Its turns are:",
+        f"Contrast run, which serves {_spine_part(contrast.serves, proof)}: {contrast.why}. It is {ALGORITHMS[spec.code].summary}, and it has {len(told.turns)} turns. {placed}, and carry exactly `\"trace\": {shown}` in every Step that plays it.{alone} A Step carries one trace, so each Step plays one of the two runs, and a Step that returns to a run repeats that run's whole trace. {_staging("contrast run", stops)} Its turns are:",
         *told.lines("contrast "),
         _ending(told),
-        f"Show the contrast run in its own Steps for that part of the story, and {proof}",
+        f"Show the contrast run in its own Steps for that part of the story, and {staying}: {proof.told_apart}",
     ]
 
 
-def _story_order(main: Told, side: Told, contrast: Any, counted: bool, beside: bool, parted: bool, hinge: int, least_steps: int) -> str:
-    versus = f"the hinge is a choice Challenge, its answer is \"{_more_or_fewer(main, side, contrast.serves)}\" and its Step never says it" if counted else "the hinge Challenge asks what the run does at its next turn, and its Step never says it"
-    next_turn = "at its next turn, the first turn where its order parts from the other run's, so the answer is the node where the two orders differ" if parted else "at its last turn"
-    asked_break = "whether the contrast run will end with more, fewer or the same comparisons as the main run, which it has already finished" if counted else f"which node the contrast run takes {next_turn}"
-    asked = "whether the main run will end with more, fewer or the same comparisons as the contrast run" if counted else f"which node the main run takes {next_turn}"
-    last = "the last Step highlights the main run's counter and the contrast run's counter, which both stay on stage, while it says the point" if counted else f"the last Step says the point over the main run's finished {main.lab} and names both orders"
-    shown = "so its counter shows its total, and say what that costs" if counted else "so its whole order shows, and say what that order gets wrong"
-    compared = "the two totals" if counted else "the two orders"
+def _story_order(contrast: Contrast, proof: Proof, beside: bool, main_steps: int, side_steps: int) -> str:
     start = 'Step 1 is the promise, with the main trace at "until": 0' + (" and the contrast object on stage beside it" if beside else "")
     if contrast.serves == NORMAL_CASE:
-        order = f'{start}; the next Steps play the whole contrast run at its stops, {shown}; the next Steps play the main run; the hinge Step plays the main run up to "until": {hinge}, then asks the learner to predict {asked}; {versus}; the reveal Step plays the rest of the main run and compares {compared}; {last}'
+        order = f'{start}; the next Steps play the whole contrast run at its stops, {proof.shown}; the next Steps play the main run; the hinge Step plays the main run up to "until": {proof.hinge}, then asks the learner to predict {with_answer(proof.question, proof.answer)}; {proof.versus}; the reveal Step plays the rest of the main run and compares {proof.compared}; {proof.last}'
     else:
-        order = f'{start}; the next Steps play the main run, which is the normal case; then the contrast run plays at its stops, which is the break; the hinge Step plays the contrast run up to "until": {hinge}, then asks the learner to predict {asked_break}; {versus}; the reveal Step plays the end of the contrast run and compares {compared}; {last}'
-    return f'Suggested order of the Steps: {order}. With the promise, these stops make {least_steps} Steps, so add at most {max(0, 8 - least_steps)} more and keep the Lesson within 8 Steps. The order is a guide, and the Steps in it must follow from one another by cause.'
+        order = f'{start}; the next Steps play the main run, which is the normal case; then the contrast run plays at its stops, which is the break; the hinge Step plays the contrast run up to "until": {proof.hinge}, then asks the learner to predict {with_answer(proof.question, proof.answer)}; {proof.versus}; the reveal Step plays the end of the contrast run and compares {proof.compared}; {proof.last}'
+    first, second, second_steps = (CONTRAST_RUN, MAIN_RUN, main_steps) if contrast.serves == NORMAL_CASE else (MAIN_RUN, CONTRAST_RUN, side_steps)
+    least_steps = main_steps + side_steps + 2
+    budget = f"With the promise and the last Step, these stops make {least_steps} Steps, so add at most {max(0, MAX_LESSON_STEPS - least_steps)} more and keep the Lesson within {MAX_LESSON_STEPS} Steps: the {first} run ends by Step {MAX_LESSON_STEPS - second_steps - 1}, the {second} run ends by Step {MAX_LESSON_STEPS - 1}, and the last Step, which says the point, is Step {MAX_LESSON_STEPS} at the latest. Plan each run's Steps to fit, and never start the {second} run before the {first} run ends."
+    return f"Suggested order of the Steps: {order}. {budget} {RUNS_UNNAMED} The order is a guide, and the Steps in it must follow from one another by cause."
 
 
-def _more_or_fewer(main: Told, side: Told, serves: str) -> str:
-    mine, theirs = main.run.trace.counters.comparisons, side.run.trace.counters.comparisons
-    asked, other = (mine, theirs) if serves == NORMAL_CASE else (theirs, mine)
-    return "more" if asked > other else "fewer" if asked < other else "the same"
-
-
+MAX_LESSON_STEPS = 8
+RUNS_UNNAMED = 'The learner sees the two runs with no names, so "main" and "contrast" are words for you alone: never say them in "say", and call each run by what the learner sees, such as its list ("the first list", "the reversed list") or its algorithm ("binary search", "linear search").'
 STAGES = {
     "array": "one `array` object{named} whose `values` are {values}",
     "graph": 'one `{{"lab":"graph"}}` object{named} with no nodes or edges',
@@ -246,7 +371,11 @@ def _array_of(example: Any) -> list[Any]:
 
 
 def _index(on: str) -> int:
-    return int(re.search(r"\[(\d+)\]", on).group(1))
+    return int(CELL.search(on).group(1))
+
+
+def _adds_to(operation: dict[str, Any], total: str) -> bool:
+    return operation.get("count") == total or (operation.get("op") == "counter" and operation.get("name") == total)
 
 
 @dataclass
@@ -320,12 +449,16 @@ def _unframe(moves: Moves, operation: dict[str, Any]) -> None:
 ARRAY_MOVES: dict[str, Callable[[Moves, dict[str, Any]], None]] = {"pointer": _probe, "compare": _compare, "swap": _swap, "set": _write, "sorted": _place, "window": _frame, "clear": _unframe}
 
 
-def _array_turn(turn: Turn) -> str:
-    compared = {operation["on"][1] for operation in turn.operations if operation["op"] == "compare"}
-    moves = Moves(turn.values, list(turn.values), pivot_held=len(compared) == 1)
-    for operation in turn.operations:
+def _played(values: list[Any], operations: list[dict[str, Any]]) -> Moves:
+    compared = {operation["on"][1] for operation in operations if operation["op"] == "compare"}
+    moves = Moves(list(values), list(values), pivot_held=len(compared) == 1)
+    for operation in operations:
         ARRAY_MOVES.get(operation["op"], lambda *_: None)(moves, operation)
-    return "; ".join(moves.told()) or "nothing moves, the loop ends"
+    return moves
+
+
+def _array_turn(turn: Turn) -> str:
+    return "; ".join(_played(turn.values, turn.operations).told()) or "nothing moves, the loop ends"
 
 
 def _range_text(frame: tuple[int, int]) -> str:
@@ -356,6 +489,10 @@ def _swap_text(swaps: list[tuple[Any, Any]]) -> list[str]:
     if len(swaps) > 3:
         return [f"{len(swaps)} swaps"]
     return ["swaps " + ", ".join(f"{first} with {second}" for first, second in swaps)]
+
+
+def _counted(count: int, noun: str) -> str:
+    return f"no {noun}s" if count == 0 else f"1 {noun}" if count == 1 else f"{count} {noun}s"
 
 
 def _listed(items: list[Any]) -> str:
@@ -411,6 +548,8 @@ def _ending(told: Told) -> str:
             returned += f", the index of {spec.input['target']}."
         else:
             returned += "."
+    last = told.turns[-1] if told.turns else None
+    still = " No value in this run changes place: only its pointers move along it, so never say a value moves." if told.lab == "array" and last and _played(last.values, last.operations).values == told.turns[0].values else ""
     if not totals:
-        return f"The run ends.{searched}{returned}"
-    return f"The whole run makes {', '.join(totals)}.{searched}{returned}"
+        return f"The run ends.{searched}{returned}{still}"
+    return f"The whole run makes {', '.join(totals)}.{searched}{returned}{still}"

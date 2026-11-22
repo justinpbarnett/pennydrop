@@ -68,9 +68,15 @@ def window(until: int | None, turns: list[int], by_event: OperationsByEvent, pla
     start = 0 if last is None else next((turn for turn in turns if turn > last), events)
     end = events if until is None or until >= len(turns) else 0 if until == 0 else turns[until]
     if end < start:
-        done = sum(1 for turn in turns[1:] if turn <= start)
-        raise DirectiveError(f'trace directive: "until": {until} is earlier than the stage, which already shows the run through turn {done}; the stage cannot go back, so repeat the trace with "until": {done} to keep it as it is, a later one to play more, or no "until" to play the run to its end')
+        raise DirectiveError(_behind_the_stage(until, turns, start, events))
     return Window(start, end, finished=not any(position >= end for position, _ in by_event))
+
+
+def _behind_the_stage(until: int, turns: list[int], start: int, events: int) -> str:
+    if start >= events:
+        return f'trace directive: "until": {until} is earlier than the stage, which already shows the run played to its end; the stage cannot go back, so repeat the trace with no "until" to keep it as it is'
+    done = sum(1 for turn in turns[1:] if turn <= start)
+    return f'trace directive: "until": {until} is earlier than the stage, which already shows the run through turn {done}; the stage cannot go back, so repeat the trace with "until": {done} to keep it as it is, a later one to play more, or no "until" to play the run to its end'
 
 
 def _last_shown(by_event: OperationsByEvent, played: list[dict[str, Any]]) -> int | None:

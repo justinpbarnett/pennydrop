@@ -45,6 +45,35 @@ class TracedRun:
     window: tuple[str, str] | None = None
     placed: str | None = None
     settles: str | None = None
+    sorts: bool = False
+    seeks: bool = False
+
+
+@dataclass(frozen=True)
+class Hinge:
+    run: str
+    on: str
+    until: int
+    question: str
+    answer: str | None = None
+
+    @property
+    def asked(self) -> str:
+        return with_answer(self.question, self.answer)
+
+
+def with_answer(question: str, answer: str | None) -> str:
+    return f'{question}, whose answer is "{answer}"' if answer else question
+
+
+@dataclass(frozen=True)
+class Runs:
+    side: frozenset[str] = frozenset()
+    main_first: bool = False
+    kept_on_stage: frozenset[str] = frozenset()
+    hinge: Hinge | None = None
+    told: frozenset[str] = frozenset()
+    planned: tuple[tuple[str, TracedRun], ...] = ()
 
 
 @dataclass(frozen=True)

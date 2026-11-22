@@ -6,6 +6,12 @@ from typing import Any
 
 NORMAL_CASE = "normal_case"
 BREAK = "break"
+COMPARISONS = "comparisons"
+SWAPS = "swaps"
+PLACED = "placed"
+SHORTEST_HOME = "shortest_home"
+NEXT_LOOK = "next_look"
+FOUND = "found"
 
 
 @dataclass(frozen=True)
@@ -14,6 +20,18 @@ class Contrast:
     input: Any
     serves: str
     why: str
+    measure: str = COMPARISONS
+
+
+@dataclass(frozen=True)
+class KidStory:
+    example: Any
+    opening: str
+    first_turn: str
+    question: str
+    answer: str
+    reveal: tuple[str, ...]
+    point: str
 
 
 @dataclass(frozen=True)
@@ -29,7 +47,10 @@ class Algorithm:
     placed: str | None = None
     contrast: Contrast | None = None
     settles: str | None = None
+    sorts: bool = False
+    seeks: bool = False
     promise: str | None = None
+    kid: KidStory | None = None
 
 
 SEARCH_ARRAY = {"array": [1, 3, 5, 7, 9, 11, 13]}
@@ -61,7 +82,37 @@ PROMISES = {
     "tree_postorder": "How do you delete a folder only after everything inside it is gone?",
 }
 
-ALGORITHMS = {algorithm.name: replace(algorithm, promise=PROMISES.get(algorithm.name)) for algorithm in [
+KID_STORIES = {
+    "bubble_sort": KidStory(
+        [3, 5, 2, 4, 1],
+        "the bars stand mixed up, with the shortest bar at the far right",
+        "the first pass, where two bars side by side trade places whenever the left one is taller, so the tallest bar rides to the end, while the bars before it are still mixed up",
+        "the spot where the shortest bar will stand when the row is in order",
+        SHORTEST_HOME,
+        ("shows the rest of the passes and says that the shortest bar came home to the front",),
+        "bars side by side that are in the wrong order trade places, so each pass carries the tallest bar left to the end, and pass by pass the whole row ends up in order",
+    ),
+    "binary_search": KidStory(
+        SEARCH_ARRAY,
+        "the bars stand in order from shortest to tallest, and the search wants the tallest bar, the one that reaches the dashed line, but it can only look at one bar at a time",
+        "the first look, at the middle bar, which is too short, so the search throws away that bar and every bar on its left, and three bars are left",
+        "the bar the search looks at next",
+        NEXT_LOOK,
+        ("shows the look the child predicted, at the middle of the bars that are left, which is still too short, so the search throws it away too", "shows the last look, at the one bar left, and says that the search found the bar it wants"),
+        "the bars are in order, so one look at the middle tells the search which half the bar it wants is in, and every look throws away half of the bars that are left, which is how three looks find it among seven bars",
+    ),
+    "linear_search": KidStory(
+        {"array": [4, 1, 7, 3, 9]},
+        "the search wants the tallest bar, the one that reaches the dashed line, but it cannot see the whole row the way you can and looks at one bar at a time from the left",
+        "the first look, at the bar on the left, which is not the one it wants",
+        "the bar where the search will stop",
+        FOUND,
+        ("shows the rest of the looks and says that the search stopped at the bar it wants, the one that lights up",),
+        "the search looks at one bar at a time from the left, so to reach the bar at the far end it has to look at every bar in the row",
+    ),
+}
+
+ALGORITHMS = {algorithm.name: replace(algorithm, promise=PROMISES.get(algorithm.name), kid=KID_STORIES.get(algorithm.name)) for algorithm in [
     Algorithm("bubble_sort", "bubble_sort", '''
 def bubble_sort(a):
     n = len(a)
@@ -70,7 +121,7 @@ def bubble_sort(a):
             if a[j] > a[j + 1]:
                 a[j], a[j + 1] = a[j + 1], a[j]
     return a
-''', "a list of numbers", 'bubble sort, which swaps neighbors that are out of order, so each pass carries the largest value left to the end', [5, 2, 4, 1, 3], settles="end", contrast=Contrast("bubble_sort", [5, 4, 3, 2, 1], BREAK, "a list in reverse order, the worst case: every neighbor pair is out of order, so every compare also swaps")),
+''', "a list of numbers", 'bubble sort, which swaps neighbors that are out of order, so each pass carries the largest value left to the end', [5, 2, 4, 1, 3], sorts=True, settles="end", contrast=Contrast("bubble_sort", [5, 4, 3, 2, 1], BREAK, "a list in reverse order, the worst case: every neighbor pair is out of order, so every compare also swaps", SWAPS)),
     Algorithm("selection_sort", "selection_sort", '''
 def selection_sort(a):
     n = len(a)
@@ -82,7 +133,7 @@ def selection_sort(a):
         if smallest != i:
             a[i], a[smallest] = a[smallest], a[i]
     return a
-''', "a list of numbers", 'selection sort, which picks the smallest remaining value and swaps it into place', [5, 2, 4, 1, 3], settles="start", contrast=Contrast("selection_sort", [1, 2, 3, 4, 5], BREAK, "a list already in order: selection sort still compares every value with every later one and moves nothing, because it cannot tell the work is done")),
+''', "a list of numbers", 'selection sort, which picks the smallest remaining value and swaps it into place', [5, 2, 4, 1, 3], sorts=True, settles="start", contrast=Contrast("selection_sort", [1, 2, 3, 4, 5], BREAK, "a list already in order: selection sort still compares every value with every later one and moves nothing, because it cannot tell the work is done")),
     Algorithm("insertion_sort", "insertion_sort", '''
 def insertion_sort(a):
     for i in range(1, len(a)):
@@ -93,7 +144,7 @@ def insertion_sort(a):
             j -= 1
         a[j + 1] = key
     return a
-''', "a list of numbers", 'insertion sort, which slides each value left into the sorted part before it', [5, 2, 4, 1, 3], contrast=Contrast("insertion_sort", [1, 2, 3, 4, 5], NORMAL_CASE, "a list already in order: each value is checked against its left neighbor only and slides nowhere, so the work is one compare per value, and a mixed list costs more because values slide past larger ones")),
+''', "a list of numbers", 'insertion sort, which slides each value left into the sorted part before it', [5, 2, 4, 1, 3], sorts=True, contrast=Contrast("insertion_sort", [1, 2, 3, 4, 5], NORMAL_CASE, "a list already in order: each value is checked against its left neighbor only and slides nowhere, so the work is one compare per value, and a mixed list costs more because values slide past larger ones")),
     Algorithm("merge_sort", "merge_sort", '''
 def merge_sort(a):
     sort_range(a, 0, len(a))
@@ -126,7 +177,7 @@ def sort_range(a, low, high):
         a[k] = right[j]
         j += 1
         k += 1
-''', "a list of numbers", 'merge sort, which splits the list in halves, sorts each and merges them', [5, 2, 4, 1, 3], contrast=Contrast("insertion_sort", [5, 2, 4, 1, 3], NORMAL_CASE, "the way a person sorts by hand on the same list: slide each value left into the sorted part, one value at a time")),
+''', "a list of numbers", 'merge sort, which splits the list in halves, sorts each and merges them', [5, 2, 4, 1, 3], sorts=True, contrast=Contrast("insertion_sort", [5, 2, 4, 1, 3], NORMAL_CASE, "the way a person sorts by hand on the same list: slide each value left into the sorted part, one value at a time")),
     Algorithm("quick_sort", "quick_sort", '''
 def quick_sort(a):
     sort_range(a, 0, len(a) - 1)
@@ -145,7 +196,7 @@ def sort_range(a, low, high):
     a[boundary], a[high] = a[high], a[boundary]
     sort_range(a, low, boundary - 1)
     sort_range(a, boundary + 1, high)
-''', "a list of numbers", 'quicksort, the whole sort: it partitions around a pivot, then sorts each side the same way', [4, 1, 5, 2, 6, 3], ("boundary", "j"), ("low", "high"), "boundary", Contrast("quick_sort", [1, 2, 3, 4, 5, 6], BREAK, "a list already in order, the worst case: the pivot is always the largest value, so each partition splits off one value and sorts the rest again")),
+''', "a list of numbers", 'quicksort, the whole sort: it partitions around a pivot, then sorts each side the same way', [4, 1, 5, 2, 6, 3], ("boundary", "j"), ("low", "high"), "boundary", contrast=Contrast("quick_sort", [1, 2, 3, 4, 5, 6], BREAK, "a list already in order, the worst case: the pivot is always the largest value, so each partition splits off one value and sorts the rest again"), sorts=True),
     Algorithm("partition", "partition", '''
 def partition(a):
     pivot = a[-1]
@@ -156,7 +207,7 @@ def partition(a):
             boundary += 1
     a[boundary], a[-1] = a[-1], a[boundary]
     return a
-''', "a list of numbers whose last value is the pivot", 'one quicksort partition around a pivot, a single pass and not the whole sort', [5, 2, 8, 1, 9, 3, 7, 4], ("boundary", "j"), contrast=Contrast("partition", [1, 2, 3, 4, 5, 6, 7, 8], BREAK, "a list already in order: the pivot is the largest value, so every value stays on its left and the other side is empty")),
+''', "a list of numbers whose last value is the pivot", 'one quicksort partition around a pivot, a single pass and not the whole sort', [5, 2, 8, 1, 9, 3, 7, 4], ("boundary", "j"), placed="boundary", contrast=Contrast("partition", [8, 7, 6, 5, 4, 3, 2, 1], BREAK, "a list in reverse order: the pivot is the smallest value, so no value goes on its left, the pivot moves to the very front, and every other value ends on one side", PLACED)),
     Algorithm("binary_search", "binary_search", '''
 def binary_search(array, target):
     low, high = 0, len(array) - 1
@@ -169,14 +220,14 @@ def binary_search(array, target):
         else:
             high = middle - 1
     return -1
-''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with a sorted array; leave "target" out and the directive searches for the last value, which takes the most halvings', 'binary search, which finds a value in a sorted array by checking the middle and halving the range', SEARCH_ARRAY, window=("low", "high"), contrast=Contrast("linear_search", SEARCH_ARRAY, NORMAL_CASE, "the scan a person would try first: look at every value from the left, one look per value, so the last value costs one look per value in the list")),
+''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with a sorted array; leave "target" out and the directive searches for the last value, which takes the most halvings', 'binary search, which finds a value in a sorted array by checking the middle and halving the range', SEARCH_ARRAY, window=("low", "high"), seeks=True, contrast=Contrast("linear_search", SEARCH_ARRAY, NORMAL_CASE, "the scan a person would try first: look at every value from the left, one look per value, so the last value costs one look per value in the list")),
     Algorithm("linear_search", "linear_search", '''
 def linear_search(array, target):
     for index in range(len(array)):
         if array[index] == target:
             return index
     return -1
-''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with an array; leave "target" out and the directive searches for the last value, which takes the most looks', 'linear search, which finds a value by looking at the cells one by one from the left', SEARCH_ARRAY, contrast=Contrast("binary_search", SEARCH_ARRAY, BREAK, "a sorted list lets a search halve the range with every look, so the same last value takes three looks instead of seven")),
+''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with an array; leave "target" out and the directive searches for the last value, which takes the most looks', 'linear search, which finds a value by looking at the cells one by one from the left', SEARCH_ARRAY, seeks=True, contrast=Contrast("binary_search", SEARCH_ARRAY, BREAK, "a sorted list lets a search halve the range with every look, so the same last value takes three looks instead of seven")),
     Algorithm("two_pointers_pair_sum", "pair_sum", '''
 def pair_sum(array, target):
     left, right = 0, len(array) - 1

@@ -68,7 +68,6 @@ NEW_TOPIC = "new_topic"
 PICTURE_LAB = "picture"
 NO_SUBJECT = "none"
 NO_ALGORITHM = "none"
-KID_ALGORITHMS = ("bubble_sort", "binary_search", "linear_search")
 
 
 class Tier(StrEnum):
@@ -139,7 +138,7 @@ class Classifier:
         if any(lab.id in TARGETS for lab in labs):
             questions["algorithm"] = Choice(
                 "Which one of these algorithms does the Ask ask about, how it works or why it behaves as it does? Answer none when the Ask is about anything else, such as a data structure, an operating system idea or a network.",
-                {name: algorithm.summary for name, algorithm in ALGORITHMS.items() if not is_kid or name in KID_ALGORITHMS} | {NO_ALGORITHM: "none of these algorithms"},
+                {name: algorithm.summary for name, algorithm in ALGORITHMS.items() if not is_kid or algorithm.kid} | {NO_ALGORITHM: "none of these algorithms"},
             )
         if not is_kid and any(lab.id in TARGETS for lab in labs):
             questions["shows_code"] = YesNo("Does the person ask to see the program's code itself, such as its source lines or how it runs line by line, rather than only what it does to its data?")

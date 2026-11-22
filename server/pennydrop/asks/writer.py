@@ -9,7 +9,6 @@ from ..courses import CourseContext
 from ..gateway import CallStats, Gateway
 from ..settings import Job
 from ..store import Profile
-from ..tracer import ALGORITHMS
 from .catalog import Catalog
 from .classify import Plan
 from .directives import directive_briefs, directive_guides
@@ -74,7 +73,6 @@ These hold when the Learner is a kid, and nothing in a kid Lesson may need readi
 - Never run the setup the Challenge asks about before the Challenge: the Steps before it show the normal case with a simpler setup, such as one ball, and the Step right after the Challenge runs the asked setup for the first time as the reveal.
 - Tell a sum or a take away on a number line, with the numbers the child asked about, and make the point tell it as hops, in the form "A and B more make C, because B hops from A land on C." Write its Steps in this order: Step 1 brings in the line with the hopper on the first number, plays nothing, has no Challenge, and its narration asks the sum as a question; Step 2 hops one, such as three and one more make four; Step 3 hops one back to the first number; Step 4 is the click Challenge, asking the child to tap the spot where the asked hops will land; Step 5 plays the asked hops for the first time and says where the hopper lands; and the last Step says the point. Before the Challenge the hopper never goes more than one spot from the first number. A pile of blocks may show the same sum only after that reveal, with "add" or "take" and a "count".
 - Show with pictures, shapes and physics, and put no text, code or math objects on the stage. A sort or a search shows as an array traced with a library algorithm, which a child sees as bars as tall as their values trading places, never as code.
-- Tell a sort as bubble_sort traced on four or five bars whose shortest bar starts at the far right, in this order: Step 1 brings in the bars with "until": 0, plays nothing, and its narration asks the question; Step 2 plays the first pass with "until": 1, and the tallest bar rides to the end; Step 3 keeps "until": 1 and is the click Challenge, asking the child to tap the spot where the shortest bar will stand when the row is in order; Step 4 plays the run to its end, with no "until", and says where the shortest bar landed; and the last Step says the point. Tell a search with binary_search on sorted bars the same way: Step 2 plays the first middle check, Step 3 asks the child to tap the bar the search checks next, and Step 4 plays the rest. Never ask a child how many: a child answers by tapping a bar or a spot.
 - Keep one Lab object on the stage at a time, so it fills the screen: to show a new setup, change the one on stage with its own ops, such as "set" on a physics setup, or bring the new object in and remove the old one with null in the same Step's "scene".
 - Every Challenge is "kind": "predict" with "type": "click", where the child taps an object on the stage.
 - The narration asks the question out loud, because the child hears it and does not read it.
@@ -113,8 +111,6 @@ class Brief:
         lines.extend(directive_briefs(self.plan.labs))
         if self.outline:
             lines.append(self.outline)
-        elif self.plan.algorithm:
-            lines.append(f'The Ask is about {ALGORITHMS[self.plan.algorithm].summary}: trace "{self.plan.algorithm}" on bars, in the kid order for a sort or a search.')
         if self.photo_search:
             lines.append(f"A photo search for \"{self.photo_search}\" is already running: use the images directive with exactly that query for the Ask's main subject. You still choose freely for any other subject.")
         if self.plan.follow_up:

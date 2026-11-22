@@ -75,7 +75,6 @@ const BOTTOM_MARGIN = 22;
 const POINTER_TIP = 54;
 const POINTER_LABEL = 57;
 const POINTER_REACH = 67;
-const POINTER_LEVEL = 80;
 const MAX_ARC = 64;
 const TEXT_LABEL_SHARE = 0.3;
 const CELL_TEXT_PADDING = 16;
@@ -126,15 +125,10 @@ function metrics(state: ArrayState) {
   const rowWidth = count * (cellWidth + gap) - gap;
   const width = Math.max(rowWidth, MIN_WIDTH);
   const top = Math.max(MIN_TOP, (look.words && bandEntries(state, new Map()).length > 0 ? COUNTER_BAND : 0) + (state.window || state.room.window ? WINDOW_BAND : 0));
-  const levels = state.pointers.length === 0 ? 0 : Math.max(...state.pointers.map((pointer) => pointerLevel(state, pointer)));
   const pointed = state.pointers.length > 0 || state.room.pointers;
-  const below = (pointed ? POINTER_TIP + look.pointerReach + levels * POINTER_LEVEL : look.indexBottom) + BOTTOM_MARGIN;
+  const below = (pointed ? POINTER_TIP + look.pointerReach : look.indexBottom) + BOTTOM_MARGIN;
   const rowHeight = Math.round(cell * look.rise);
   return { cell, rowHeight, cellWidth, labelSize, gap, width, offset: (width - rowWidth) / 2, top, height: top + rowHeight + below };
-}
-
-function pointerLevel(state: ArrayState, pointer: Pointer): number {
-  return state.pointers.filter((other) => other.slot === pointer.slot).indexOf(pointer);
 }
 
 function slotCenterX(state: ArrayState, slot: number): number {
@@ -311,12 +305,14 @@ function counterDrawables(state: ArrayState, values: Map<string, string>): Drawa
 function pointerDrawables(state: ArrayState): Drawable[] {
   const { top, rowHeight } = metrics(state);
   const bottom = top + rowHeight;
+  const tip = bottom + POINTER_TIP;
   return state.pointers.flatMap((pointer) => {
     const x = slotCenterX(state, pointer.slot);
-    const tip = bottom + POINTER_TIP + pointerLevel(state, pointer) * POINTER_LEVEL;
+    const sharing = state.pointers.filter((other) => other.slot === pointer.slot);
+    const labelled = lookOf(state).words && sharing[0] === pointer;
     return [
       { id: `pointer-${pointer.name}`, kind: "path" as const, x, y: tip, points: [x, tip, x - 13, tip + 22, x + 13, tip + 22], closed: true, fill: "active" as const, stroke: "none" as const, z: 3 },
-      ...(lookOf(state).words ? [textDrawable(`pointer-${pointer.name}-label`, pointer.name, { x, y: tip + POINTER_LABEL }, { size: 32, fill: "active", z: 3 })] : []),
+      ...(labelled ? [textDrawable(`pointer-${pointer.name}-label`, sharing.map((other) => other.name).join(", "), { x, y: tip + POINTER_LABEL }, { size: 32, fill: "active", z: 3 })] : []),
     ];
   });
 }

@@ -146,6 +146,8 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
         expanded = {**expanded, "do": [*expanded["do"][:played], *code.within_budget(expanded["do"][played:], MAX_STEP_OPERATIONS)]}
     elif code_id:
         expanded = _with_code_following(expanded, played, code_id, by_event, run, window)
+    if not window.finished and (pause := getattr(target, "paused", None)):
+        expanded = {**expanded, "do": [*expanded["do"], *pause(expanded["do"][played:], object_id)]}
     _require_within_a_step(expanded.get("do", [])[played:], bool(turns))
     _require_the_next_turn_predicted(step, object_id, by_event, turns, window, len(run.trace.events))
     _require_one_middle_check(spec, expanded.get("do", [])[played:], pool[object_id], step.get("say"))
@@ -343,7 +345,9 @@ async def _run(spec: TraceSpec, tracer: Tracer) -> TracedRun:
     if trace.truncated:
         raise DirectiveError("trace directive: the traced code ran too long to play; trace a smaller input")
     known = ALGORITHMS.get(spec.code)
-    return TracedRun(trace, spec.input, source, *(((known.pointers, known.window, known.placed, known.settles)) if known else ()))
+    if known:
+        return TracedRun(trace, spec.input, source, known.pointers, known.window, known.placed, known.settles, known.sorts, known.seeks)
+    return TracedRun(trace, spec.input, source, sorts=any(event.type in ("swap", "set") for event in trace.events))
 
 
 def _entry_point(source: str) -> str:

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from .directives import directives_for_labs
-from .directives._support import operation_targets, trace_key, with_nested_trace_lifted
+from .directives._support import Hinge, Runs, operation_targets, trace_key, with_nested_trace_lifted
 from .directives.simulate import contradictions, filled_from
 from .directives.trace import CONTRAST_RUN, MAIN_RUN, TRACE_TOTALS
 from .directives.trace.array import holds_input
@@ -16,6 +17,7 @@ SHOWN_TEXT_FIELDS = ("text", "caption", "label", "title")
 LAB_KEY_PREFIX = "lab:"
 TRACE_TOTAL_PREFIX = "trace."
 STANDS_ALONE = r"(?<![\w.]){}(?![\w]|\.\d)"
+CELL_ANSWER = re.compile(r"([\w-]+)\[(\d+)\]")
 
 
 STRUCTURE_FIELDS = ("nodes", "values", "items", "edges", "cells", "rows")
@@ -42,6 +44,7 @@ def _holds_nothing(spec: dict[str, Any]) -> bool:
 
 FRONTIER_OPERATIONS = ("push", "pop", "relax")
 LOOKS = ("highlight", "clear")
+RUNS_IN_DO = 'do: a "trace" entry in "do" plays no run, since a Step plays one run through its own top-level "trace"; carry the run this Step moves in "trace", take every "trace" entry out of "do", and leave a run that an earlier Step finished as it is, because it stays on stage as it ended'
 RUN_OBJECTS = (MAIN_RUN, CONTRAST_RUN)
 
 
@@ -68,14 +71,22 @@ def _how_to_fill(lab: str) -> str:
     return "fill it with its data, or let a directive fill it, or remove it"
 
 
+@dataclass(frozen=True)
+class NextRun:
+    contrast: bool
+    beside_another: bool
+    until: int | None
+
+    @property
+    def name(self) -> str:
+        return "contrast run" if self.contrast else "main run" if self.beside_another else "run"
+
+
 class Stage:
-    def __init__(self, snapshot: Any = None, side_runs: frozenset[str] = frozenset(), main_first: bool = False, kid: bool = False, kept_on_stage: frozenset[str] = frozenset(), hinge: tuple[str, int] | None = None, charts_quantities: bool = False):
-        self.side_runs = side_runs
+    def __init__(self, snapshot: Any = None, runs: Runs = Runs(), kid: bool = False, charts_quantities: bool = False):
+        self.runs = runs
         self.kid = kid
         self.charts_quantities = charts_quantities
-        self.kept_on_stage = kept_on_stage
-        self.hinge = hinge
-        self.main_first = main_first
         self.specs: dict[str, dict[str, Any]] = {}
         self.labs: dict[str, str] = {}
         self.traces: set[str] = set()
@@ -145,48 +156,70 @@ class Stage:
         return self.trace_untils.get(trace_key(raw))
 
     def run_left_unfinished(self, written: Any, values: dict[str, Any]) -> bool:
-        main = self.traces - self.side_runs
+        main = self.traces - self.runs.side
         if not main or main & (self.finished_traces | self.shown_totals.keys()):
             return False
         raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
-        if trace_key(raw) in self.side_runs:
+        if trace_key(raw) in self.runs.side:
             return True
         return not (trace_totals(values) or (isinstance(raw, dict) and "until" not in raw))
 
     def main_stop_before_side_run(self, written: Any) -> int | None:
         key = trace_key(self.filled_trace(written.get("trace")) if isinstance(written, dict) else None)
-        main = self.traces - self.side_runs
-        if not self.main_first or key not in self.side_runs or key in self.traces or not main or main & (self.finished_traces | self.shown_totals.keys()):
+        main = self.traces - self.runs.side
+        if not self.runs.main_first or key not in self.runs.side or key in self.traces or not main or main & (self.finished_traces | self.shown_totals.keys()):
             return None
         return max((self.trace_untils.get(run) or 0 for run in main), default=0)
 
     def side_stop_before_main_run(self, written: Any) -> int | None:
         key = trace_key(self.filled_trace(written.get("trace")) if isinstance(written, dict) else None)
-        started = self.side_runs & self.traces
-        if self.main_first or key is None or key in self.side_runs or not started or started & (self.finished_traces | self.shown_totals.keys()):
+        started = self.runs.side & self.traces
+        if self.runs.main_first or key is None or key in self.runs.side or not started or started & (self.finished_traces | self.shown_totals.keys()):
             return None
         return max(self.trace_untils.get(run) or 0 for run in started)
 
-    def asks_off_the_hinge(self, written: Any) -> int | None:
-        challenge = written.get("challenge") if isinstance(written, dict) else None
-        if self.hinge is None or not isinstance(challenge, dict) or challenge.get("kind") != "predict":
-            return None
-        key, stop = self.hinge
-        trace = self.filled_trace(written.get("trace"))
-        if trace_key(trace) != key or key in self.finished_traces or (self.trace_untils.get(key) or 0) >= stop:
-            return None
-        return stop if trace.get("until") != stop else None
+    def misses_the_hinge(self, written: Any) -> Hinge | None:
+        hinge = self._hinge_still_open(written)
+        return None if hinge is None or self._on_the_hinge(hinge, written) else hinge
 
-    def side_run_unplayed(self) -> bool:
-        return bool(self.side_runs - self.traces)
+    def asks_the_planned_hinge(self, written: Any) -> bool:
+        hinge = self._hinge_still_open(written)
+        return hinge is not None and hinge.answer is not None and self._on_the_hinge(hinge, written)
+
+    def open_hinge(self) -> Hinge | None:
+        hinge = self.runs.hinge
+        if hinge is None or hinge.run in self.finished_traces or (self.trace_untils.get(hinge.run) or 0) > hinge.until:
+            return None
+        return hinge
+
+    def _hinge_still_open(self, written: Any) -> Hinge | None:
+        challenge = written.get("challenge") if isinstance(written, dict) else None
+        return self.open_hinge() if isinstance(challenge, dict) and challenge.get("kind") == "predict" else None
+
+    def _on_the_hinge(self, hinge: Hinge, written: dict[str, Any]) -> bool:
+        trace = self.filled_trace(written.get("trace"))
+        if trace_key(trace) == hinge.run:
+            stop = trace.get("until")
+        else:
+            stop = self.trace_untils.get(hinge.run) if hinge.run in self.traces else None
+        return stop == hinge.until and (hinge.answer is None or written["challenge"].get("answer") == hinge.answer)
+
+    def run_to_play_next(self) -> NextRun | None:
+        played = self.finished_traces | self.shown_totals.keys()
+        main = [(False, key) for key in sorted(self.traces - self.runs.side)]
+        side = [(True, key) for key in sorted(self.runs.side)]
+        for contrast, key in main + side if self.runs.main_first or not self.runs.side else side + main:
+            if key not in played:
+                return NextRun(contrast, bool(self.runs.side), self.trace_untils.get(key) if key in self.traces else None)
+        return None
 
     def plays_last_run(self, written: Any) -> bool:
         key = trace_key(self.filled_trace(written.get("trace")) if isinstance(written, dict) else None)
         played = self.finished_traces | self.shown_totals.keys()
-        if key in self.side_runs:
-            main = self.traces - self.side_runs
+        if key in self.runs.side:
+            main = self.traces - self.runs.side
             return bool(main) and main <= played
-        return self.side_runs <= played
+        return self.runs.side <= played
 
     def remember_simulation(self, written: Any) -> None:
         raw = written.get("simulate") if isinstance(written, dict) else None
@@ -197,7 +230,13 @@ class Stage:
         return next((raw for lab, raw in self.simulations.items() if raw.get("until") is not None and lab in self.labs.values()), None)
 
     def errors_in_written(self, written: Any) -> list[str]:
-        return self._graph_played_by_hand(written) + self._run_played_by_hand(written) + self._run_taken_off(written) + self._counters_owned_by_trace(written) + self._run_pointed_by_hand(written) + self._declared_again(written) + self._function_plotted(written) + self._left_blank(written) + self._code_for_child(written)
+        return self._graph_played_by_hand(written) + self._run_played_by_hand(written) + self._runs_in_do(written) + self._run_taken_off(written) + self._counters_owned_by_trace(written) + self._run_pointed_by_hand(written) + self._declared_again(written) + self._function_plotted(written) + self._left_blank(written) + self._code_for_child(written)
+
+    def _runs_in_do(self, written: Any) -> list[str]:
+        operations = written.get("do") if isinstance(written, dict) and isinstance(written.get("do"), list) else []
+        if not any(isinstance(operation, dict) and operation.get("op") == "trace" and isinstance(operation.get("trace"), dict) for operation in operations):
+            return []
+        return [RUNS_IN_DO]
 
     def _code_for_child(self, written: Any) -> list[str]:
         scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
@@ -229,7 +268,7 @@ class Stage:
 
     def _run_taken_off(self, written: Any) -> list[str]:
         scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
-        return [f'scene: {name} is set to null, which takes the {name} run off the stage, but the two runs stay side by side from Step 1 to the last Step, since seeing both is the proof; keep {name} on stage and leave it out of this Step\'s scene' for name in sorted(self.kept_on_stage) if name in scene and scene[name] is None]
+        return [f'scene: {name} is set to null, which takes the {name} run off the stage, but the two runs stay side by side from Step 1 to the last Step, since seeing both is the proof; keep {name} on stage and leave it out of this Step\'s scene' for name in sorted(self.runs.kept_on_stage) if name in scene and scene[name] is None]
 
     def _declared_again(self, written: Any) -> list[str]:
         scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
@@ -258,18 +297,18 @@ class Stage:
         return [f'{name}: a graph search written by hand with push, pop, relax or visit over a frontier goes wrong as soon as one neighbor is missed; when a library algorithm fits (breadth_first_search, depth_first_search, dijkstra), {carry}; for a tree you build or walk by hand, leave out "frontier" and use visit only to point at the node being compared' for name in by_hand]
 
     def _run_played_by_hand(self, written: Any) -> list[str]:
-        if not self.side_runs or not isinstance(written, dict):
+        if not self.runs.side or not isinstance(written, dict):
             return []
         trace = self.filled_trace(written.get("trace"))
         key = trace_key(trace)
-        traced = None if key is None else CONTRAST_RUN if key in self.side_runs else MAIN_RUN
+        traced = None if key is None else CONTRAST_RUN if key in self.runs.side else MAIN_RUN
         on = trace.get("on") if isinstance(trace, dict) else None
         named = on if isinstance(on, list) else [on]
         elsewhere = [] if traced is None or traced in named else [f'trace: "on" names {json.dumps(on)}, but this trace is the {traced} run, which plays only on the object with the id "{traced}"; set "on" to "{traced}", and keep each run on its own object so the two stay side by side']
         played = sorted({
             name
             for operation in written.get("do", [])
-            if isinstance(operation, dict) and operation.get("op") not in LOOKS
+            if isinstance(operation, dict) and operation.get("op") not in (*LOOKS, "trace")
             for name in operation_targets(operation)
             if name in RUN_OBJECTS and name != traced
         })
@@ -355,8 +394,30 @@ class Stage:
                 name = operation["on"][0]
                 self.specs[name] = {**self.specs[name], "parts": operation.get("parts", [])}
 
+    def off_the_outline(self, written: Any) -> list[str]:
+        trace = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
+        key = trace_key(trace)
+        told = sorted(json.dumps(json.loads(run)["input"]) for run in self.runs.told if json.loads(run)["code"] == trace.get("code")) if key else []
+        if not told or key in self.runs.told:
+            return []
+        inputs = " or ".join(f"`{shown}`" for shown in told)
+        return [f'trace directive: the server already ran {trace["code"]} for this Lesson on {inputs}, as the brief gives; carry exactly that "input" in this trace, with no other field in it, so that every Step narrates the run the brief describes']
+
+    def cell_place(self, step: dict[str, Any]) -> str | None:
+        challenge = step.get("challenge")
+        found = CELL_ANSWER.fullmatch(str(challenge.get("answer"))) if isinstance(challenge, dict) else None
+        if found is None:
+            return None
+        spec = (step.get("scene") or {}).get(found[1]) or self.specs.get(found[1])
+        values = spec.get("values") if isinstance(spec, dict) and spec.get("lab") == "array" else None
+        index = int(found[2])
+        if not isinstance(values, list) or index >= len(values):
+            return None
+        end = ", the first, at the left end" if index == 0 else ", the last, at the right end" if index == len(values) - 1 else ""
+        return f"cell {index + 1} of the {len(values)} in the row, counting from the left{end}"
+
     def errors_in(self, step: dict[str, Any], written: Any, values: dict[str, Any]) -> list[str]:
-        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + self._empty_stage(step) + question_without_challenge(step) + self._total_already_shown(step, written, values) + self.unran_values(step, ran_something(written)) + contradictions(step, self.labs, self.played) + self.setups.errors_in(step) + self.hops.errors_in(step)
+        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + self._empty_stage(step) + question_without_challenge(step) + self.off_the_outline(written) + self._total_already_shown(step, written, values) + self.unran_values(step, ran_something(written)) + contradictions(step, self.labs, self.played) + self.setups.errors_in(step) + self.hops.errors_in(step)
 
     def _total_already_shown(self, step: dict[str, Any], written: Any, values: dict[str, Any]) -> list[str]:
         challenge = step.get("challenge")
@@ -404,7 +465,7 @@ class Stage:
         replayed = [
             f'this Step asks the viewer to predict an insert of {value}, but an earlier Step already played that run with a trace, so the result is known; put the prediction in a Step before the Step that carries the trace'
             for value in dict.fromkeys(announced)
-            if self.finished_traces - self.side_runs and value not in already
+            if self.finished_traces - self.runs.side and value not in already
         ]
         return shown_errors + replayed
 

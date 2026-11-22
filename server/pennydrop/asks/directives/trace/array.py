@@ -8,12 +8,12 @@ from ._stages import Window, loop_turns
 PROBE_POINTER = "probe"
 COUNTED_EVENTS = ("comparisons", "swaps", "writes")
 
-OPERATIONS = frozenset({"compare", "pointer", "counter", "swap", "set", "window", "sorted"})
+OPERATIONS = frozenset({"compare", "pointer", "counter", "swap", "set", "window", "sorted", "found"})
 
 GUIDE = "\n".join([
     "The `array` Lab plays a trace as compares, swaps and writes on its cells.",
     "Set one `array` object with `values` equal to the input list, so the trace starts from known values. The counters `comparisons`, `swaps` and `writes` are added for you when the algorithm changes them, so name no counters yourself.",
-    "The trace also draws what the algorithm keeps in its range: a bracket over the cells still in play, such as the live low to high range of binary_search and quick_sort, and a sorted mark on each cell that reaches its final place, such as the pivot of quick_sort, so set no `window` or `sorted` on a traced array either.",
+    "The trace also draws what the algorithm keeps in its range: a bracket over the cells still in play, such as the live low to high range of binary_search and quick_sort, and a sorted mark on each cell that reaches its final place, such as the pivot of partition and quick_sort, so set no `window` or `sorted` on a traced array either.",
     "The trace slides the pointers its algorithm keeps, such as `boundary` and `j` for partition and quick_sort, under the cells they index, so set no `pointers` on a traced array: a pointer the run does not move would stand still while the narration moves on.",
 ])
 
@@ -29,15 +29,27 @@ def apply(step: dict[str, Any], object_id: str, run: TracedRun, window: Window) 
     by_event = operations_by_event(run, object_id)
     return {
         **step,
-        "scene": {**step["scene"], object_id: _with_room(_with_counters(array, [name for name in COUNTED_EVENTS if getattr(run.trace.counters, name)]), by_event)},
+        "scene": {**step["scene"], object_id: dressed(array, run, by_event)},
         "do": [*step.get("do", []), *window.of(by_event)],
     }
+
+
+def dressed(array: dict[str, Any], run: TracedRun, by_event: list[tuple[int, list[dict[str, Any]]]]) -> dict[str, Any]:
+    return _with_target(_with_room(_with_counters(array, [name for name in COUNTED_EVENTS if getattr(run.trace.counters, name)]), by_event), run)
 
 
 def _with_room(array: dict[str, Any], by_event: list[tuple[int, list[dict[str, Any]]]]) -> dict[str, Any]:
     drawn = {operation["op"] for _, operations in by_event for operation in operations}
     room = [band for band, op in (("pointers", "pointer"), ("window", "window")) if op in drawn]
     return {**array, "room": room} if room else array
+
+
+def _with_target(array: dict[str, Any], run: TracedRun) -> dict[str, Any]:
+    return {**array, "target": run.input["target"]} if run.seeks else array
+
+
+def paused(operations: list[dict[str, Any]], array_id: str) -> list[dict[str, Any]]:
+    return [{"op": "clear", "on": [array_id]}] if any(operation.get("op") in ("compare", "swap") for operation in operations) else []
 
 
 def turns(run: TracedRun) -> list[int]:
@@ -89,13 +101,13 @@ def operations_by_event(run: TracedRun, array_id: str) -> list[tuple[int, list[d
             _add(found, position - 1 if looped_back else position, operations)
             last_line = event
             continue
-        if event.type == "call" and run.placed and last_line is not None and event.function == last_line.stack[-1]:
+        if event.type in ("call", "return") and run.placed and last_line is not None and event.function == last_line.stack[-1]:
             index = last_line.locals.get(run.placed)
             if _is_slot(index, len(values)) and index not in settled:
                 settled.add(index)
                 operations.append({"op": "sorted", "on": [cell(index)]})
         elif event.type == "compare":
-            operations = _compare_operations(event, array_id)
+            operations = _compare_operations(event, array_id, pointed)
         elif event.type == "swap":
             values[event.i], values[event.j] = values[event.j], values[event.i]
             operations.append({"op": "swap", "on": [cell(event.i), cell(event.j)], "count": "swaps"})
@@ -135,19 +147,22 @@ def _range_of(names: tuple[str, str] | None, scope: dict[str, Any], size: int) -
     return (low, high) if _is_slot(low, size) and _is_slot(high, size) and low <= high else None
 
 
-def _compare_operations(event: Any, array_id: str) -> list[dict[str, Any]]:
+def _compare_operations(event: Any, array_id: str, pointed: dict[str, int]) -> list[dict[str, Any]]:
     if event.i is not None and event.j is not None:
         return [{"op": "compare", "on": [f"{array_id}[{event.i}]", f"{array_id}[{event.j}]"], "count": "comparisons"}]
     probed = event.i if event.i is not None else event.j
-    probe = {"op": "pointer", "name": PROBE_POINTER, "on": [f"{array_id}[{probed}]"]}
-    return [probe, {"op": "counter", "on": [array_id], "name": "comparisons", "add": 1}] if event.counted else [probe]
+    probe = [] if pointed.get(PROBE_POINTER) == probed else [{"op": "pointer", "name": PROBE_POINTER, "on": [f"{array_id}[{probed}]"]}]
+    pointed[PROBE_POINTER] = probed
+    return [*probe, {"op": "counter", "on": [array_id], "name": "comparisons", "add": 1}] if event.counted else probe
 
 
 def _closing(found: list[tuple[int, list[dict[str, Any]]]], run: TracedRun, array_id: str, framed: bool, values: list) -> list[dict[str, Any]]:
     moved = any(operation["op"] in ("compare", "swap", "set") for _, operations in found for operation in operations)
     closing = [{"op": "clear", "on": [array_id]}] if moved else []
-    if run.placed or (moved and all(left <= right for left, right in zip(values, values[1:], strict=False))):
+    if run.sorts and all(left <= right for left, right in zip(values, values[1:], strict=False)):
         closing += [*([{"op": "clear", "on": [array_id], "what": "window"}] if framed else []), {"op": "sorted", "on": [array_id]}]
+    if run.seeks and _is_slot(run.trace.result, len(values)):
+        closing.append({"op": "found", "on": [f"{array_id}[{run.trace.result}]"]})
     return closing
 
 

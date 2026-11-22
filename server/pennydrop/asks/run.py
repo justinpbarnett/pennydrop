@@ -16,11 +16,12 @@ from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
-from .directives import DirectiveError, DirectiveTools, as_promise, carries_directive, computed_facts, directive_briefs, expand_directives, fill_values, run_outline, staged_directives, with_sources
-from .directives._support import operation_targets
+from .directives import DirectiveError, DirectiveTools, as_promise, carries_directive, computed_facts, directive_briefs, expand_directives, fill_values, kid_outline, run_outline, staged_directives, with_sources
+from .directives._support import Runs, operation_targets
+from .directives.curves import graphed_half_way
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
-from .mending import PROMISE_WORDS, mended, mended_by_verdict, mended_cues, retold, with_one_figure_on_stage, with_shortest_bar_last
+from .mending import PROMISE_WORDS, mended, mended_by_verdict, mended_cues, retold, with_one_figure_on_stage
 from .stage import Stage, question_without_challenge, ran_something, trace_totals
 from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, event_plays, plot_views, shapes_plays
 from .stopwatch import Stopwatch
@@ -30,7 +31,6 @@ from .writer import Brief, Writer
 LOG = logging.getLogger("pennydrop.asks")
 MAX_MENDS = 3
 MAX_REPAIR_TRIES = 2
-HALF_WAY_WHOLE_FROM = 10
 HONOR_CODE_ERROR = "the Step touches project code or an assignment spec; explain the concept on a toy example of your own instead"
 MISSING_HINGE = 'no Step so far asks the predict Challenge, and only the last Step comes after this one, so this Step is the hinge: add a "challenge" that the earlier Steps let the learner answer, make "say" ask that question in plain words without giving the answer, and keep the scene, because the next Step reveals it; the narration never names the story\'s parts, such as "hinge" or "reveal"'
 REVEALED_NEXT = '; the last Step says "{say}", so ask what that Step shows that no earlier Step has played or said, and never what the stage already shows'
@@ -38,7 +38,7 @@ NARRATION_ONLY = 'this Step could not keep its challenge, so it ships without on
 TRUE_NARRATION = 'say: this Step could not be repaired, so it ships with the narration you write now, and every sentence of its narration disagrees with what running the Lesson\'s examples computed: {facts}; rewrite "say" alone so it tells this beat of the story with only claims these values bear out, naming the run each value comes from, and keep every other field as it is'
 NARRATION_OFF_STAGE = 'say: this Step plays only this on the stage: {played}; the narration tells a move the stage does not play here, so rewrite "say" to tell the moves this Step plays, in their order, and keep every other field as it is'
 ANSWER_ON_STAGE = 'challenge: a Challenge waits after its Step plays, and by then the stage shows {shown}, so the learner reads the answer off it instead of predicting; ask what a later Step plays that the stage does not show yet: stop this Step\'s run at an earlier "until", or graph the line that settles the answer in the next Step, so the answer is still to come'
-STORY_OFF_LAB = 'the stage still holds only text and shapes after this Step, but the Lesson plans the {labs} Lab, where the story is shown rather than told; bring that Lab on stage in this Step, with its directive when it has one, and show on it what "say" tells'
+STORY_OFF_LAB = 'the stage holds no Lab figure after this Step, only primitives such as text, shapes or hand-drawn axes, but the Lesson plans the {labs} Lab, where the story is shown rather than told; bring that Lab on stage in this Step, with its directive when it has one, and show on it what "say" tells'
 RUN_ENDS_BEFORE_HINGE = 'this Step plays the run to its end before the Lesson has asked its predict Challenge, and once the run ends the stage shows every result, so nothing is left to predict; give this Step\'s trace an "until" that stops before the turn that settles the answer, so a later Step can ask the Challenge over the unfinished run and the Step after it can play the end'
 RUN_ENDS_AFTER_STOP = 'this Step plays the run to its end before the Lesson has asked its predict Challenge, and once the run ends the stage shows every result, so nothing is left to predict; the Step before stopped the run at "until": {until}, so repeat the trace here with "until": {until}, which keeps the stage as it is, make this Step the hinge that asks the predict Challenge over the unfinished run without giving the answer, and leave the end of the run to the next Step\'s trace with no "until"'
 LOADED_BEFORE_HINGE = 'this Step has the OS load the missing page before the Lesson has asked its predict Challenge, and once the page is loaded the stage shows what the OS does, so nothing is left to predict; stop this Step\'s simulation at "k fault", where the walk finds the invalid entry, make this Step the hinge that asks what happens next without giving the answer, and leave "k load" to the next Step'
@@ -46,15 +46,16 @@ OPEN_QUESTION = 'say: the narration ends on a question, but this Step has no Cha
 PLOT_ENDS_BEFORE_HINGE = 'this Step draws the {plot} plot to its end before the Lesson has asked its predict Challenge, and once every line is drawn the learner reads any answer off the plot; graph the {line} line here only part way, with "to" at an x before the end, so a later Step can ask the Challenge about where it ends and the Step after it can graph the rest and mark the end'
 SIDE_RUN_TOO_SOON = 'this Step starts the contrast run while the main run is stopped at "until": {until}, but the story plays the main run, the normal case, to its end before the contrast run breaks it, so the learner never sees the main run finish; play the main run on in this Step instead, with its trace at the next stop the brief gives after {until}, or with no "until" when no stop is left, narrate the turns it plays, and start the contrast run only in a Step after the main run ends'
 MAIN_RUN_TOO_SOON = 'this Step plays the main run while the contrast run is stopped at "until": {until}, but the story plays the contrast run, the normal case, to its end before the main run answers it, so the learner never sees the contrast run finish and its whole order or total is never shown; play the contrast run on in this Step instead, with its trace at the next stop the brief gives after {until}, or with no "until" when no stop is left, narrate the turns it plays, and play the main run only in a Step after the contrast run ends'
-OFF_THE_HINGE = 'this Step\'s predict Challenge is asked where it is not the hinge; the two runs first part on the turn right after "until": {hinge}, and that turn is the one the learner can work out from what the other run did; stop this Step\'s trace at "until": {hinge}, ask what the run does on its next turn, and make the answer the node that turn works on'
+PLANNED_HINGE = '; the story asks its hinge right after "until": {until} of the run on "{on}", so carry that run\'s trace in this Step with "until": {until}, which leaves the rest of the run to the last Step, and ask {question}'
+OFF_THE_HINGE = 'this Step\'s predict Challenge is not the one the story asks at its hinge, which comes right after "until": {until} of the run on "{on}"; take the Challenge out of this Step, and ask it in the Step that plays that run to "until": {until}, which is {question}'
 RUN_LEFT_UNFINISHED = 'the run on stage stopped part way, and this is the last Step, so the learner never sees how it ends; carry the trace directive here with no "until", so this Step plays the rest of the run to its end, and let the narration tell what the finished run shows'
 ANSWER_TOLD = 'challenge: the narration so far, this Step\'s "say" included, already tells the answer to this Challenge, so the learner remembers it instead of predicting; take the answer out of this Step\'s "say", and when an earlier Step told it, ask about the next thing the run or story does that no Step has said or played yet, and let the next Step show it'
-PLOT_ENDS_ADVICE = re.compile(r"^this Step draws the (\S+) plot to its end before .* graph the (\S+) line here only part way")
 STILL_OPENING = "this Step plays nothing on the stage and asks nothing"
 STILL_STAGE = STILL_OPENING + ', so the learner hears new words over a still picture; add to "do" the operations that show what "say" tells, such as the next part of the run, the next line of a plot or a highlight on what the narration names, and keep the narration'
 CHALLENGE_READ_OFF = 'challenge: it asks about {x} {at}, but the {plot} plot already draws every line through {x} {at}, so the learner reads the answer off the plot instead of predicting it; ask about where the lines end, at {x} {end}, while one line is still drawn only part way, and let the next Step graph the rest and mark the end'
 END_TOLD_EARLY = 'say: the narration gives {value}, where the {line} line ends, but the {plot} plot has not drawn that line to its end yet, so the narration tells the result before the stage shows it; leave that number out of "say" here and tell it in the Step that graphs the {line} line to its end and marks it'
 STILL_SIDE_RUN = "; the contrast run is not played yet, so carry its trace in this Step exactly as the brief gives it, and play it here"
+STILL_STOPPED_RUN = '; the story plays the {run} next, and it is stopped at "until": {until}, so carry its trace in this Step with the next stop the brief gives after {until}, or with no "until" when no stop is left, and narrate the turns it plays'
 ASKED_AT_THE_CLOSE = 'challenge: this is the last Step, which closes the story on the point, and a Challenge here comes after the reveal, with nothing left to show its answer; leave "challenge" out of this Step and make "say" state the point'
 STILL_RUN = STILL_OPENING + ': its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
 STILL_SIMULATION = STILL_OPENING + ', so the learner hears new words over a still picture; the run on stage plays only through its "simulate" directive, never through "do", so carry the simulation of the Step before, {simulation}, with the next stop after its "until", or with no "until" to play the rest of the run, and keep "say" telling only the part this Step plays'
@@ -108,6 +109,14 @@ class Checked:
     advice: list[str] = field(default_factory=list)
     values: dict[str, Any] = field(default_factory=dict)
     disputed: list[str] = field(default_factory=list)
+    still: bool = False
+    plot_ended: tuple[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class Spoiler:
+    advice: str
+    plot_ended: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +142,7 @@ class LessonRun:
         self._first_voice: asyncio.Task[Voice | None] | None = None
         self._repairs: list[dict[str, Any]] = []
         self._catalog_labs: set[str] = set()
+        self._planned_labs: set[str] = set()
         self._op_docs: dict[str, dict[str, str]] = {}
         self._published = 0
         self._shown_steps = 0
@@ -142,6 +152,7 @@ class LessonRun:
         self._asked_challenge = False
         self._told: list[str] = []
         self._stage = Stage()
+        self._told_point: str | None = None
         self._refused = False
         self._warm_picture: asyncio.Task[None] | None = None
         self._point_check: asyncio.Task[str] | None = None
@@ -172,14 +183,16 @@ class LessonRun:
         plan = await kit.classifier.plan(self._ask.text, self._ask.profile, snapshot.labs, self._ask.viewing, self._record.id)
         self._stopwatch.mark("classified")
         self._refused = not plan.fine_for_young_child
+        self._planned_labs = set(plan.labs)
         self._request_missing_lab(plan)
         photo_search = plan.photo_subject if "picture" in plan.labs else None
         if photo_search:
             self._warm_picture = asyncio.create_task(prefetch(kit.directive_tools.images, photo_search, not self._is_kid, self._record.id))
         self._record = replace(self._record, tier=plan.tier.value)
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
-        outline = await run_outline(plan.algorithm, kit.directive_tools.tracer, plan.shows_code) if plan.algorithm and not self._is_kid else None
-        self._stage = Stage(start_scene, outline.side_runs, outline.main_first, kid=self._is_kid, kept_on_stage=outline.kept_on_stage, hinge=outline.hinge) if outline else Stage(start_scene, kid=self._is_kid, charts_quantities=plan.charts_quantities)
+        outline = (await kid_outline(plan.algorithm, kit.directive_tools.tracer) if self._is_kid else await run_outline(plan.algorithm, kit.directive_tools.tracer, plan.shows_code)) if plan.algorithm else None
+        self._stage = Stage(start_scene, outline.runs if outline else Runs(), kid=self._is_kid, charts_quantities=plan.charts_quantities)
+        self._told_point = outline.point if outline else None
         brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, photo_search, outline.brief if outline else None)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()
         ready: asyncio.Queue[ReadyStep | None] = asyncio.Queue()
@@ -226,7 +239,7 @@ class LessonRun:
             store.file_lab_request(self._ask.text)
 
     def _open(self, header: Header, start_scene: Any) -> None:
-        header = header.model_copy(update={"labs": [lab for lab in header.labs if lab in self._catalog_labs], "start_scene": start_scene, "reading": self._reading})
+        header = header.model_copy(update={"labs": [lab for lab in header.labs if lab in self._catalog_labs], "start_scene": start_scene, "reading": self._reading, "point": self._told_point or header.point})
         data = header.model_dump(exclude_none=True)
         self._record = replace(self._record, title=header.title, labs=header.labs, header=data)
         self._kit.store.save_lesson(self._record)
@@ -275,7 +288,7 @@ class LessonRun:
             self._log_repair(pending.number, attempt + 1, reasons, "redone by the writer")
             written = self._mended(await self._kit.writer.repair(brief, scene, written, reasons, self._record.id), pending.number)
         if not checked.errors:
-            if any(advice.startswith(STILL_OPENING) for advice in checked.advice):
+            if checked.still:
                 self._log_repair(pending.number, attempt + 1, checked.advice, "dropped the still Step, which the writer could not make play")
                 return None
             if isinstance(written, dict) and "challenge" in written and any(CHALLENGE_FLAW.match(advice) for advice in checked.advice):
@@ -299,21 +312,12 @@ class LessonRun:
         return await self._salvage(brief, pending, written, checked, scene)
 
     def _held_back(self, written: dict[str, Any] | Malformed, checked: Checked) -> dict[str, Any] | None:
-        found = next((match for advice in checked.advice if (match := PLOT_ENDS_ADVICE.match(advice))), None)
-        if not isinstance(written, dict) or found is None or checked.step is None:
+        if not isinstance(written, dict) or checked.plot_ended is None or checked.step is None:
             return None
-        plot, line = found.groups()
+        plot, line = checked.plot_ended
         scene = checked.step.get("scene") if isinstance(checked.step.get("scene"), dict) else {}
         spec = scene[plot] if isinstance(scene.get(plot), dict) else self._stage.specs.get(plot, {})
-        points = (spec.get("curves") or {}).get(line)
-        operations = written.get("do") if isinstance(written.get("do"), list) else []
-        drawn = [index for index, operation in enumerate(operations) if isinstance(operation, dict) and operation.get("op") == "graph" and operation.get("curve") == line and plot in (operation.get("on") or [])]
-        if not points or not drawn:
-            return None
-        start, end = points[0][0], points[-1][0]
-        half = start + (end - start) / 2
-        cut = {**operations[drawn[-1]], "to": round(half) if end - start >= HALF_WAY_WHOLE_FROM else round(half, 1)}
-        return {**written, "do": [*operations[: drawn[-1]], cut, *operations[drawn[-1] + 1 :]]}
+        return graphed_half_way(written, plot, line, (spec.get("curves") or {}).get(line))
 
     async def _unasked(self, brief: Brief, pending: PendingStep, written: dict[str, Any], scene: Any) -> SettledStep | None:
         unasked = {field: value for field, value in written.items() if field != "challenge"}
@@ -323,7 +327,7 @@ class LessonRun:
             return None
         unasked = retold(unasked, say)
         checked = await self._check(unasked, pending, scene)
-        if checked.errors or any(CHALLENGE_FLAW.match(advice) or advice.startswith(STILL_OPENING) for advice in checked.advice) or OPEN_QUESTION in checked.advice:
+        if checked.errors or checked.still or any(CHALLENGE_FLAW.match(advice) for advice in checked.advice) or OPEN_QUESTION in checked.advice:
             return None
         return self._accepted(unasked, checked)
 
@@ -331,7 +335,7 @@ class LessonRun:
         if isinstance(written, Malformed):
             return written
         step = mended({**written, "step": number}, self._stage)
-        return as_promise(with_one_figure_on_stage(with_shortest_bar_last(step), self._stage) if self._is_kid else step)
+        return as_promise(with_one_figure_on_stage(step, self._stage) if self._is_kid else step)
 
     def _accepted(self, written: dict[str, Any] | Malformed, checked: Checked) -> SettledStep:
         self._stage.remember_trace(written, checked.step, checked.values)
@@ -368,20 +372,20 @@ class LessonRun:
         plays: list[StagePlay] = [*arrays, *figures]
         plots = plot_views(scene, step)
         events = event_plays(scene, step, self._op_docs)
-        fine_for_child, keeps_honor_code, restates_point, claims_agree, asked_at_the_close, *further_advice = await asyncio.gather(
+        fine_for_child, keeps_honor_code, restates_point, claims_agree, asked_at_the_close, spoiler, still, *further_advice = await asyncio.gather(
             self._fine_for_child(step),
             self._keeps_honor_code(step),
             self._restates_point(step, number, pending.followed),
             self._claims_agree(step, written, known, facts),
             _asked_at_the_close(step, number, pending.followed),
+            self._ends_before_hinge(step, written, values, plots, pending.followed),
+            self._still_stage(step, written, number, pending.followed),
             self._missing_hinge(step, number, pending.last_after),
             self._narration_off_stage(step, arrays, figures, events),
-            self._answer_on_stage(step, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines] + [play.told() for play in events]),
+            self._answer_on_stage(step, written, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines] + [play.told() for play in events]),
             self._answer_told(step),
             self._asks_the_challenge(step),
             self._story_off_lab(step, number),
-            self._ends_before_hinge(step, written, values, plots, pending.followed),
-            self._still_stage(step, written, number, pending.followed),
             _end_told_early(step, plots),
             _challenge_read_off(step, plots),
             self._run_left_unfinished(written, values, pending.followed),
@@ -398,13 +402,13 @@ class LessonRun:
             self._claims_disagreed.add(number)
             errors.append(_claims_disagree(_claimed(step), facts))
         advice = [] if restates_point or number in self._claims_disagreed else [f'the last Step must say the Lesson\'s point again in plain words, and this narration does not; the point is "{self._record.header["point"]}"; rewrite "say" so it states that point simply as the close of the story, and keep the Step\'s scene and challenge']
-        advice.extend(found for found in further_advice if found)
+        advice.extend(found for found in [spoiler.advice if spoiler else None, still, *further_advice] if found)
         advice.extend(too_soon)
         if number > 1 and "challenge" not in step and isinstance(step.get("say"), str) and step["say"].rstrip().endswith("?"):
             advice.append(OPEN_QUESTION)
         if number == 1 and not self._refused and isinstance(step.get("say"), str) and len(step["say"].split()) > PROMISE_WORDS:
             advice.append(f"the promise must be one question sentence of at most {PROMISE_WORDS} words, and this one runs longer; cut any setup sentence and keep the concrete example inside the question")
-        return Checked(errors, step, verdict.scene, advice, values, [] if claims_agree else facts)
+        return Checked(errors, step, verdict.scene, advice, values, [] if claims_agree else facts, still is not None, spoiler.plot_ended if spoiler else None)
 
     async def _missing_hinge(self, step: dict[str, Any], number: int, last_after: asyncio.Future[dict[str, Any] | Malformed | None]) -> str | None:
         if number == 1 or self._asked_challenge or "challenge" in step:
@@ -413,10 +417,12 @@ class LessonRun:
         if last is None:
             return None
         say = last.get("say") if isinstance(last, dict) else None
-        return MISSING_HINGE + (REVEALED_NEXT.format(say=say) if isinstance(say, str) else "")
+        hinge = self._stage.open_hinge()
+        planned = PLANNED_HINGE.format(until=hinge.until, on=hinge.on, question=hinge.asked) if hinge else ""
+        return MISSING_HINGE + planned + (REVEALED_NEXT.format(say=say) if isinstance(say, str) else "")
 
     async def _story_off_lab(self, step: dict[str, Any], number: int) -> str | None:
-        planned = set(self._record.labs)
+        planned = self._planned_labs | set(self._record.labs)
         if number != 2 or not planned:
             return None
         scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
@@ -426,19 +432,19 @@ class LessonRun:
             return None
         return " ".join([STORY_OFF_LAB.format(labs=" or ".join(sorted(planned))), *directive_briefs(tuple(sorted(planned)))])
 
-    async def _ends_before_hinge(self, step: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any], plots: list[PlotView], followed: asyncio.Future[bool]) -> str | None:
+    async def _ends_before_hinge(self, step: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any], plots: list[PlotView], followed: asyncio.Future[bool]) -> Spoiler | None:
         if self._asked_challenge or "challenge" in step:
             return None
         if trace_totals(values) and self._stage.plays_last_run(written):
             until = self._stage.until_shown_by(written)
-            advice = RUN_ENDS_AFTER_STOP.format(until=until) if isinstance(until, int) and until > 0 else RUN_ENDS_BEFORE_HINGE
+            spoiler = Spoiler(RUN_ENDS_AFTER_STOP.format(until=until) if isinstance(until, int) and until > 0 else RUN_ENDS_BEFORE_HINGE)
         elif finished := next((view for view in plots if view.graphed and not view.unfinished), None):
-            advice = PLOT_ENDS_BEFORE_HINGE.format(plot=finished.name, line=finished.graphed[-1])
+            spoiler = Spoiler(PLOT_ENDS_BEFORE_HINGE.format(plot=finished.name, line=finished.graphed[-1]), (finished.name, finished.graphed[-1]))
         elif any(operation.get("op") == "fault" and self._stage.labs.get(next(iter(operation.get("on") or []), "")) == "address" for operation in step.get("do", []) if isinstance(operation, dict)):
-            advice = LOADED_BEFORE_HINGE
+            spoiler = Spoiler(LOADED_BEFORE_HINGE)
         else:
             return None
-        return advice if await followed else None
+        return spoiler if await followed else None
 
     async def _run_left_unfinished(self, written: dict[str, Any] | Malformed, values: dict[str, Any], followed: asyncio.Future[bool]) -> str | None:
         if not self._stage.run_left_unfinished(written, values):
@@ -450,8 +456,8 @@ class LessonRun:
             return [SIDE_RUN_TOO_SOON.format(until=until)]
         if (until := self._stage.side_stop_before_main_run(written)) is not None:
             return [MAIN_RUN_TOO_SOON.format(until=until)]
-        if (hinge := self._stage.asks_off_the_hinge(written)) is not None:
-            return [OFF_THE_HINGE.format(hinge=hinge)]
+        if (hinge := self._stage.misses_the_hinge(written)) is not None:
+            return [OFF_THE_HINGE.format(until=hinge.until, on=hinge.on, question=hinge.asked)]
         return []
 
     async def _still_stage(self, step: dict[str, Any], written: dict[str, Any], number: int, followed: asyncio.Future[bool]) -> str | None:
@@ -464,7 +470,11 @@ class LessonRun:
             return STILL_RUN.format(directive=staged)
         if running := self._stage.unfinished_simulation():
             return STILL_SIMULATION.format(simulation=json.dumps(running))
-        return STILL_STAGE + STILL_SIDE_RUN if self._stage.side_run_unplayed() else STILL_STAGE
+        if (next_run := self._stage.run_to_play_next()) is None:
+            return STILL_STAGE
+        if next_run.until is None:
+            return STILL_STAGE + STILL_SIDE_RUN
+        return STILL_STAGE + STILL_STOPPED_RUN.format(run=next_run.name, until=next_run.until)
 
     async def _narration_off_stage(self, step: dict[str, Any], arrays: list[ArrayPlay], figures: list[FigurePlay], events: list[EventPlay]) -> str | None:
         say = step.get("say")
@@ -488,9 +498,9 @@ class LessonRun:
             return None
         return NARRATION_OFF_STAGE.format(played="; and ".join(filter(None, (moved_arrays, moved_figures, played_events)))) if any(off) else None
 
-    async def _answer_on_stage(self, step: dict[str, Any], views: list[str]) -> str | None:
-        asked = _predicted(step)
-        if not views or asked is None:
+    async def _answer_on_stage(self, step: dict[str, Any], written: dict[str, Any], views: list[str]) -> str | None:
+        asked = _predicted(step, self._stage.cell_place(step))
+        if not views or asked is None or self._stage.asks_the_planned_hinge(written):
             return None
         shown = "; and ".join(views)
         try:
@@ -514,7 +524,7 @@ class LessonRun:
         return None if same else ASKS_ANOTHER_QUESTION
 
     async def _answer_told(self, step: dict[str, Any]) -> str | None:
-        asked = _predicted(step)
+        asked = _predicted(step, self._stage.cell_place(step))
         if asked is None:
             return None
         try:
@@ -580,7 +590,8 @@ class LessonRun:
             self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, f"left the Step out, since its narration, rewritten {MAX_REPAIR_TRIES} more times, still disagreed with what running the Lesson's examples computed")
             return None
         validator = self._kit.validator
-        self._stage.lost_runs = self._stage.lost_runs or ran_something(written)
+        lost_before = self._stage.lost_runs
+        self._stage.lost_runs = lost_before or ran_something(written)
         answerable = not self._stage.unran_values(step, False) and not any(CHALLENGE_FLAW.match(error) for error in last.errors + last.advice)
         if answerable and last.disputed and "challenge" in step:
             answerable = await self._claim_holds(_claimed({"say": say, "challenge": step["challenge"]}), last.disputed)
@@ -621,7 +632,12 @@ class LessonRun:
             candidate, kept_ops = {key: value for key, value in told_step.items() if key != "do"}, told_step.get("do", [])
         outcome = f"{told}, dropped fields {sorted(set(step) - set(candidate) - {'do'})} and {len(step.get('do', [])) - len(kept_ops)} operations"
         self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, outcome)
-        return SettledStep({**candidate, **({"do": kept_ops} if kept_ops else {})}, verdict.scene)
+        settled = {**candidate, **({"do": kept_ops} if kept_ops else {})}
+        if ran_something(written) and kept_ops == step.get("do", []) and candidate.get("scene") == step.get("scene"):
+            self._stage.lost_runs = lost_before
+            self._stage.remember_trace(written, settled, last.values)
+            self._stage.remember_simulation(written)
+        return SettledStep(settled, verdict.scene)
 
     async def _plainly(self, number: int, step: dict[str, Any], scene: Any, written: dict[str, Any] | Malformed, values: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]], Verdict] | None:
         plain = self._stage.hops.plain_step(step)
@@ -786,9 +802,10 @@ def _said_number(value: float) -> str:
     return f"{value:,.2f}".rstrip("0").rstrip(".")
 
 
-def _predicted(step: dict[str, Any]) -> str | None:
+def _predicted(step: dict[str, Any], place: str | None) -> str | None:
     challenge = step.get("challenge")
     if not isinstance(challenge, dict) or challenge.get("kind") != "predict" or "answer" not in challenge:
         return None
     choices = f' Choices: {", ".join(map(str, challenge["choices"]))}.' if isinstance(challenge.get("choices"), list) else ""
-    return f'{challenge.get("prompt")}{choices} Answer: {challenge["answer"]}'
+    placed = f" ({place})" if place else ""
+    return f'{challenge.get("prompt")}{choices} Answer: {challenge["answer"]}{placed}'

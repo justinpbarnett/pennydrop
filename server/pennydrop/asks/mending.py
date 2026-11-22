@@ -8,6 +8,7 @@ from ..tracer import ALGORITHMS
 from .directives._support import operation_targets
 from .directives.simulate import filled_from, with_scene_figure_as_simulation
 from .directives.trace import library_filled
+from .directives.trace.array import dressed, holds_input, operations_by_event
 from .directives.trace.code import shown_source
 from .played_hops import says_number
 from .stage import FRONTIER_OPERATIONS, TRACE_TOTAL_PREFIX, Stage, answer_given_away
@@ -24,7 +25,9 @@ NUMBER_WITH_COMMAS = re.compile(r"^-?\d{1,3}(,\d{3})+(\.\d+)?$|^-?\d+(\.\d+)?$")
 
 
 def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    step = _with_run_entries_lifted(step)
     step = _with_promise_alone(step)
+    step = _with_planned_arrays_dressed(step, stage)
     step = _with_trace_for_its_values(step, stage)
     step = with_scene_figure_as_simulation(step, stage.on_stage())
     step = _with_simulation_filled(step, stage)
@@ -50,17 +53,25 @@ def _with_promise_alone(step: dict[str, Any]) -> dict[str, Any]:
     return {**step, "say": question}
 
 
-def with_shortest_bar_last(step: dict[str, Any]) -> dict[str, Any]:
-    trace = step.get("trace")
-    values = trace.get("input") if isinstance(trace, dict) and trace.get("code") == "bubble_sort" else None
-    if not isinstance(values, list) or not values or not all(isinstance(value, int | float) for value in values) or values[-1] == min(values):
+def _with_run_entries_lifted(step: dict[str, Any]) -> dict[str, Any]:
+    operations = step.get("do")
+    entries = [operation for operation in operations if isinstance(operation, dict) and operation.get("op") == "trace" and isinstance(operation.get("trace"), dict)] if isinstance(operations, list) else []
+    if not entries:
         return step
-    shortest = values.index(min(values))
-    moved = [*values[:shortest], *values[shortest + 1 :], values[shortest]]
+    playing = [run for run in ({**{key: value for key, value in entry.items() if key not in ("op", "on", "cue", "trace")}, **entry["trace"]} for entry in entries) if run.get("until") != 0]
+    if len(playing) > 1 or (playing and "trace" in step):
+        return step
+    kept = [operation for operation in operations if not any(operation is entry for entry in entries)]
+    lifted = {**{key: value for key, value in step.items() if key != "do"}, **({"do": kept} if kept else {})}
+    return {**lifted, "trace": playing[0]} if playing else lifted
+
+
+def _with_planned_arrays_dressed(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     scene = step.get("scene")
-    if isinstance(scene, dict):
-        step = {**step, "scene": {name: {**spec, "values": moved} if isinstance(spec, dict) and spec.get("values") == values else spec for name, spec in scene.items()}}
-    return {**step, "trace": {**trace, "input": moved}}
+    planned = dict(stage.runs.planned)
+    if not isinstance(scene, dict) or not planned:
+        return step
+    return {**step, "scene": {name: dressed(spec, planned[name], operations_by_event(planned[name], name)) if name in planned and isinstance(spec, dict) and spec.get("lab") == "array" and holds_input(spec, planned[name].input) else spec for name, spec in scene.items()}}
 
 
 def with_one_figure_on_stage(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
