@@ -212,7 +212,7 @@ def _print_bench_row(services: Services, how: str, outcome: Outcome) -> None:
     done = outcome.done
     hedges, _ = services.store.hedge_losses(outcome.lesson_id)
     print(
-        f"{how:6} {outcome.transcript[:46]:46} {done['tier']:6} {','.join(done['labs']) or '-':12} "
+        f"{how:6} {outcome.lesson_id} {outcome.transcript[:46]:46} {done['tier']:6} {','.join(done['labs']) or '-':12} "
         f"first {done['first_step_seconds']:5.2f}  done {done['seconds']:5.2f}  ${done['cost_usd']:.5f}"
         f"{'  repairs ' + str(len(done['repairs'])) if done['repairs'] else ''}{'  hedged' if hedges else ''}", flush=True,
     )
