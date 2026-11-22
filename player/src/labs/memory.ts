@@ -2,7 +2,7 @@ import { boxDrawable, type Drawable, fail, integerArg, type LabDef, type LabOp, 
 import { textWidth } from "../text-metrics";
 
 interface Byte {
-  char: string | null;
+  glyph: string | null;
   fault: boolean;
 }
 
@@ -63,7 +63,7 @@ interface Spot {
 
 interface WritePlan {
   start: string;
-  text: string[];
+  glyphs: string[];
   spots: Spot[];
 }
 
@@ -176,8 +176,45 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const MIN_PRINTABLE = 0x20;
+const MAX_PRINTABLE = 0x7e;
+const MAX_BYTE_VALUE = 255;
+const HEX_DIGITS = 2;
+
 function characters(text: string): string[] {
   return Array.from(text);
+}
+
+function hexGlyph(value: number): string {
+  return value.toString(16).toUpperCase().padStart(HEX_DIGITS, "0");
+}
+
+function isPrintable(character: string): boolean {
+  const code = character.codePointAt(0)!;
+  return code >= MIN_PRINTABLE && code <= MAX_PRINTABLE;
+}
+
+function textGlyphs(text: unknown, subject: string): string[] {
+  if (typeof text !== "string") fail(`${subject} "text" must be text, one printable ASCII character per byte; to store a number use "values" such as "values":[2,1]`);
+  const unprintable = characters(text).find((character) => !isPrintable(character));
+  if (unprintable !== undefined) {
+    const code = unprintable.codePointAt(0)!;
+    fail(`${subject} "text" holds the character with code ${code}, which cannot be drawn in a byte cell; "text" may only hold printable ASCII, so write byte numbers with "values" instead, such as "values":[2,1] for the bytes 02 and 01`);
+  }
+  return characters(text);
+}
+
+function valueGlyphs(values: unknown, subject: string): string[] {
+  const valid = Array.isArray(values) && values.every((value) => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_BYTE_VALUE);
+  if (!valid) fail(`${subject} "values" must be a list of whole byte values from 0 to ${MAX_BYTE_VALUE}, such as [2,1], got ${JSON.stringify(values)}`);
+  return (values as number[]).map(hexGlyph);
+}
+
+function glyphsOf(fields: Record<string, unknown>, subject: string): string[] | null {
+  if (fields.text !== undefined && fields.values !== undefined) fail(`${subject} gives both "text" and "values"; use "text" for letters or "values" for byte numbers, not both`);
+  if (fields.values !== undefined) return valueGlyphs(fields.values, subject);
+  if (fields.text !== undefined) return textGlyphs(fields.text, subject);
+  return null;
 }
 
 function readName(raw: unknown, subject: string, key: string): string {
@@ -195,21 +232,21 @@ function readByteCount(raw: unknown, subject: string): number {
 }
 
 function emptyBytes(count: number): Byte[] {
-  return Array.from({ length: count }, () => ({ char: null, fault: false }));
+  return Array.from({ length: count }, () => ({ glyph: null, fault: false }));
 }
 
 function readVariable(raw: unknown, subject: string): Variable {
   if (!isRecord(raw)) fail(`${subject} must be an object such as {"name":"buf","bytes":8} or {"name":"p","pointer":true}`);
   const name = readName(raw.name, subject, "name");
   if (raw.pointer === true) {
-    if (raw.bytes !== undefined || raw.text !== undefined) fail(`${subject} is a pointer, so drop "bytes" and "text"; aim it with the pointer-arrow op`);
+    if (raw.bytes !== undefined || raw.text !== undefined || raw.values !== undefined) fail(`${subject} is a pointer, so drop "bytes", "text" and "values"; aim it with the pointer-arrow op`);
     return { kind: "pointer", name, target: null, corrupt: false };
   }
   if (raw.pointer !== undefined && raw.pointer !== false) fail(`${subject} "pointer" must be true or left out`);
   const count = readByteCount(raw.bytes, subject);
-  const text = raw.text ?? "";
-  if (typeof text !== "string" || characters(text).length > count) fail(`${subject} "text" must be text of at most ${count} characters, one per byte`);
-  const bytes = emptyBytes(count).map((byte, index) => ({ ...byte, char: characters(text)[index] ?? null }));
+  const glyphs = glyphsOf(raw, subject) ?? [];
+  if (glyphs.length > count) fail(`${subject} fills ${glyphs.length} bytes with "text" or "values", but the variable has ${count} bytes; shorten them or raise "bytes"`);
+  const bytes = emptyBytes(count).map((byte, index) => ({ ...byte, glyph: glyphs[index] ?? null }));
   return { kind: "data", name, bytes };
 }
 
@@ -361,39 +398,39 @@ function writeStart(state: MemoryState, op: LabOp): { area: Area; region: Region
 }
 
 function writePlan(state: MemoryState, op: LabOp): WritePlan {
-  const text = characters(stringArg(op.args, "text", op.name));
-  if (text.length === 0) fail(`op "write-bytes" needs "text" with at least one character, one per byte`);
+  const glyphs = glyphsOf(op.args, `op "write-bytes"`);
+  if (glyphs === null || glyphs.length === 0) fail(`op "write-bytes" needs "text" with at least one character, or "values" with at least one byte number, one per byte`);
   const { area, region, offset } = writeStart(state, op);
   const bytes = regionsOf(state, area).flatMap((entry) => Array.from({ length: entry.size }, (_, index): Spot => ({ region: entry.name, offset: index })));
   const first = bytes.findIndex((spot) => spot.region === region.name && spot.offset === offset);
-  const spots = bytes.slice(first, first + text.length);
-  if (spots.length < text.length) {
-    fail(`op "write-bytes": the text is ${text.length} bytes but only ${spots.length} fit from ${region.name}[${offset}] to the end of the ${area}; shorten the text`);
+  const spots = bytes.slice(first, first + glyphs.length);
+  if (spots.length < glyphs.length) {
+    fail(`op "write-bytes": ${glyphs.length} bytes were given but only ${spots.length} fit from ${region.name}[${offset}] to the end of the ${area}; shorten "text" or "values"`);
   }
-  return { start: region.name, text, spots };
+  return { start: region.name, glyphs, spots };
 }
 
 function replaced(bytes: Byte[], offset: number, byte: Byte): Byte[] {
   return bytes.map((existing, index) => (index === offset ? byte : existing));
 }
 
-function storeByte(state: MemoryState, spot: Spot, char: string, spilled: boolean): MemoryState {
+function storeByte(state: MemoryState, spot: Spot, glyph: string, spilled: boolean): MemoryState {
   if (state.heap.some((block) => block.name === spot.region)) {
-    return withBlock(state, spot.region, (block) => ({ ...block, bytes: replaced(block.bytes, spot.offset, { char, fault: spilled || block.freed }) }));
+    return withBlock(state, spot.region, (block) => ({ ...block, bytes: replaced(block.bytes, spot.offset, { glyph, fault: spilled || block.freed }) }));
   }
   return withVariable(state, spot.region, (variable) =>
-    variable.kind === "pointer" ? { ...variable, corrupt: true } : { ...variable, bytes: replaced(variable.bytes, spot.offset, { char, fault: spilled }) },
+    variable.kind === "pointer" ? { ...variable, corrupt: true } : { ...variable, bytes: replaced(variable.bytes, spot.offset, { glyph, fault: spilled }) },
   );
 }
 
 function writeBytes(state: MemoryState, op: LabOp): MemoryState {
-  const { start, text, spots } = writePlan(state, op);
-  return spots.reduce((next, spot, index) => storeByte(next, spot, text[index]!, spot.region !== start), state);
+  const { start, glyphs, spots } = writePlan(state, op);
+  return spots.reduce((next, spot, index) => storeByte(next, spot, glyphs[index]!, spot.region !== start), state);
 }
 
 function writeSeconds(op: LabOp): number {
-  const { text } = op.args;
-  const length = typeof text === "string" ? characters(text).length : 1;
+  const { text, values } = op.args;
+  const length = typeof text === "string" ? characters(text).length : Array.isArray(values) ? values.length : 1;
   return Math.min(MAX_WRITE_SECONDS, WRITE_BASE_SECONDS + WRITE_BYTE_SECONDS * length);
 }
 
@@ -562,8 +599,8 @@ function byteDrawables(state: MemoryState, id: string, byte: Byte, at: Point, ce
     drawn.push(boxDrawable(`${id}-fault`, inner, { fill: "none", stroke: "fault", strokeWidth: FAULT_STROKE, z: 3 }));
   }
   if (freed) drawn.push(...dashedOutline(id, rect));
-  if (byte.char === null) return drawn;
-  if (state.reading) return [...drawn, textDrawable(`${id}-char`, byte.char, center, { size: byteTextSize(cell), font: "code", fill: "ink", z: 4 })];
+  if (byte.glyph === null) return drawn;
+  if (state.reading) return [...drawn, textDrawable(`${id}-char`, byte.glyph, center, { size: byteTextSize(cell), font: "code", fill: "ink", z: 4 })];
   return [...drawn, { id: `${id}-dot`, kind: "circle", x: center.x, y: center.y, r: dotRadius(cell), fill: "ink", z: 4 }];
 }
 
@@ -751,7 +788,7 @@ export const lab: LabDef<MemorySpec, MemoryState> = {
       "C memory: a Stack panel of call frames (newest on top) holding variables as rows of byte cells, a Heap panel of malloc'd blocks, pointer arrows from a pointer variable to the heap byte it holds, and bytes written into a buffer that run past its end into the neighbour, outlined in red. Teaches pointers, stack frames, malloc and free, dangling pointers and buffer overflow. Memory order runs top to bottom: within a frame vars are listed from low address to high, and below a frame sits its caller, so an overflow runs down into the next variable, then into the caller's frame; in the heap it runs into the next block. Put the object alone in \"on\"; names of variables and blocks are unique.",
     spec: {
       frames:
-        'optional list of frames, oldest (main) first, at most 3, each {"name":"main","vars":[...]}; vars, 1 to 4 per frame and at most 6 in all, are {"name":"buf","bytes":8,"text":"hi"} (1 to 8 bytes; optional text fills the first bytes, one character each) or {"name":"p","pointer":true} (starts NULL; each pointer keeps its own color). Default: an empty stack',
+        'optional list of frames, oldest (main) first, at most 3, each {"name":"main","vars":[...]}; vars, 1 to 4 per frame and at most 6 in all, are {"name":"buf","bytes":8,"text":"hi"} (1 to 8 bytes; optional text fills the first bytes, one printable ASCII character each, or optional "values" such as [2,1] fills them with byte numbers 0 to 255 drawn as two hex digits, 02 and 01; not both) or {"name":"p","pointer":true} (starts NULL; each pointer keeps its own color). Default: an empty stack',
       reading: "optional boolean, default true; false draws no names or characters, written bytes show as dots",
     },
     example: [
@@ -787,7 +824,7 @@ export const lab: LabDef<MemorySpec, MemoryState> = {
       during: (_before, after, op, progress) => revealRoute(after, op.args.pointer, progress),
     },
     "write-bytes": {
-      doc: '{"into":"buf","text":"AAAAAA","at":0} writes one character per byte into a variable or heap block from byte "at" (default 0); {"through":"p","text":"hi"} writes where pointer p points; bytes that run past the end land in the next variable or block and are outlined red, and a pointer they reach (8 bytes) becomes garbage; writing into a freed block is outlined red too',
+      doc: '{"into":"buf","text":"AAAAAA","at":0} writes one printable ASCII character per byte into a variable or heap block from byte "at" (default 0); {"through":"p","text":"hi"} writes where pointer p points; to store numbers use "values" instead of "text", such as {"through":"p","values":[2,1]}, which writes the byte values 0 to 255 and draws each as two hex digits (02, 01); text with a control or non-ASCII character is rejected, so use "values" for those; bytes that run past the end land in the next variable or block and are outlined red, and a pointer they reach (8 bytes) becomes garbage; writing into a freed block is outlined red too',
       seconds: writeSeconds,
       apply: writeBytes,
       during: typing,
