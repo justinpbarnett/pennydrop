@@ -378,17 +378,13 @@ function tileDrawables(state: WordsState, shown: (index: number) => number, newe
   );
 }
 
-function labelHeight(state: WordsState, index: number): number {
-  return state.reading ? state.meanings[index]!.length * MEANING_LINE_PITCH : MEANING_DOT_RADIUS * 2;
-}
-
 function labelWidth(state: WordsState, index: number): number {
   if (!state.reading) return MEANING_DOT_RADIUS * 2;
   return Math.max(...state.meanings[index]!.map((line) => textWidth(line, MEANING_SIZE, "read")));
 }
 
 function meaningHeight(state: WordsState): number {
-  const tallest = Math.max(...state.meanings.map((_, index) => labelHeight(state, index)));
+  const tallest = state.reading ? MAX_MEANING_LINES * MEANING_LINE_PITCH : MEANING_DOT_RADIUS * 2;
   return tallest + MEANING_VPAD * 2;
 }
 
