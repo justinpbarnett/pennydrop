@@ -2,16 +2,27 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 ARRAY_LAB = "array"
 ARRAY_DEF = "lab:array"
 PLOT_LAB = "plot"
 PLOT_DEF = "lab:plot"
+SHAPES_LAB = "shapes"
+SHAPES_DEF = "lab:shapes"
 CELL = re.compile(r"^(?P<array>[\w-]+)\[(?P<index>\d+)\]$")
 NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
 SAME_NUMBER_SHARE = 0.005
 MOVES = ("compare", "swap", "set", "pointer")
+
+
+class StagePlay(Protocol):
+    @property
+    def moves(self) -> tuple[str, ...]: ...
+
+    def told(self) -> str: ...
+
+    def shown(self) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -27,6 +38,99 @@ class ArrayPlay:
 
     def shown(self) -> str:
         return f"the {self.name} array shows {list(self.after)}"
+
+
+@dataclass(frozen=True)
+class FigurePlay:
+    before: str
+    after: str
+    moves: tuple[str, ...]
+
+    def told(self) -> str:
+        return f"{self.before}; then {'; then '.join(self.moves)}"
+
+    def shown(self) -> str:
+        return self.after
+
+
+@dataclass(frozen=True)
+class _Hopper:
+    at: int
+
+    def shown(self, name: str) -> str:
+        return f'the hopper on the number line "{name}" stands on {self.at}'
+
+    def played(self, operation: dict[str, Any]) -> tuple[_Hopper, str | None]:
+        by = _whole(operation.get("by"))
+        if operation.get("op") != "hop" or not by:
+            return self, None
+        each = abs(_whole(operation.get("each")) or by)
+        hops = abs(by) // each
+        how = f"{hops} hops of {each}" if hops > 1 else f"one hop of {each}"
+        return _Hopper(self.at + by), f"the hopper makes {how} {'right' if by > 0 else 'left'}, from {self.at} to {self.at + by}"
+
+
+@dataclass(frozen=True)
+class _Pile:
+    count: int
+    counted: int
+
+    def shown(self, name: str) -> str:
+        return f'the pile of blocks "{name}" holds {self.count}, {self.counted} of them counted'
+
+    def played(self, operation: dict[str, Any]) -> tuple[_Pile, str | None]:
+        kind, by = operation.get("op"), _whole(operation.get("by"))
+        if kind == "count":
+            to = _whole(operation.get("to")) or self.count
+            first = self.counted + 1 if to > self.counted else 1
+            lit = f"block {to} lights up as the count says {to}" if first == to else f"blocks {first} to {to} light up one by one as the count goes {first} to {to}"
+            return _Pile(self.count, to), lit
+        if kind == "add" and by:
+            return _Pile(self.count + by, self.counted), f"{by} more blocks drop onto the end of the pile of {self.count}, so it holds {self.count + by}"
+        if kind == "take" and by:
+            left = self.count - by
+            return _Pile(left, min(self.counted, left)), f"{by} blocks lift off the pile of {self.count}, so it holds {left}"
+        return self, None
+
+
+def shapes_plays(scene_before: Any, step: dict[str, Any]) -> list[FigurePlay]:
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    figures = {name: figure for name, figure in {**_shapes_on_stage(scene_before), **_shapes_brought_in(scene)}.items() if not (name in scene and scene[name] is None)}
+    plays = []
+    for name, figure in figures.items():
+        now, moves = figure, []
+        for operation in step.get("do") or []:
+            if isinstance(operation, dict) and operation.get("on") == [name]:
+                now, move = now.played(operation)
+                moves += [move] if move else []
+        plays.append(FigurePlay(figure.shown(name), now.shown(name), tuple(moves)))
+    return plays
+
+
+def _shapes_on_stage(scene: Any) -> dict[str, _Hopper | _Pile]:
+    objects = scene.get("objects") if isinstance(scene, dict) else None
+    found: dict[str, _Hopper | _Pile] = {}
+    for thing in objects or []:
+        state = thing.get("state") if isinstance(thing, dict) and thing.get("defKey") == SHAPES_DEF else None
+        if isinstance(state, dict) and state.get("figure") == "line" and isinstance(state.get("token"), int):
+            found[thing["id"]] = _Hopper(state["token"])
+        elif isinstance(state, dict) and state.get("figure") == "blocks" and isinstance(state.get("count"), int):
+            found[thing["id"]] = _Pile(state["count"], _whole(state.get("counted")))
+    return found
+
+
+def _shapes_brought_in(scene: dict[str, Any]) -> dict[str, _Hopper | _Pile]:
+    found: dict[str, _Hopper | _Pile] = {}
+    for name, spec in scene.items():
+        if isinstance(spec, dict) and spec.get("lab") == SHAPES_LAB and spec.get("figure") == "line":
+            found[name] = _Hopper(_whole(spec.get("start")) if "start" in spec else _whole(spec.get("from")))
+        elif isinstance(spec, dict) and spec.get("lab") == SHAPES_LAB and spec.get("figure") == "blocks" and _whole(spec.get("count")):
+            found[name] = _Pile(_whole(spec.get("count")), 0)
+    return found
+
+
+def _whole(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 @dataclass(frozen=True)

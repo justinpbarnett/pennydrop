@@ -21,7 +21,7 @@ from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import PROMISE_WORDS, mended, mended_by_verdict, mended_cues, with_one_figure_on_stage
 from .stage import Stage, question_without_challenge, ran_something, trace_totals
-from .stage_words import ArrayPlay, PlotView, array_plays, plot_views
+from .stage_words import PlotView, StagePlay, array_plays, plot_views, shapes_plays
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
 from .writer import Brief, Writer
@@ -288,7 +288,7 @@ class LessonRun:
             return Checked([coached(str(error))], None, scene)
         known = {**self._remembered_values, **values}
         facts = computed_facts(known)
-        plays = array_plays(scene, step)
+        plays: list[StagePlay] = [*array_plays(scene, step), *shapes_plays(scene, step)]
         plots = plot_views(scene, step)
         verdict, fine_for_child, keeps_honor_code, restates_point, claims_agree, *further_advice = await asyncio.gather(
             self._kit.validator.check(step, scene, self._reading),
@@ -377,7 +377,7 @@ class LessonRun:
             return STILL_RUN.format(directive=staged)
         return STILL_STAGE + STILL_SIDE_RUN if self._stage.side_run_unplayed() else STILL_STAGE
 
-    async def _narration_off_stage(self, step: dict[str, Any], plays: list[ArrayPlay]) -> str | None:
+    async def _narration_off_stage(self, step: dict[str, Any], plays: list[StagePlay]) -> str | None:
         played = "; and ".join(play.told() for play in plays if play.moves)
         if not played or not isinstance(step.get("say"), str):
             return None

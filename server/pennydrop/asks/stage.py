@@ -7,6 +7,7 @@ from .directives import directives_for_labs
 from .directives._support import operation_targets, trace_key, with_nested_trace_lifted
 from .directives.simulate import contradictions, filled_from
 from .directives.trace import TRACE_TOTALS
+from .played_hops import PlayedHops
 from .played_setups import PlayedSetups
 
 SHOWN_TEXT_FIELDS = ("text", "caption", "label", "title")
@@ -84,6 +85,7 @@ class Stage:
         self.moved: dict[str, list[str]] = {}
         self.simulations: dict[str, dict[str, Any]] = {}
         self.setups = PlayedSetups()
+        self.hops = PlayedHops()
         for thing in (snapshot or {}).get("objects", []):
             key = str(thing.get("defKey", ""))
             if key.startswith(LAB_KEY_PREFIX):
@@ -203,6 +205,7 @@ class Stage:
         self.attach_parts(step)
         self._remember_play(step)
         self.setups.remember(step)
+        self.hops.remember(step)
         self.in_flight -= {name for name, spec in (step.get("scene") or {}).items() if not isinstance(spec, dict) or name in self.specs}
         for operation in step.get("do", []):
             targets = operation.get("on")
@@ -244,7 +247,7 @@ class Stage:
                 self.specs[name] = {**self.specs[name], "parts": operation.get("parts", [])}
 
     def errors_in(self, step: dict[str, Any], written: Any, values: dict[str, Any]) -> list[str]:
-        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + question_without_challenge(step) + self._total_already_shown(step, written, values) + self.unran_values(step, ran_something(written)) + contradictions(step, self.labs, self.played) + self.setups.errors_in(step)
+        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + question_without_challenge(step) + self._total_already_shown(step, written, values) + self.unran_values(step, ran_something(written)) + contradictions(step, self.labs, self.played) + self.setups.errors_in(step) + self.hops.errors_in(step)
 
     def _total_already_shown(self, step: dict[str, Any], written: Any, values: dict[str, Any]) -> list[str]:
         challenge = step.get("challenge")
