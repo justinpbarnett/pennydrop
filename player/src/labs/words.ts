@@ -62,8 +62,6 @@ const TILE_LETTER_SHARE = 0.56;
 const MAX_LETTERS = 14;
 const MAX_SYLLABLES = 6;
 const BEAT_RADIUS = 52;
-const MEANING_DOT_RADIUS = 32;
-const MEANING_ROLES: Role[] = ["series1", "series2", "series3", "series4"];
 
 const MEANING_GAP = 104;
 const MEANING_TOP = WORD_CARD_HEIGHT + MEANING_GAP;
@@ -72,8 +70,10 @@ const MEANING_PADDING = 24;
 const MEANING_SPACING = 40;
 const MEANING_SIZE = 30;
 const MEANING_LINE_PITCH = 44;
-const MAX_MEANINGS = MEANING_ROLES.length;
+const MAX_MEANINGS = 4;
 const MAX_MEANING_LINES = 2;
+const MEANING_HEIGHT = MAX_MEANING_LINES * MEANING_LINE_PITCH + MEANING_VPAD * 2;
+const MEANING_MIDDLE = MEANING_TOP + MEANING_HEIGHT / 2;
 
 const ARROW_START_GAP = 16;
 const ARROW_END_GAP = 20;
@@ -162,12 +162,12 @@ function readReading(spec: WordsSpec, objectId: string): boolean {
 function readMeanings(spec: WordsSpec, reading: boolean, objectId: string): string[][] {
   const raw = spec.meanings;
   if (raw === undefined) return [];
+  if (!reading) fail(`${objectId}: meaning cards need reading, and this Lesson is for a child who cannot read; drop "meanings" and "answer", and show each meaning as a picture Lab beside the word, joined to it with connect`);
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_MEANINGS)
     fail(`${objectId}: "meanings" must be a list of 1 to ${MAX_MEANINGS} texts, such as ["a long yellow fruit", "a red fruit"]`);
   return raw.map((meaning, index) => {
     const where = `${objectId}: meanings[${index}]`;
     if (typeof meaning !== "string") fail(`${where} must be text`);
-    if (!reading) return [meaning];
     return wrapMeaning(meaning, meaningRoom(raw.length), where);
   });
 }
@@ -379,22 +379,12 @@ function tileDrawables(state: WordsState, shown: (index: number) => number, newe
 }
 
 function labelWidth(state: WordsState, index: number): number {
-  if (!state.reading) return MEANING_DOT_RADIUS * 2;
   return Math.max(...state.meanings[index]!.map((line) => textWidth(line, MEANING_SIZE, "read")));
-}
-
-function meaningHeight(state: WordsState): number {
-  const tallest = state.reading ? MAX_MEANING_LINES * MEANING_LINE_PITCH : MEANING_DOT_RADIUS * 2;
-  return tallest + MEANING_VPAD * 2;
 }
 
 function meaningRect(state: WordsState, index: number): Rect {
   const width = meaningWidth(state.meanings.length);
-  return { x: index * (width + MEANING_SPACING), y: MEANING_TOP, w: width, h: meaningHeight(state) };
-}
-
-function meaningMiddle(state: WordsState): number {
-  return MEANING_TOP + meaningHeight(state) / 2;
+  return { x: index * (width + MEANING_SPACING), y: MEANING_TOP, w: width, h: MEANING_HEIGHT };
 }
 
 function verdictGroupWidth(state: WordsState, index: number): number {
@@ -411,19 +401,6 @@ function verdictLeft(state: WordsState, index: number): number {
   return rect.x + (rect.w - verdictGroupWidth(state, index)) / 2;
 }
 
-function meaningDot(center: Point, index: number): Drawable {
-  return {
-    id: `meaning-${index}-dot`,
-    kind: "circle",
-    x: center.x,
-    y: center.y,
-    r: MEANING_DOT_RADIUS,
-    fill: MEANING_ROLES[index]!,
-    stroke: "none",
-    z: 1,
-  };
-}
-
 function verdictOf(state: WordsState, index: number): Verdict | null {
   if (state.missed.includes(index)) return "fault";
   return index === state.matched && index === state.answer ? "ok" : null;
@@ -431,7 +408,7 @@ function verdictOf(state: WordsState, index: number): Verdict | null {
 
 function verdictMark(state: WordsState, index: number, verdict: Verdict, settle: number): Drawable[] {
   const left = verdictLeft(state, index);
-  const top = meaningMiddle(state) - VERDICT_SIZE / 2;
+  const top = MEANING_MIDDLE - VERDICT_SIZE / 2;
   return VERDICT_STROKES[verdict].map(([from, to], stroke) => ({
     id: `meaning-${index}-${verdict}-${stroke}`,
     kind: "line",
@@ -452,8 +429,7 @@ function meaningCard(state: WordsState, index: number): Drawable {
 
 function meaningLabel(state: WordsState, index: number, settle: number): Drawable[] {
   const centerX = labelCenterX(state, index, settle);
-  const middle = meaningMiddle(state);
-  if (!state.reading) return [meaningDot({ x: centerX, y: middle }, index)];
+  const middle = MEANING_MIDDLE;
   const lines = state.meanings[index]!;
   const top = middle - (lines.length * MEANING_LINE_PITCH) / 2;
   return lines.map((line, lineIndex) => textDrawable(`meaning-${index}-line-${lineIndex}`, line, { x: centerX, y: top + (lineIndex + 0.5) * MEANING_LINE_PITCH }, { size: MEANING_SIZE, z: 1 }));
@@ -545,7 +521,7 @@ export const lab: LabDef<WordsSpec, WordsState> = {
       meanings: 'optional list of 1 to 4 short meanings shown as cards under the word, such as ["a long yellow fruit", "a small red fruit"]; a few words each',
       answer: "index from 0 of the right meaning; required when meanings is given",
       reading:
-        "optional, default true; false draws no letters or words, for a child who cannot read: each syllable is a round beat (the stressed one in the active color), spell lights one blank tile per letter, and each meaning card shows only a colored dot, so the narration must say what each card means",
+        "optional, default true; false draws no letters or words, for a child who cannot read: each syllable is a round beat (the stressed one in the active color), spell lights one blank tile per letter, and meaning cards are refused, so pair the word with pictures instead",
     },
     example: [
       '{"step":1,"say":"This word is banana. Say it with me: ba, NA, na. The middle part is the loud one.","scene":{"w":{"lab":"words","word":"ba-na-na","meanings":["a long yellow fruit","a small red fruit"],"answer":0}},"do":[{"cue":"Say it","op":"say","on":["w"]},{"cue":"loud one","op":"stress","on":["w"],"syllable":1}]}',
@@ -596,7 +572,7 @@ export const lab: LabDef<WordsSpec, WordsState> = {
   },
 
   size(state) {
-    return { w: WIDTH, h: state.meanings.length > 0 ? MEANING_TOP + meaningHeight(state) : WORD_CARD_HEIGHT };
+    return { w: WIDTH, h: state.meanings.length > 0 ? MEANING_TOP + MEANING_HEIGHT : WORD_CARD_HEIGHT };
   },
 
   draw(state) {
