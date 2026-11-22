@@ -162,6 +162,7 @@ const IV_ARROW_ROOM = 36;
 const STEM_DROP = 22;
 const FEEDBACK_STROKE = 3;
 const FRAME_STROKE = 3;
+const TAP_Z = 8;
 const FLIP_ARC = 70;
 
 const CIPHER_ROTATION = 3;
@@ -522,16 +523,15 @@ function rowStrip(state: BitsState): Strip {
 
 function rowStack(state: BitsState): Stack {
   const strip = rowStrip(state);
-  const levels = labelLevels(labelSpots(state, strip));
-  const hasFields = state.fields.length > 0;
+  const levels = Math.max(1, labelLevels(labelSpots(state, strip)));
   const bands: Band[] = [
     ...(state.reading ? [textBand("header", HEADER_SIZE, HEADER_GROWTH)] : []),
     textBand("order", ORDER_BAND),
     ...(state.reading ? [textBand("offsets", OFFSET_SIZE, OFFSET_GROWTH)] : []),
     cellBand("cells", strip),
     ...(state.reading ? [valueBand("values")] : []),
-    ...(hasFields ? [textBand("brackets", BRACKET_DEPTH)] : []),
-    ...(levels > 0 ? [textBand("labels", levels * LABEL_PITCH - (LABEL_PITCH - LABEL_SIZE))] : []),
+    textBand("brackets", BRACKET_DEPTH),
+    ...(state.reading ? [textBand("labels", levels * LABEL_PITCH - (LABEL_PITCH - LABEL_SIZE))] : []),
   ];
   return stackBands(bands);
 }
@@ -555,7 +555,9 @@ function dataRow(state: BitsState, strip: Strip, stack: Stack, lift: (slot: numb
   return state.bytes.flatMap((byte, slot) => {
     const { left, dy } = lift(slot);
     const shift = (place: Placed): Placed => ({ ...place, top: place.top + dy });
-    return byteDrawables(byte.id, byte.value, left, shift(cells), values && shift(values), strip, dataLook(state, slot), state.reading);
+    const reach = values ? values.top + values.height - cells.top : cells.height;
+    const tap = boxDrawable(`${byte.id}-tap`, { x: left, y: cells.top + dy, w: byteWidth(strip), h: reach }, { fill: "ground", opacity: 0, z: TAP_Z, part: `${state.objectId}[${slot}]` });
+    return [...byteDrawables(byte.id, byte.value, left, shift(cells), values && shift(values), strip, dataLook(state, slot), state.reading), tap];
   });
 }
 
@@ -885,9 +887,10 @@ export const lab: LabDef<BitsSpec, BitsState> = {
   id: "bits",
   title: "Bytes and bits",
   reading: "optional",
+  framed: true,
   catalog: {
     summary:
-      "A row of up to 6 bytes drawn as bits (filled cell = 1), for packet parsing and crypto: mark named fields with colored cell outlines and brackets, flip byte order between big and little endian, XOR two byte rows into a result, and encrypt the bytes as one-byte blocks in ECB, CBC or CTR mode with a toy block cipher the Lab computes. Every op targets the whole object; the Lab computes every value. With reading false no numbers or words are drawn and the bits, brackets and arrows carry the meaning.",
+      "A row of up to 6 bytes drawn as bits (filled cell = 1), for packet parsing and crypto: mark named fields with colored cell outlines and brackets, flip byte order between big and little endian, XOR two byte rows into a result, and encrypt the bytes as one-byte blocks in ECB, CBC or CTR mode with a toy block cipher the Lab computes. Every op targets the whole object; the Lab computes every value. Each byte of the row can be tapped by its address, so a click Challenge can ask which byte, answered as \"n[0]\" for the byte at address 0, the leftmost. With reading false no numbers or words are drawn and the bits, brackets and arrows carry the meaning.",
     spec: {
       bytes: 'list of 1 to 6 whole numbers 0 to 255, such as [1, 187, 0, 80], or text of 1 to 6 plain characters, such as "AAAB", read as their ASCII codes',
       order: 'optional "big" or "little" (default "big"): the byte order the row is read in; the header shows the row read that way, and the arrow points from the most significant byte to the least',
