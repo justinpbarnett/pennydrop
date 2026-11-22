@@ -4,7 +4,7 @@ import { wrapText } from "../text-flow";
 
 interface QuoteState {
   lines: string[];
-  by: string;
+  by: string[];
   role: Role;
 }
 
@@ -13,9 +13,13 @@ const TEXT_LEFT = 190;
 const TEXT_SIZE = 72;
 const LINE_HEIGHT = 96;
 const TOP = 130;
+const TEXT_ROOM = WIDTH - TEXT_LEFT - 110;
+const BY_SIZE = 42;
+const BY_LINE = 56;
+const BY_GAP = 62;
 
 function heightOf(state: QuoteState): number {
-  return TOP + state.lines.length * LINE_HEIGHT + (state.by ? 170 : 90);
+  return TOP + state.lines.length * LINE_HEIGHT + (state.by.length ? 170 + (state.by.length - 1) * BY_LINE : 90);
 }
 
 export const primitive: LabDef<Record<string, unknown>, QuoteState> = {
@@ -28,9 +32,10 @@ export const primitive: LabDef<Record<string, unknown>, QuoteState> = {
     example: ['{"scene":{"saying":{"kind":"quote","text":"Premature optimization is the root of all evil.","by":"Donald Knuth"}}}'],
   },
   init(spec, objectId) {
+    const by = stringField(spec, "by", objectId, "");
     return {
-      lines: wrapText(stringField(spec, "text", objectId), TEXT_SIZE, "read", WIDTH - TEXT_LEFT - 110),
-      by: stringField(spec, "by", objectId, ""),
+      lines: wrapText(stringField(spec, "text", objectId), TEXT_SIZE, "read", TEXT_ROOM),
+      by: by ? wrapText(`– ${by}`, BY_SIZE, "mark", TEXT_ROOM) : [],
       role: roleField(spec, "role", "ink", objectId),
     };
   },
@@ -42,7 +47,7 @@ export const primitive: LabDef<Record<string, unknown>, QuoteState> = {
       { id: "bar", kind: "line", x: 150, y: TOP - 20, x2: 150, y2: TOP + state.lines.length * LINE_HEIGHT - 20, stroke: "edge", strokeWidth: 2, z: 1 },
     ];
     state.lines.forEach((line, index) => out.push({ id: `line-${index}`, kind: "text", x: TEXT_LEFT, y: TOP + index * LINE_HEIGHT + LINE_HEIGHT / 2, text: line, size: TEXT_SIZE, font: "read", anchor: "start", fill: state.role, z: 2 }));
-    if (state.by) out.push({ id: "by", kind: "text", x: TEXT_LEFT, y: TOP + state.lines.length * LINE_HEIGHT + 62, text: `– ${state.by}`, size: 42, font: "mark", anchor: "start", fill: "accent", z: 2 });
+    state.by.forEach((line, index) => out.push({ id: `by-${index}`, kind: "text", x: TEXT_LEFT, y: TOP + state.lines.length * LINE_HEIGHT + BY_GAP + index * BY_LINE, text: line, size: BY_SIZE, font: "mark", anchor: "start", fill: "accent", z: 2 }));
     return out;
   },
 };

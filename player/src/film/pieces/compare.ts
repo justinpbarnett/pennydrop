@@ -14,9 +14,9 @@ interface CompareState {
   shown: number;
 }
 
-const WIDTH = 3000;
 const CARD = 1380;
 const GAP = 120;
+const WIDTH = 2 * CARD + GAP;
 const TITLE_Y = 120;
 const CARD_TOP = 260;
 const HEAD_SIZE = 76;
@@ -25,6 +25,7 @@ const BODY_LINE = 92;
 const PADDING = 70;
 const BODY_ROOM = 6;
 const SHOW_SECONDS = 1;
+const SLOT_OPACITY = 0.45;
 
 function side(spec: Record<string, unknown>, key: string, objectId: string): Side {
   const raw = spec[key] as Record<string, unknown> | undefined;
@@ -39,13 +40,21 @@ function heightOf(state: CompareState): number {
   return CARD_TOP + 2 * PADDING + HEAD_SIZE + 40 + rows * BODY_LINE;
 }
 
+function cardFrame(state: CompareState, key: "held" | "broke"): Drawable {
+  const height = heightOf(state) - CARD_TOP;
+  return { id: `${key}-card`, kind: "rect", x: (key === "held" ? 0 : CARD + GAP) + CARD / 2, y: CARD_TOP + height / 2, w: CARD, h: height, radius: 28 };
+}
+
+function slotDrawable(state: CompareState, key: "held" | "broke"): Drawable {
+  return { ...cardFrame(state, key), id: `${key}-slot`, fill: "none", stroke: "edge", strokeWidth: 3, opacity: SLOT_OPACITY, z: 0 };
+}
+
 function cardDrawables(state: CompareState, key: "held" | "broke", opacity: number): Drawable[] {
   const content = state[key];
   const left = key === "held" ? 0 : CARD + GAP;
   const role = state.roles[key];
-  const height = heightOf(state) - CARD_TOP;
   const out: Drawable[] = [
-    { id: `${key}-card`, kind: "rect", x: left + CARD / 2, y: CARD_TOP + height / 2, w: CARD, h: height, radius: 28, fill: "fill", stroke: role, strokeWidth: 5, opacity, z: 1 },
+    { ...cardFrame(state, key), fill: "fill", stroke: role, strokeWidth: 5, opacity, z: 1 },
     { id: `${key}-head`, kind: "text", x: left + PADDING, y: CARD_TOP + PADDING + HEAD_SIZE / 2, text: content.head, size: HEAD_SIZE, font: "mark", anchor: "start", fill: role, opacity, z: 3 },
   ];
   content.lines.forEach((line, index) => out.push({ id: `${key}-line-${index}`, kind: "text", x: left + PADDING, y: CARD_TOP + PADDING + HEAD_SIZE + 40 + index * BODY_LINE + BODY_LINE / 2, text: line, size: BODY_SIZE, font: "read", anchor: "start", fill: "ink", opacity, z: 3 }));
@@ -73,13 +82,14 @@ export const primitive: LabDef<Record<string, unknown>, CompareState> = {
     },
   },
   size: (state) => ({ w: WIDTH, h: heightOf(state) }),
+  unfilled: (state) => state.shown === 0,
   draw(state) {
     const out: Drawable[] = [
       { id: "title", kind: "text", x: WIDTH / 2, y: TITLE_Y, text: state.title, size: 96, font: "mark", fill: "ink", z: 2 },
       { id: "rule", kind: "line", x: WIDTH / 2 - 200, y: TITLE_Y + 80, x2: WIDTH / 2 + 200, y2: TITLE_Y + 80, stroke: "edge", strokeWidth: 2, z: 1 },
     ];
-    if (state.shown >= 1) out.push(...cardDrawables(state, "held", 1));
-    if (state.shown >= 2) out.push(...cardDrawables(state, "broke", 1));
+    out.push(...(state.shown >= 1 ? cardDrawables(state, "held", 1) : [slotDrawable(state, "held")]));
+    out.push(...(state.shown >= 2 ? cardDrawables(state, "broke", 1) : [slotDrawable(state, "broke")]));
     return out;
   },
 };

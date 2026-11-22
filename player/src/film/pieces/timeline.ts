@@ -15,7 +15,8 @@ interface TimelineState {
 }
 
 const SIZE = { w: 3000, h: 1000 };
-const MARGIN = 150;
+const MARGIN = 260;
+const END_YEAR_GAP = 70;
 const AXIS_Y = 500;
 const LEVEL_STEP = 220;
 const YEAR_OFFSET = 80;
@@ -82,6 +83,7 @@ export const primitive: LabDef<Record<string, unknown>, TimelineState> = {
     },
   },
   size: () => SIZE,
+  unfilled: (state) => state.shown === 0,
   draw(state) {
     const out: Drawable[] = [{ id: "axis", kind: "line", x: MARGIN - 40, y: AXIS_Y, x2: SIZE.w - MARGIN + 40, y2: AXIS_Y, stroke: "edge", strokeWidth: 5, z: 1 }];
     for (let year = state.from; year <= state.to; year += 1) {
@@ -89,6 +91,10 @@ export const primitive: LabDef<Record<string, unknown>, TimelineState> = {
       const x = xOf(state, year);
       out.push({ id: `tick-${year}`, kind: "line", x, y: AXIS_Y - (major ? 22 : 11), x2: x, y2: AXIS_Y + (major ? 22 : 11), stroke: "edge", strokeWidth: 3, z: 1 });
     }
+    out.push(
+      { id: "from-year", kind: "text", x: MARGIN - END_YEAR_GAP, y: AXIS_Y, text: String(state.from), size: 44, font: "mark", anchor: "end", fill: "muted", z: 3 },
+      { id: "to-year", kind: "text", x: SIZE.w - MARGIN + END_YEAR_GAP, y: AXIS_Y, text: String(state.to), size: 44, font: "mark", anchor: "start", fill: "muted", z: 3 },
+    );
     for (let index = 0; index < state.shown; index += 1) out.push(...markDrawables(state, index, 1));
     return out;
   },

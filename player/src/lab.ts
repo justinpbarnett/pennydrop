@@ -119,6 +119,7 @@ export interface LabDef<Spec = Record<string, unknown>, State = unknown> {
   init(spec: Spec, objectId: string): State;
   size(state: State): Size;
   draw(state: State, ctx: LabCtx): Drawable[];
+  unfilled?(state: State): boolean;
 }
 
 export type AnyLabDef = LabDef<any, any>;

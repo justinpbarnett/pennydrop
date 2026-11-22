@@ -19,8 +19,15 @@ const LABEL_Y = RULE_Y + 70;
 const SIZE = { w: 1300, h: LABEL_Y + 70 };
 const COUNT_SECONDS = 2.6;
 
-function numberDrawable(state: CounterState, value: number): Drawable {
-  return { id: "number", kind: "text", x: SIZE.w / 2, y: NUMBER_Y, text: state.counted ? groupDigits(value, state.decimals) : "–", size: NUMBER_SIZE, font: "mark", fill: state.role, z: 2 };
+const DASH_GONE_AT = 0.1;
+const DIGITS_FULL_AT = 0.3;
+
+function numberDrawable(state: CounterState, value: number, opacity = 1): Drawable {
+  return { id: "number", kind: "text", x: SIZE.w / 2, y: NUMBER_Y, text: groupDigits(value, state.decimals), size: NUMBER_SIZE, font: "mark", fill: state.role, opacity, z: 2 };
+}
+
+function dashDrawable(state: CounterState, opacity = 1): Drawable {
+  return { id: "dash", kind: "text", x: SIZE.w / 2, y: NUMBER_Y, text: "–", size: NUMBER_SIZE, font: "mark", fill: state.role, opacity, z: 2 };
 }
 
 export const primitive: LabDef<Record<string, unknown>, CounterState> = {
@@ -42,12 +49,17 @@ export const primitive: LabDef<Record<string, unknown>, CounterState> = {
       doc: 'counts to a number: {"to": 65536, "seconds"?: 2.6}',
       seconds: (op) => (typeof op.args.seconds === "number" ? op.args.seconds : COUNT_SECONDS),
       apply: (state, op) => ({ ...state, counted: true, value: numberArg(op.args, "to", "count") }),
-      during: (before, after, _op, progress) => [numberDrawable(after, lerp(before.value, after.value, progress))],
+      during(before, after, _op, progress) {
+        const value = lerp(before.value, after.value, progress);
+        if (before.counted) return [numberDrawable(after, value)];
+        return [dashDrawable(after, Math.max(0, 1 - progress / DASH_GONE_AT)), numberDrawable(after, value, Math.min(1, Math.max(0, (progress - DASH_GONE_AT) / (DIGITS_FULL_AT - DASH_GONE_AT))))];
+      },
     },
   },
   size: () => SIZE,
+  unfilled: (state) => !state.counted,
   draw(state) {
-    const out = [numberDrawable(state, state.value)];
+    const out = [state.counted ? numberDrawable(state, state.value) : dashDrawable(state)];
     if (state.label) out.push({ id: "label", kind: "text", x: SIZE.w / 2, y: LABEL_Y, text: state.label.toUpperCase(), size: 44, font: "read", fill: "muted", z: 2 });
     out.push({ id: "rule", kind: "line", x: SIZE.w / 2 - 150, y: RULE_Y, x2: SIZE.w / 2 + 150, y2: RULE_Y, stroke: "edge", strokeWidth: 2, z: 1 });
     return out;
