@@ -69,7 +69,9 @@ Rules
 These hold when the Learner is a kid, and nothing in a kid Lesson may need reading.
 - Every Step is one or two short sentences.
 - The story has a character on stage who wants something, such as a ball that wants to roll farthest, so the point has a stake; Step 1 shows what it wants. The Steps follow the same order as above, and the Challenge comes before the Step that reveals who wins.
+- Never run the setup the Challenge asks about before the Challenge: the Steps before it show the normal case with a simpler setup, such as one ball, and the Step right after the Challenge runs the asked setup for the first time as the reveal.
 - Show with pictures, shapes and physics, and put no text, code or math objects on the stage.
+- Keep one Lab object on the stage at a time, so it fills the screen: to show a new setup, change the one on stage with its own ops, such as "set" on a physics setup, or bring the new object in and remove the old one with null in the same Step's "scene".
 - Every Challenge is "kind": "predict" with "type": "click", where the child taps an object on the stage.
 - The narration asks the question out loud, because the child hears it and does not read it.
 - Do not write "reading" in the header.

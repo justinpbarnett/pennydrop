@@ -1253,10 +1253,10 @@ function vectorsOp(state: PhysicsState, op: LabOp): PhysicsState {
 }
 
 function trailOp(state: PhysicsState, op: LabOp): PhysicsState {
-  onlyKeys(op.args, ["on"], 'op "trail"');
-  const on = op.args.on ?? true;
-  if (typeof on !== "boolean") fail('op "trail" needs "on" as true or false');
-  return { ...state, trail: on };
+  onlyKeys(op.args, ["show"], 'op "trail"');
+  const show = op.args.show ?? true;
+  if (typeof show !== "boolean") fail('op "trail" needs "show" as true or false');
+  return { ...state, trail: show };
 }
 
 function markOp(state: PhysicsState, op: LabOp): PhysicsState {
@@ -1319,7 +1319,7 @@ const ops: Record<string, OpDef<PhysicsState>> = {
     apply: vectorsOp,
   },
   trail: {
-    doc: '{"on": true}; shows or hides the path the body has taken (a dotted record at equal time steps on a drop); on by default',
+    doc: '{"show": true}; shows or hides the path the body has taken (a dotted record at equal time steps on a drop); shown by default',
     seconds: 0.5,
     apply: trailOp,
   },
@@ -1351,7 +1351,7 @@ export const lab: LabDef<Args, PhysicsState> = {
   title: "Physics",
   reading: "optional",
   catalog: {
-    summary: "Motion computed, not drawn: a fixed step integrator runs real Newtonian physics and every path on screen comes from it. Setups: launch (a ball fired at an angle and speed over a ground line), drop (one to three balls falling from a height together, each with its own mass and bounciness: balls of different bounciness make a good \"which one bounces higher? tap it\" Challenge), ramp (a block on a slope with friction that slides or stays), pendulum (a bob on a rod, optionally with drag), orbit (planets circling a fixed sun). A tap on a dropped ball names it by its place in \"masses\" (drop[0] is the first), and a tap on a planet names it by its id (sky[Mars]). You give intent (angle, speed, length, friction); the Lab owns the layout and every number. Set \"reading\": false for a small child: nothing on screen needs reading.",
+    summary: "Motion computed, not drawn: a fixed step integrator runs real Newtonian physics and every path on screen comes from it. Setups: launch (a ball fired at an angle and speed over a ground line), drop (one to three balls falling from a height together, each with its own mass and bounciness: balls of different bounciness make a good \"which one bounces higher? tap it\" Challenge, asked before those balls are ever released, so their first release is the reveal), ramp (a block on a slope with friction that slides or stays), pendulum (a bob on a rod, optionally with drag), orbit (planets circling a fixed sun). A tap on a dropped ball names the drop object, then the ball's place in \"masses\" in square brackets: in a drop object called pair, pair[0] is the first ball and pair[1] the second. A tap on a planet names the orbit object, then the planet: sky[Mars]. You give intent (angle, speed, length, friction); the Lab owns the layout and every number. Set \"reading\": false for a small child: nothing on screen needs reading.",
     spec: specDocs(),
     example: [
       '{"step":1,"say":"A ball leaves the ground at forty five degrees. Watch where it lands, then see its top.","scene":{"shot":{"lab":"physics","setup":"launch","angle":45,"speed":20}},"do":[{"cue":"Watch","op":"launch","on":["shot"]},{"cue":"top","op":"mark","on":["shot"],"what":"apex"}]}',

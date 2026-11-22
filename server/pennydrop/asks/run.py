@@ -19,7 +19,7 @@ from .coaching import coached
 from .directives import DirectiveError, DirectiveTools, as_promise, computed_facts, directive_briefs, expand_directives, fill_values, staged_directives, with_sources
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
-from .mending import mended, mended_by_verdict, mended_cues
+from .mending import mended, mended_by_verdict, mended_cues, with_one_figure_on_stage
 from .stage import TRACE_TOTAL_PREFIX, Stage, question_without_challenge, ran_something
 from .stage_words import ArrayPlay, PlotView, array_plays, plot_views
 from .stopwatch import Stopwatch
@@ -254,7 +254,10 @@ class LessonRun:
         return await self._salvage(brief, pending.number, written, checked, scene)
 
     def _mended(self, written: dict[str, Any] | Malformed, number: int) -> dict[str, Any] | Malformed:
-        return written if isinstance(written, Malformed) else as_promise(mended({**written, "step": number}, self._stage))
+        if isinstance(written, Malformed):
+            return written
+        step = mended({**written, "step": number}, self._stage)
+        return as_promise(with_one_figure_on_stage(step, self._stage) if self._is_kid else step)
 
     def _accepted(self, written: dict[str, Any] | Malformed, checked: Checked) -> SettledStep:
         self._stage.remember_trace(written, checked.step, checked.values)

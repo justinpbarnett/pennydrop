@@ -121,7 +121,7 @@ export function planStep(previous: SceneState, step: Step, narration: Narration)
   });
 
   errors.push(...relationProblems(scene.objects).map((problem) => `${label}: ${problem}`));
-  if (step.challenge) errors.push(...challengeProblems(step.challenge).map((problem) => `${label}: ${problem}`));
+  if (step.challenge) errors.push(...challengeProblems(step.challenge, scene.reading !== false).map((problem) => `${label}: ${problem}`));
   const replaced = Object.entries(step.scene ?? {}).filter(([id, spec]) => spec !== null && previous.objects.some((object) => object.id === id)).map(([id]) => id);
   return { afterSceneChange, ops, final: scene, replaced, errors };
 }

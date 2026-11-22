@@ -28,7 +28,16 @@ def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     step = _with_numeric_answer(step)
     step = _with_tap_answer_on_its_node(step, stage)
     step = _without_the_answer_said(step, stage)
+    step = stage.setups.with_reveal_run(step)
     return _with_every_send_settled(_with_library_listing(step), stage.in_flight)
+
+
+def with_one_figure_on_stage(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    if not any(isinstance(spec, dict) and isinstance(spec.get("lab"), str) and name not in stage.labs for name, spec in scene.items()):
+        return step
+    leaving = {name: None for name in stage.on_stage() if name not in scene}
+    return {**step, "scene": {**leaving, **scene}} if leaving else step
 
 
 def mended_cues(step: dict[str, Any]) -> dict[str, Any]:
