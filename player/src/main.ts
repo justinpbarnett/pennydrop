@@ -9,6 +9,7 @@ import { Playback } from "./playback";
 import { Recorder } from "./recorder";
 import { StageRenderer } from "./render";
 import { resolveProfileId, listLessons, loadLesson, postAnswer } from "./source";
+import { fitStage } from "./stage-fit";
 import { THEMES, type ThemeId } from "./theme";
 import { applyThemeVars } from "./theme-css";
 import { buildSwatches, markSwatches, rememberedTheme, rememberTheme } from "./theme-picker";
@@ -27,12 +28,7 @@ const ticks = $("#ticks");
 const overlay = $("#overlay");
 const status = $("#status");
 
-const STAGE_ASPECT = 16 / 9;
-const stageArea = $(".stage-area");
-new ResizeObserver(() => {
-  const width = Math.min(stageArea.clientWidth, stageArea.clientHeight * STAGE_ASPECT);
-  document.documentElement.style.setProperty("--stage-width", `${Math.floor(width)}px`);
-}).observe(stageArea);
+fitStage($(".stage-frame"));
 
 let playback = new Playback();
 let lessonId = "";

@@ -5,6 +5,7 @@ import { Playback } from "../playback";
 import { Recorder } from "../recorder";
 import { StageRenderer } from "../render";
 import { loadLesson, postAnswer } from "../source";
+import { fitStage } from "../stage-fit";
 import { THEMES } from "../theme";
 import { Sounds } from "./sounds";
 import { icons, mascot } from "./svg";
@@ -67,7 +68,7 @@ export class KidsApp {
     ui.play.addEventListener("click", () => this.playback.toggle());
     ui.stage.addEventListener("click", (event) => this.tapStage(event));
     for (const name of ["click", "touchend"]) document.addEventListener(name, (event) => this.firstTap(event), { capture: true });
-    this.fitStage();
+    fitStage(this.ui.frame);
     void this.voice.preload();
     requestAnimationFrame((now) => this.loop(now));
     this.render();
@@ -87,14 +88,6 @@ export class KidsApp {
     this.sounds.unlock();
     const onMic = event.target instanceof Element && event.target.closest(".mic") !== null;
     if (!this.lessonId && !onMic) setTimeout(() => this.voice.say("hello"), 250);
-  }
-
-  private fitStage(): void {
-    const area = this.ui.frame.parentElement!;
-    new ResizeObserver(() => {
-      const width = Math.min(area.clientWidth, area.clientHeight * (16 / 9));
-      document.documentElement.style.setProperty("--stage-width", `${Math.floor(width)}px`);
-    }).observe(area);
   }
 
   private loop(now: number): void {
