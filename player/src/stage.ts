@@ -1,4 +1,4 @@
-import type { Drawable, Link, Paint, Role } from "./lab";
+import type { Color, Drawable, Link, Paint, Role } from "./lab";
 import { type Box, type Layout, layoutScene, STAGE } from "./layout";
 import { definitionOf, type SceneObject, type SceneState } from "./scene";
 import type { Theme } from "./theme";
@@ -39,13 +39,13 @@ export function placeDrawables(objectId: string, local: Drawable[], box: Box): D
   });
 }
 
-function tinted(drawable: Drawable, role: Role): Drawable {
-  const recolor = (paint: Paint | undefined) => (paint === undefined || KEEP_ROLES.includes(paint) ? paint : role);
+function tinted(drawable: Drawable, color: Color): Drawable {
+  const recolor = (paint: Paint | undefined) => (paint === undefined || KEEP_ROLES.includes(paint) ? paint : color);
   return {
     ...drawable,
     fill: recolor(drawable.fill),
     stroke: recolor(drawable.stroke),
-    spans: drawable.spans?.map((span) => ({ ...span, role: KEEP_ROLES.includes(span.role) ? span.role : role })),
+    spans: drawable.spans?.map((span) => ({ ...span, role: KEEP_ROLES.includes(span.role) ? span.role : color })),
   };
 }
 

@@ -2,7 +2,7 @@ import { gsap } from "gsap";
 import { definitionOf, type SceneState } from "./scene";
 import { type Camera, buildStage, HOME_CAMERA, arrivedObjects, movedObjects, type PlacedObject, placeDrawables, type Stage } from "./stage";
 import { clamp01, type Drawable, duringLabOp, lerp, lerpRect, type Paint, PATH_KINDS, type Rect, WORD_KINDS } from "./lab";
-import { parseHex, type Rgba, shownText, type Theme } from "./theme";
+import { colorOf, parseHex, type Rgba, shownText, type Theme } from "./theme";
 import { type Located, type SegmentProgress, type Timeline, trueProgress } from "./timeline";
 import { applyEffect, type Touch } from "./verbs";
 import type { Box } from "./layout";
@@ -48,7 +48,7 @@ export function easeFor(theme: Theme): (progress: number) => number {
 }
 
 function paintOf(paint: Paint | undefined, theme: Theme): Rgba | null {
-  return paint === undefined || paint === "none" ? null : parseHex(theme.colors[paint]);
+  return paint === undefined || paint === "none" ? null : parseHex(colorOf(theme, paint));
 }
 
 function paintDrawable(drawable: Drawable, theme: Theme): Painted {
@@ -66,7 +66,7 @@ function paintDrawable(drawable: Drawable, theme: Theme): Painted {
     points: drawable.points,
     closed: drawable.closed,
     text: shownText(drawable, theme),
-    spans: drawable.spans?.map((span) => ({ text: span.text, color: parseHex(theme.colors[span.role]) })),
+    spans: drawable.spans?.map((span) => ({ text: span.text, color: parseHex(colorOf(theme, span.role)) })),
     latex: drawable.latex,
     href: drawable.href,
     crop: drawable.crop,

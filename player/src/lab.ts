@@ -1,4 +1,5 @@
 import { textWidth } from "./text-metrics";
+import { HUES, type Hue, isHue } from "./theme";
 
 export const ROLES = [
   "ground", "ink", "muted", "rule", "accent", "active", "compare", "swap",
@@ -6,16 +7,19 @@ export const ROLES = [
   "series1", "series2", "series3", "series4", "series5", "series6",
 ] as const;
 export type Role = (typeof ROLES)[number];
-export type Paint = Role | "none";
+export type Color = Role | Hue;
+export type Paint = Color | "none";
 export type FontRole = "mark" | "read" | "code" | "math";
 
 export function isRole(value: unknown): value is Role {
   return typeof value === "string" && (ROLES as readonly string[]).includes(value);
 }
 
+export const isColor = (value: unknown): value is Color => isRole(value) || isHue(value);
+
 export interface Span {
   text: string;
-  role: Role;
+  role: Color;
 }
 
 export type DrawableKind = "rect" | "circle" | "line" | "arrow" | "path" | "text" | "code" | "math" | "image";
@@ -188,6 +192,13 @@ export function stringArg(args: Record<string, unknown>, key: string, opName: st
 export function numberArg(args: Record<string, unknown>, key: string, opName: string): number {
   const value = args[key];
   if (typeof value !== "number" || !Number.isFinite(value)) fail(`op "${opName}" needs "${key}" as a number`);
+  return value;
+}
+
+export function colorField(spec: Record<string, unknown>, key: string, fallback: Color, objectId: string): Color {
+  const value = spec[key];
+  if (value === undefined) return fallback;
+  if (!isColor(value)) fail(`${objectId}: "${key}" must be a role name such as ink, accent, active or done, or a real color: ${HUES.join(", ")}`);
   return value;
 }
 

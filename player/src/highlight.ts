@@ -1,5 +1,5 @@
 import type { HighlighterCore } from "shiki/core";
-import { type Drawable, fail, type Role, type Span, stringField, textDrawable } from "./lab";
+import { type Color, type Drawable, fail, type Role, type Span, stringField, textDrawable } from "./lab";
 import { textWidth } from "./text-metrics";
 
 const SENTINELS: Record<string, Role> = {
@@ -68,7 +68,7 @@ export function languageField(spec: Record<string, unknown>, objectId: string): 
 
 const NUMBER_LITERAL = /(?<![\w.])(?:0[xX][\da-fA-F_]*(?:\.[\da-fA-F_]*)?(?:[pP][+-]?\d+)?|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?)[uUlLfFjJn]*(?!\w)/g;
 const NUMBER_ROLE: Role = "swap";
-const STRING_AND_COMMENT_ROLES: readonly Role[] = ["ok", "muted"];
+const STRING_AND_COMMENT_ROLES: readonly Color[] = ["ok", "muted"];
 
 function withWholeNumbers(spans: Span[]): Span[] {
   const text = spans.map((span) => span.text).join("");

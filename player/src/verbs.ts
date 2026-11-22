@@ -1,4 +1,5 @@
 import { isRole, fail, lerp, type Drawable, PATH_KINDS, WORD_KINDS } from "./lab";
+import { HUES, isHue } from "./theme";
 import {
   createObject, definitionOf, findObject, removeObject, requireObject, type SceneObject, type SceneState, upsertObject,
 } from "./scene";
@@ -48,14 +49,14 @@ function ids(op: ParsedOp): string[] {
   return op.selectors.map((selector) => selector.id);
 }
 
-function roleArg(op: ParsedOp, fallback: string): string {
+function roleArg(op: ParsedOp, fallback: string, takesHues: boolean): string {
   const role = op.args.role ?? fallback;
-  if (role !== "none" && !isRole(role)) fail(`op "${op.name}" role ${JSON.stringify(role)} is not a meaning role: use active, compare, swap, done, ok, warn, fault, accent, highlight or none`);
-  return role as string;
+  if (role === "none" || isRole(role) || (takesHues && isHue(role))) return role as string;
+  return fail(`op "${op.name}" role ${JSON.stringify(role)} is not a meaning role: use active, compare, swap, done, ok, warn, fault, accent, highlight${takesHues ? `, a real color (${HUES.join(", ")})` : ""} or none`);
 }
 
 function setField(scene: SceneState, op: ParsedOp, field: "tint" | "highlight", fallbackRole: string): VerbResult {
-  const role = roleArg(op, fallbackRole);
+  const role = roleArg(op, fallbackRole, field === "tint");
   let next = scene;
   const touches: Touch[] = [];
   for (const id of new Set(ids(op))) {
@@ -161,7 +162,7 @@ const VERBS: Record<string, Verb> = {
     run: (scene, op) => setField(scene, op, "highlight", "highlight"),
   },
   color: {
-    summary: 'color: {"on":["id"],"role":"done"} recolors objects by meaning role such as active, done, fault; "none" clears',
+    summary: 'color: {"on":["id"],"role":"done"} recolors objects by meaning role such as active, done, fault, or by a real color such as blue or red when the thing\'s own color changes; "none" clears',
     duration: 0.6,
     run: (scene, op) => setField(scene, op, "tint", "active"),
   },

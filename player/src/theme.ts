@@ -1,4 +1,11 @@
-import type { Drawable, FontRole, Role } from "./lab";
+import type { Color, Drawable, FontRole, Role } from "./lab";
+
+export const HUES = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "brown", "white", "gray", "black"] as const;
+export type Hue = (typeof HUES)[number];
+
+export function isHue(value: unknown): value is Hue {
+  return typeof value === "string" && (HUES as readonly string[]).includes(value);
+}
 
 export const THEME_IDS = ["pattern", "film", "kids", "plain"] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
@@ -15,6 +22,7 @@ export interface Theme {
   id: ThemeId;
   name: string;
   colors: Record<Role, string>;
+  hues: Record<Hue, string>;
   fonts: Record<FontRole, ThemeFont>;
   capitalMarks: boolean;
   stroke: number;
@@ -39,6 +47,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       fill: "#141519", fill2: "#202127", highlight: "#FFD60A", edge: "#5A5B63",
       series1: "#FFD60A", series2: "#4FB3FF", series3: "#22C55E", series4: "#FF7A59", series5: "#B08CFF", series6: "#E7E5DF",
     },
+    hues: { red: "#E5484D", orange: "#FF8A3D", yellow: "#FFD60A", green: "#22C55E", blue: "#3B9EFF", purple: "#A07CFF", pink: "#FF6FAE", brown: "#A0703F", white: "#F2F0EA", gray: "#8A8C93", black: "#26272C" },
     fonts: {
       mark: { family: "'Pennydrop Mark', 'JetBrains Mono', sans-serif", weight: 400, tracking: 0.06 },
       read: { family: "'JetBrains Mono', ui-monospace, monospace", weight: 400, tracking: 0 },
@@ -62,6 +71,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       fill: "#15120C", fill2: "#241E12", highlight: "#FFDC93", edge: "#7C6A3E",
       series1: "#E2B253", series2: "#7FB8C9", series3: "#9BC57C", series4: "#E8705A", series5: "#B79AD6", series6: "#F3E9D2",
     },
+    hues: { red: "#E8705A", orange: "#E89A4F", yellow: "#F6CE6E", green: "#9BC57C", blue: "#6FA8DC", purple: "#B79AD6", pink: "#E79AB8", brown: "#9C7350", white: "#F3E9D2", gray: "#8F887A", black: "#24201A" },
     fonts: {
       mark: { family: "'Cormorant Garamond', Georgia, serif", weight: 600, tracking: 0.02 },
       read: { family: "'Cormorant Garamond', Georgia, serif", weight: 600, tracking: 0.01 },
@@ -86,6 +96,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       fill: "#FFFFFF", fill2: "#FFE08A", highlight: "#FFCB2E", edge: "#8E73C2",
       series1: "#FF6B35", series2: "#1E7FE0", series3: "#1FA867", series4: "#D81B8A", series5: "#8A4FD6", series6: "#E59A00",
     },
+    hues: { red: "#E53935", orange: "#FF8F1F", yellow: "#FFC800", green: "#2EAD4B", blue: "#1E88E5", purple: "#8A4FD6", pink: "#EC4F9A", brown: "#8D5A33", white: "#FFFFFF", gray: "#9A93A8", black: "#2B2333" },
     fonts: {
       mark: { family: "'Fredoka', 'Nunito', sans-serif", weight: 600, tracking: 0.01 },
       read: { family: "'Fredoka', 'Nunito', sans-serif", weight: 500, tracking: 0.01 },
@@ -109,6 +120,7 @@ export const THEMES: Record<ThemeId, Theme> = {
       fill: "#F3F5F8", fill2: "#E3E9F3", highlight: "#CFE0FF", edge: "#9AA3B2",
       series1: "#2F6FEB", series2: "#D9480F", series3: "#18864C", series4: "#7C4DDB", series5: "#0E8A9B", series6: "#B8860B",
     },
+    hues: { red: "#D93A3A", orange: "#E8740C", yellow: "#F2C100", green: "#18864C", blue: "#2F6FEB", purple: "#7C4DDB", pink: "#D6408A", brown: "#8A5A2B", white: "#FFFFFF", gray: "#8A929E", black: "#16181D" },
     fonts: {
       mark: { family: "'Inter', system-ui, sans-serif", weight: 600, tracking: 0 },
       read: { family: "'Inter', system-ui, sans-serif", weight: 400, tracking: 0 },
@@ -142,3 +154,5 @@ export function cssRgba([r, g, b, a]: Rgba): string {
 export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === "string" && (THEME_IDS as readonly string[]).includes(value);
 }
+
+export const colorOf = (theme: Theme, color: Color): string => (isHue(color) ? theme.hues[color] : theme.colors[color]);

@@ -1,4 +1,5 @@
-import { type Drawable, fail, type LabDef, labelDrawable, type Point, positiveField, readsWords, type Role, roleField, segmentDrawable } from "../lab";
+import { type Color, colorField, type Drawable, fail, type LabDef, labelDrawable, type Paint, type Point, positiveField, readsWords, segmentDrawable } from "../lab";
+import { HUES } from "../theme";
 import { textWidth } from "../text-metrics";
 
 type ShapeName = "rect" | "circle" | "line" | "arrow" | "path";
@@ -12,8 +13,8 @@ interface ShapeState {
   points: number[];
   direction: Direction;
   label: string;
-  role: Role;
-  fillRole: Role | "none";
+  role: Color;
+  fillRole: Paint;
 }
 
 const DIRECTIONS = { right: [1, 0], left: [-1, 0], up: [0, -1], down: [0, 1] } as const;
@@ -58,8 +59,9 @@ export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
       direction: "line or arrow direction: right, left, up, down",
       points: "path as [[x, y], ...] in a box of about 300 by 200",
       label: "optional text inside",
-      role: "stroke color role, default ink",
-      fill: "optional fill color role",
+      role: "stroke color: a role, default ink",
+      fill: "optional fill color: a role",
+      colors: `role and fill also take a real color, ${HUES.join(", ")}, when the thing's own color is the point, such as a blue sky, a yellow sun or green grass; every Theme draws that color as itself`,
     },
     example: ['{"scene":{"box":{"kind":"shape","shape":"rect","label":"Hello"}}}'],
   },
@@ -67,8 +69,8 @@ export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
   init(spec, objectId) {
     const shape = spec.shape as ShapeName;
     if (!SHAPES.includes(shape)) fail(`${objectId}: "shape" must be one of ${SHAPES.join(", ")}`);
-    const role = roleField(spec, "role", "ink", objectId);
-    const fillRole: ShapeState["fillRole"] = spec.fill === undefined ? "none" : roleField(spec, "fill", "fill", objectId);
+    const role = colorField(spec, "role", "ink", objectId);
+    const fillRole: Paint = spec.fill === undefined ? "none" : colorField(spec, "fill", "fill", objectId);
     const label = typeof spec.label === "string" ? spec.label : "";
     if (label && !readsWords(spec)) fail(`${objectId}: a child who cannot read sees no words, so its label "${label}" would leave an empty outline; leave out "label" and show the thing itself, with a filled shape or a picture`);
     const base = { shape, label, role, fillRole, points: [] as number[], direction: "right" as Direction };

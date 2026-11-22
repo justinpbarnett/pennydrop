@@ -1,6 +1,6 @@
 import { definitionByKey, definitionIfRegistered, definitionKeyForSpec, specText, wordlessKeys } from "./registry";
 import type { LessonHeader, ObjectSpec } from "./format";
-import { type AnyLabDef, fail, isRole, type Role } from "./lab";
+import { type AnyLabDef, type Color, fail, isColor, isRole, type Role } from "./lab";
 import { shareRadius } from "./primitives/node";
 import { parseRelation, type Relation } from "./relation";
 
@@ -9,7 +9,7 @@ export interface SceneObject {
   defKey: string;
   state: unknown;
   at?: Relation;
-  tint?: Role;
+  tint?: Color;
   highlight?: Role;
   highlightParts?: readonly string[];
 }
@@ -21,7 +21,7 @@ export interface SceneState {
 }
 
 export interface SceneSnapshot {
-  objects: { id: string; defKey: string; state: unknown; at?: Relation; tint?: Role; highlight?: Role; highlightParts?: readonly string[] }[];
+  objects: { id: string; defKey: string; state: unknown; at?: Relation; tint?: Color; highlight?: Role; highlightParts?: readonly string[] }[];
   focus: string | null;
 }
 
@@ -41,16 +41,15 @@ function snapshotObject(value: unknown, index: number): SceneObject {
   if (typeof id !== "string" || !id) return fail(`${where} needs an "id" as text`);
   if (typeof defKey !== "string" || !definitionIfRegistered(defKey)) return fail(`${where} (${id}) has defKey ${JSON.stringify(defKey)}, which is not a registered Lab or primitive`);
   if (state === undefined || state === null) return fail(`${where} (${id}) needs a "state"`);
-  for (const [name, role] of [["tint", tint], ["highlight", highlight]] as const) {
-    if (role !== undefined && !isRole(role)) fail(`${where} (${id}) has ${name} ${JSON.stringify(role)}, which is not a role`);
-  }
+  if (tint !== undefined && !isColor(tint)) fail(`${where} (${id}) has tint ${JSON.stringify(tint)}, which is not a role or a real color`);
+  if (highlight !== undefined && !isRole(highlight)) fail(`${where} (${id}) has highlight ${JSON.stringify(highlight)}, which is not a role`);
   if (highlightParts != null && !(Array.isArray(highlightParts) && highlightParts.every((part) => typeof part === "string"))) fail(`${where} (${id}) has highlightParts that are not a list of part names`);
   return {
     id,
     defKey,
     state,
     ...(at == null ? {} : { at: parseRelation(id, at) }),
-    ...(tint === undefined ? {} : { tint: tint as Role }),
+    ...(tint === undefined ? {} : { tint }),
     ...(highlight === undefined ? {} : { highlight: highlight as Role }),
     ...(highlightParts == null ? {} : { highlightParts: highlightParts as string[] }),
   };
