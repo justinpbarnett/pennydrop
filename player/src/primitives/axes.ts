@@ -120,15 +120,15 @@ export const primitive: LabDef<Record<string, unknown>, AxesState> = {
         );
       }
     }
-    if (state.reading && state.xLabel) out.push({ id: "label-x", kind: "text", x: (left + right) / 2, y: state.h - 14, text: state.xLabel, size: 26, font: "mark", fill: "ink" });
-    if (state.reading && state.yLabel) out.push({ id: "label-y", kind: "text", x: 22, y: (top + bottom) / 2, text: state.yLabel, size: 26, font: "mark", fill: "ink", rotation: -90 });
+    if (state.reading && state.xLabel) out.push({ id: "label-x", kind: "text", x: (left + right) / 2, y: state.h - 14, text: state.xLabel, size: 26, font: "read", fill: "ink" });
+    if (state.reading && state.yLabel) out.push({ id: "label-y", kind: "text", x: 22, y: (top + bottom) / 2, text: state.yLabel, size: 26, font: "read", fill: "ink", rotation: -90 });
     for (const series of state.series) {
       out.push({ id: `series-${series.id}`, kind: "path", x: 0, y: 0, points: series.points.flatMap(([xv, yv]) => [px(xv), py(yv)]), fill: "none", stroke: series.role, strokeWidth: 2.4, z: 2 });
       if (state.reading && series.label) {
         const last = series.points.at(-1)!;
-        const width = Math.max(textWidth(series.label, SERIES_LABEL_SIZE, "mark"), textWidth(series.label.toUpperCase(), SERIES_LABEL_SIZE, "mark"));
+        const width = textWidth(series.label, SERIES_LABEL_SIZE, "read");
         const before = px(last[0]) - SERIES_LABEL_GAP - width >= left;
-        out.push({ id: `series-${series.id}-label`, kind: "text", x: px(last[0]) + (before ? -SERIES_LABEL_GAP : SERIES_LABEL_GAP), y: py(last[1]) - 20, text: series.label, size: SERIES_LABEL_SIZE, font: "mark", fill: series.role, anchor: before ? "end" : "start", z: 2 });
+        out.push({ id: `series-${series.id}-label`, kind: "text", x: px(last[0]) + (before ? -SERIES_LABEL_GAP : SERIES_LABEL_GAP), y: py(last[1]) - 20, text: series.label, size: SERIES_LABEL_SIZE, font: "read", fill: series.role, anchor: before ? "end" : "start", z: 2 });
       }
     }
     return out;

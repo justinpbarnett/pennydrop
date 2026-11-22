@@ -33,7 +33,7 @@ const textSize = (state: GridState) => state.cell * 0.4;
 
 function columnWidths(state: GridState): number[] {
   const size = textSize(state);
-  return state.cells[0]!.map((_, column) => Math.max(state.cell, ...(state.reading ? state.cells.map((row) => textWidth(row[column]!.value, size, "mark") + size) : [])));
+  return state.cells[0]!.map((_, column) => Math.max(state.cell, ...(state.reading ? state.cells.map((row) => textWidth(row[column]!.value, size, "read") + size) : [])));
 }
 
 export const primitive: LabDef<Record<string, unknown>, GridState> = {
@@ -84,7 +84,7 @@ export const primitive: LabDef<Record<string, unknown>, GridState> = {
       const x = lefts[c]! + widths[c]! / 2;
       const y = (r + 0.5) * state.cell;
       out.push({ id: `cell-${r}-${c}`, kind: "rect", x, y, w: widths[c]!, h: state.cell, fill: cell.role ? "fill2" : "fill", stroke: cell.role ?? "rule", strokeWidth: cell.role ? 1.8 : 1, radius: 0.5, part: `${state.objectId}[${r},${c}]` });
-      if (state.reading) out.push({ id: `value-${r}-${c}`, kind: "text", x, y, text: cell.value, size: textSize(state), font: "mark", fill: "ink", z: 1 });
+      if (state.reading) out.push({ id: `value-${r}-${c}`, kind: "text", x, y, text: cell.value, size: textSize(state), font: "read", fill: "ink", z: 1 });
     }));
     return out;
   },

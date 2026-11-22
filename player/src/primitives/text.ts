@@ -1,10 +1,13 @@
 import { fail, lerp, type LabDef, numberArg, positiveField, type Role, roleField, stringArg, stringField } from "../lab";
 import { textWidth } from "../text-metrics";
 
+const TEXT_FONTS = ["mark", "read", "code"] as const;
+type TextFont = (typeof TEXT_FONTS)[number];
+
 interface TextState {
   text: string;
   size: number;
-  font: "mark" | "read";
+  font: TextFont;
   role: Role;
 }
 
@@ -51,7 +54,7 @@ export const primitive: LabDef<Record<string, unknown>, TextState> = {
   reading: "required",
   catalog: {
     summary: "A line or block of text. Use \\n for new lines.",
-    spec: { text: "the words", size: "optional px, default 44", font: '"mark" (default, bold display) or "read"', role: "optional color role, default ink" },
+    spec: { text: "the words", size: "optional px, default 44", font: '"mark" (default, bold display; some Themes set it in capitals), "read", or "code" for code, variable names and values, which keep their case in every Theme', role: "optional color role, default ink" },
     example: ['{"scene":{"title":{"kind":"text","text":"Why O(n²)?","at":"top"}}}'],
   },
   ops: {
@@ -76,8 +79,8 @@ export const primitive: LabDef<Record<string, unknown>, TextState> = {
     },
   },
   init(spec, objectId) {
-    const font = stringField(spec, "font", objectId, "mark");
-    if (font !== "mark" && font !== "read") fail(`${objectId}: "font" must be "mark" or "read"`);
+    const font = stringField(spec, "font", objectId, "mark") as TextFont;
+    if (!TEXT_FONTS.includes(font)) fail(`${objectId}: "font" must be "mark", "read" or "code"`);
     return { text: stringField(spec, "text", objectId), size: positiveField(spec, "size", 44, objectId), font, role: roleField(spec, "role", "ink", objectId) };
   },
   size: sizeOf,
