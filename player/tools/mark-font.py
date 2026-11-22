@@ -1,7 +1,9 @@
 import math
 from pathlib import Path
 
+from fontTools.pens.areaPen import AreaPen
 from fontTools.pens.recordingPen import DecomposingRecordingPen
+from fontTools.pens.reverseContourPen import ReverseContourPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont
 from fontTools.ttLib.removeOverlaps import removeOverlaps
@@ -74,9 +76,13 @@ def flagged_one(font):
     left, bottom, right, top = contour_bounds(stem)
     radius = (right - left) / 2
     tip = ((left + right) / 2, top - radius)
+    end = (tip[0] + FLAG_REACH[0], tip[1] + FLAG_REACH[1])
+    stem_area, flag_area = AreaPen(), AreaPen()
+    recording.replay(stem_area)
+    capsule(flag_area, tip, end, radius)
     pen = TTGlyphPen(glyphs)
     recording.replay(pen)
-    capsule(pen, tip, (tip[0] + FLAG_REACH[0], tip[1] + FLAG_REACH[1]), radius)
+    capsule(pen if (stem_area.value > 0) == (flag_area.value > 0) else ReverseContourPen(pen), tip, end, radius)
     return pen.glyph()
 
 
