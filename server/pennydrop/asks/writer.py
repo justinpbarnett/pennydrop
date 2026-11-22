@@ -8,6 +8,7 @@ from typing import Any
 
 from ..courses import CourseContext
 from ..gateway import CallStats, Gateway
+from ..settings import Job
 from ..store import Profile
 from .catalog import Catalog
 from .classify import Plan
@@ -186,7 +187,7 @@ class Writer:
 
     async def _streamed(self, brief: Brief, prompt: str, system: str, lesson_id: str, stopwatch: Stopwatch) -> AsyncIterator[ParsedLine]:
         buffer = ""
-        async with aclosing(self._gateway.stream(brief.plan.tier.job, prompt, system=system, lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS)) as items:
+        async with aclosing(self._gateway.stream(Job.WRITER, prompt, system=system, lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS)) as items:
             async for item in items:
                 if isinstance(item, CallStats):
                     continue
@@ -212,7 +213,7 @@ class Writer:
             *(f"- {error}" for error in errors),
             ANSWER_AT_ONCE,
         ])
-        completion = await self._gateway.complete(brief.plan.tier.job, prompt, system=await self._system(), lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS)
+        completion = await self._gateway.complete(Job.WRITER, prompt, system=await self._system(), lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS)
         for line in completion.text.splitlines():
             parsed = parse_line(line)
             if isinstance(parsed, Header):

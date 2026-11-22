@@ -204,6 +204,9 @@ SCHEMA = [
     """
     alter table model_calls add column stop_reason text;
     """,
+    """
+    alter table lessons drop column tier;
+    """,
 ]
 
 
@@ -241,7 +244,6 @@ class LessonRecord:
     first_step_seconds: float | None = None
     done_seconds: float | None = None
     cost_usd: float = 0.0
-    tier: str | None = None
     header: dict[str, Any] = field(default_factory=dict)
     transcription_seconds: float | None = None
     timings: dict[str, float] = field(default_factory=dict)
@@ -359,11 +361,11 @@ class Store:
         self._connection.execute(
             """
             insert into lessons (id, ask, title, labs, source, status, first_step_seconds, done_seconds, cost_usd, created_at,
-                tier, header, transcription_seconds, timings, error, repairs, profile_id, topic_id)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                header, transcription_seconds, timings, error, repairs, profile_id, topic_id)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(id) do update set ask = excluded.ask, title = excluded.title, labs = excluded.labs,
                 status = excluded.status, first_step_seconds = excluded.first_step_seconds,
-                done_seconds = excluded.done_seconds, cost_usd = excluded.cost_usd, tier = excluded.tier,
+                done_seconds = excluded.done_seconds, cost_usd = excluded.cost_usd,
                 header = excluded.header, transcription_seconds = excluded.transcription_seconds,
                 timings = excluded.timings, error = excluded.error, repairs = excluded.repairs, profile_id = excluded.profile_id,
                 topic_id = excluded.topic_id
@@ -371,7 +373,7 @@ class Store:
             (
                 lesson.id, lesson.ask, lesson.title, json.dumps(lesson.labs), lesson.source.value, lesson.status,
                 lesson.first_step_seconds, lesson.done_seconds, lesson.cost_usd, _iso(_now()),
-                lesson.tier, json.dumps(lesson.header), lesson.transcription_seconds, json.dumps(lesson.timings), lesson.error, json.dumps(lesson.repairs), lesson.profile_id, lesson.topic_id,
+                json.dumps(lesson.header), lesson.transcription_seconds, json.dumps(lesson.timings), lesson.error, json.dumps(lesson.repairs), lesson.profile_id, lesson.topic_id,
             ),
         )
 
@@ -650,7 +652,7 @@ def _uses_lab(value: Any, lab_id: str) -> bool:
 def _lesson_from(row: sqlite3.Row) -> LessonRecord:
     return LessonRecord(
         row["id"], row["ask"], row["title"], json.loads(row["labs"]), LessonSource(row["source"]), row["status"],
-        row["first_step_seconds"], row["done_seconds"], row["cost_usd"], row["tier"], json.loads(row["header"]),
+        row["first_step_seconds"], row["done_seconds"], row["cost_usd"], json.loads(row["header"]),
         row["transcription_seconds"], json.loads(row["timings"]), row["error"], json.loads(row["repairs"]),
         row["profile_id"], row["topic_id"],
     )

@@ -33,7 +33,7 @@ class LessonDocument:
 def done_event(record: LessonRecord, steps: int) -> dict[str, Any]:
     return {
         "steps": steps, "seconds": record.done_seconds, "first_step_seconds": record.first_step_seconds,
-        "cost_usd": record.cost_usd, "tier": record.tier, "labs": record.labs, "timings": record.timings,
+        "cost_usd": record.cost_usd, "labs": record.labs, "timings": record.timings,
         "transcription_seconds": record.transcription_seconds, "repairs": record.repairs,
         "point_check": record.header.get("point_check"),
     }

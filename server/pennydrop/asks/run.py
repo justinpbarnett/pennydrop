@@ -188,7 +188,6 @@ class LessonRun:
         photo_search = plan.photo_subject if "picture" in plan.labs else None
         if photo_search:
             self._warm_picture = asyncio.create_task(prefetch(kit.directive_tools.images, photo_search, not self._is_kid, self._record.id))
-        self._record = replace(self._record, tier=plan.tier.value)
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
         outline = (await kid_outline(plan.algorithm, kit.directive_tools.tracer) if self._is_kid else await run_outline(plan.algorithm, kit.directive_tools.tracer, plan.shows_code)) if plan.algorithm else None
         self._stage = Stage(start_scene, outline.runs if outline else Runs(), kid=self._is_kid, charts_quantities=plan.charts_quantities)

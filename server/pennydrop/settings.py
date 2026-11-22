@@ -14,8 +14,7 @@ ESTIMATE_SUFFIX = "-estimate"
 
 class Job(StrEnum):
     CLASSIFY = "classify"
-    WRITER_FAST = "writer_fast"
-    WRITER_STRONG = "writer_strong"
+    WRITER = "writer"
     VISION = "vision"
     VISION_CHOOSE = "vision_choose"
     GRADE = "grade"

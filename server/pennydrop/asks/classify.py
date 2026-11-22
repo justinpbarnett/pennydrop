@@ -2,17 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import StrEnum
 
-from ..gateway import Answer, Choice, ChoiceAnswer, Gateway, Question, Score, ScoreAnswer, YesNo, YesNoAnswer
+from ..gateway import Answer, Choice, ChoiceAnswer, Gateway, Question, YesNo, YesNoAnswer
 from ..pictures import subject_phrases
 from ..tracer import ALGORITHMS
-from ..settings import Job
 from ..store import Profile, ProfileKind
 from .catalog import LabEntry
 from .directives.trace import TARGETS, outline_lab
 
-STRONG_TIER_FROM_SCORE = 1.5
 LAB_QUESTION_PREFIX = "lab_"
 KID_LAB_HINTS = {
     "picture": "Answer yes when a child asks what a real thing looks like, asks to see it, or asks what is inside it or what parts it has: a real photo shows it better than drawn shapes.",
@@ -70,15 +67,6 @@ NO_SUBJECT = "none"
 NO_ALGORITHM = "none"
 
 
-class Tier(StrEnum):
-    FAST = "fast"
-    STRONG = "strong"
-
-    @property
-    def job(self) -> Job:
-        return Job.WRITER_STRONG if self is Tier.STRONG else Job.WRITER_FAST
-
-
 @dataclass(frozen=True)
 class Viewing:
     title: str
@@ -90,7 +78,6 @@ class Viewing:
 class Plan:
     follow_up: bool
     labs: tuple[str, ...]
-    tier: Tier
     fine_for_young_child: bool
     graded_assignment: bool
     photo_subject: str | None
@@ -105,14 +92,6 @@ class Classifier:
 
     async def plan(self, ask: str, profile: Profile | None, labs: tuple[LabEntry, ...], viewing: Viewing | None, lesson_id: str) -> Plan:
         questions: dict[str, Question] = {
-            "depth": Score(
-                "How deep or subtle is the idea the person asks about?",
-                [
-                    "0: a plain, well known fact or simple mechanism a beginner can follow",
-                    "1: a multi step mechanism with several interacting parts",
-                    "2: a deep, subtle or advanced idea where precision and nuance matter",
-                ],
-            ),
             "graded_assignment": YesNo("Does the person want code or answers for a graded course assignment, rather than to understand a concept?"),
         }
         is_kid = profile is not None and profile.kind is ProfileKind.KID
@@ -148,8 +127,6 @@ class Classifier:
             questions["young_child_ok"] = YesNo("Is this question fine for a young child to learn about: free of frightening, violent, sexual or other adult content? A subject that is only hard, such as code, sorting, math or how machines work, is fine.")
         result = await self._gateway.classify(_state(ask, profile, viewing), questions, lesson_id=lesson_id)
         answers = result.answers
-        depth = answers["depth"]
-        assert isinstance(depth, ScoreAnswer)
         relation = answers.get("relation")
         subject = answers.get("photo_subject")
         chosen = answers.get("algorithm")
@@ -158,7 +135,6 @@ class Classifier:
         return Plan(
             follow_up=isinstance(relation, ChoiceAnswer) and relation.choice == FOLLOW_UP,
             labs=fitting_labs,
-            tier=Tier.STRONG if depth.score >= STRONG_TIER_FROM_SCORE else Tier.FAST,
             fine_for_young_child=_yes(answers["young_child_ok"]) if is_kid else True,
             graded_assignment=_yes(answers["graded_assignment"]),
             photo_subject=subject.choice if isinstance(subject, ChoiceAnswer) and subject.choice in phrases else None,

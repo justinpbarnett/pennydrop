@@ -181,7 +181,7 @@ def _print_outcome(outcome: Outcome) -> None:
         sys.exit(f"pd: the Lesson failed: {outcome.error}")
     done = outcome.done
     print(f"point: {outcome.header.get('point') or '(none)'}  [check: {done.get('point_check')}]")
-    print(f"done in {done['seconds']:.2f} s, first Step {done['first_step_seconds']:.2f} s, {done['steps']} Steps, tier {done['tier']}, Labs {', '.join(done['labs']) or 'none'}, cost ${done['cost_usd']:.5f}")
+    print(f"done in {done['seconds']:.2f} s, first Step {done['first_step_seconds']:.2f} s, {done['steps']} Steps, Labs {', '.join(done['labs']) or 'none'}, cost ${done['cost_usd']:.5f}")
     for name, seconds in breakdown(done):
         print(f"  {name:38} {seconds:6.2f} s")
     for repair in done["repairs"]:
@@ -223,7 +223,7 @@ def _print_bench_row(services: Services, how: str, outcome: Outcome) -> None:
     done = outcome.done
     hedges, _ = services.store.hedge_losses(outcome.lesson_id)
     print(
-        f"{how:6} {outcome.lesson_id} {outcome.transcript[:46]:46} {done['tier']:6} {','.join(done['labs']) or '-':12} "
+        f"{how:6} {outcome.lesson_id} {outcome.transcript[:46]:46} {','.join(done['labs']) or '-':12} "
         f"first {done['first_step_seconds']:5.2f}  done {done['seconds']:5.2f}  ${done['cost_usd']:.5f}"
         f"{'  repairs ' + str(len(done['repairs'])) if done['repairs'] else ''}{'  hedged' if hedges else ''}", flush=True,
     )
