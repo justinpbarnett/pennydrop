@@ -15,7 +15,7 @@ KOKORO_NAMES = {
     "Fructidor": "fɹˌʌktidˈɔɹ",
     "Formio": "fˈɔɹmjO",
     "Kleber": "klAbˈɛɹ",
-    "Sieyes": "sˌiɛjˈɛs",
+    "Sieyes": "sjAˈjɛs",
     "Fouche": "fuʃˈA",
     "Brumaire": "bɹumˈɛɹ",
     "Aboukir": "ˌɑbukˈiɹ",
