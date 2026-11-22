@@ -11,6 +11,7 @@ export interface SceneObject {
   at?: Relation;
   tint?: Role;
   highlight?: Role;
+  highlightParts?: readonly string[];
 }
 
 export interface SceneState {
@@ -20,7 +21,7 @@ export interface SceneState {
 }
 
 export interface SceneSnapshot {
-  objects: { id: string; defKey: string; state: unknown; at?: Relation; tint?: Role; highlight?: Role }[];
+  objects: { id: string; defKey: string; state: unknown; at?: Relation; tint?: Role; highlight?: Role; highlightParts?: readonly string[] }[];
   focus: string | null;
 }
 
@@ -28,7 +29,7 @@ export const EMPTY_SCENE: SceneState = { objects: [], focus: null };
 
 export function snapshotOf(scene: SceneState): SceneSnapshot {
   return {
-    objects: scene.objects.map(({ id, defKey, state, at, tint, highlight }) => ({ id, defKey, state, at, tint, highlight })),
+    objects: scene.objects.map(({ id, defKey, state, at, tint, highlight, highlightParts }) => ({ id, defKey, state, at, tint, highlight, highlightParts })),
     focus: scene.focus,
   };
 }
@@ -36,14 +37,23 @@ export function snapshotOf(scene: SceneState): SceneSnapshot {
 function snapshotObject(value: unknown, index: number): SceneObject {
   const where = `scene.objects[${index}]`;
   if (typeof value !== "object" || value === null) return fail(`${where} must be an object with "id", "defKey" and "state"`);
-  const { id, defKey, state, at, tint, highlight } = value as Record<string, unknown>;
+  const { id, defKey, state, at, tint, highlight, highlightParts } = value as Record<string, unknown>;
   if (typeof id !== "string" || !id) return fail(`${where} needs an "id" as text`);
   if (typeof defKey !== "string" || !definitionIfRegistered(defKey)) return fail(`${where} (${id}) has defKey ${JSON.stringify(defKey)}, which is not a registered Lab or primitive`);
   if (state === undefined || state === null) return fail(`${where} (${id}) needs a "state"`);
   for (const [name, role] of [["tint", tint], ["highlight", highlight]] as const) {
     if (role !== undefined && !isRole(role)) fail(`${where} (${id}) has ${name} ${JSON.stringify(role)}, which is not a role`);
   }
-  return { id, defKey, state, ...(at == null ? {} : { at: parseRelation(id, at) }), ...(tint === undefined ? {} : { tint: tint as Role }), ...(highlight === undefined ? {} : { highlight: highlight as Role }) };
+  if (highlightParts != null && !(Array.isArray(highlightParts) && highlightParts.every((part) => typeof part === "string"))) fail(`${where} (${id}) has highlightParts that are not a list of part names`);
+  return {
+    id,
+    defKey,
+    state,
+    ...(at == null ? {} : { at: parseRelation(id, at) }),
+    ...(tint === undefined ? {} : { tint: tint as Role }),
+    ...(highlight === undefined ? {} : { highlight: highlight as Role }),
+    ...(highlightParts == null ? {} : { highlightParts: highlightParts as string[] }),
+  };
 }
 
 export function sceneFromSnapshot(value: unknown): SceneState {

@@ -84,6 +84,8 @@ export function markCurves(plot: CurvesPlot, op: LabOp): CurvesPlot {
   const x = op.args.x;
   if (typeof x !== "number" || !Number.isFinite(x) || x < x0 || x > x1) fail(`${plot.id}: mark an x from ${x0} to ${x1}`);
   if (!throughX(plot, x).length) fail(`${plot.id}: no drawn line reaches x ${formatNumber(x)} yet; graph a line through that x before marking it`);
+  const short = plot.lines.filter((line) => (plot.drawnTo[line.name] ?? Infinity) < x);
+  if (short.length) fail(`${plot.id}: the ${short.map((line) => line.name).join(" and ")} line is drawn only to ${formatNumber(plot.drawnTo[short[0]!.name]!)}, so a mark at x ${formatNumber(x)} would show no value for it; graph it "to" ${formatNumber(x)} or on to the end before the mark`);
   return { ...plot, mark: x };
 }
 
@@ -198,7 +200,8 @@ function valueAt(points: Point[], x: number): number {
 }
 
 function formatNumber(value: number): string {
-  return value.toLocaleString("en-US", { maximumFractionDigits: Math.abs(value) >= 1 || value === 0 ? 2 : 4 });
+  const size = Math.abs(value);
+  return value.toLocaleString("en-US", { maximumFractionDigits: size >= 100 ? 0 : size >= 10 ? 1 : size >= 1 || value === 0 ? 2 : 4 });
 }
 
 function spoken(name: string): string {

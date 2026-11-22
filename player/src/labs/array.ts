@@ -1,4 +1,4 @@
-import { type Drawable, fail, indexPart, type LabDef, type LabOp, lerp, numberArg, type Role, stringArg, STAGE, STAGE_MARGIN, textDrawable } from "../lab";
+import { type Drawable, fail, indexPart, type LabDef, type LabOp, lerp, numberArg, readsWords, type Role, stringArg, STAGE, STAGE_MARGIN, textDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
 interface Cell {
@@ -18,18 +18,28 @@ interface Counter {
 
 interface ArrayState {
   objectId: string;
+  reading: boolean;
+  tallest: number;
   cells: Cell[];
   slotRoles: (Role | null)[];
   pointers: Pointer[];
   window: [number, number] | null;
   counters: Counter[];
+  room: Room;
+}
+
+interface Room {
+  pointers: boolean;
+  window: boolean;
 }
 
 interface ArraySpec {
   values: unknown;
+  reading?: unknown;
   counters?: unknown;
   pointers?: unknown;
   sorted?: unknown;
+  room?: unknown;
   window?: unknown;
 }
 
@@ -46,13 +56,19 @@ function specPointers(spec: ArraySpec, objectId: string): Record<string, unknown
   return value as Record<string, unknown>;
 }
 
+function specRoom(spec: ArraySpec, objectId: string): Room {
+  const value = spec.room ?? [];
+  if (!Array.isArray(value) || !value.every((band) => band === "pointers" || band === "window")) fail(`${objectId}: "room" is a list naming "pointers", "window" or both, not ${JSON.stringify(value)}`);
+  return { pointers: value.includes("pointers"), window: value.includes("window") };
+}
+
 const MIN_WIDTH = 480;
+const MIN_TOP = 20;
+const INDEX_BOTTOM = 41;
 const COUNTER_Y = 22;
 const COUNTER_BAND = 58;
 const WINDOW_BAND = 30;
 const WINDOW_RISE = 24;
-const MIN_TOP = 20;
-const INDEX_BOTTOM = 41;
 const BOTTOM_MARGIN = 22;
 const POINTER_TIP = 54;
 const POINTER_LABEL = 57;
@@ -61,6 +77,8 @@ const POINTER_LEVEL = 80;
 const MAX_ARC = 64;
 const TEXT_LABEL_SHARE = 0.3;
 const CELL_TEXT_PADDING = 16;
+const SHORTEST_BAR = 0.12;
+const BAR_RISE = 2.2;
 
 function textFit(state: ArrayState, cell: number, gap: number): { cellWidth: number; labelSize: number | null } {
   const texts = state.cells.map((entry) => entry.value);
@@ -80,10 +98,12 @@ function metrics(state: ArrayState) {
   const { cellWidth, labelSize } = textFit(state, cell, gap);
   const rowWidth = count * (cellWidth + gap) - gap;
   const width = Math.max(rowWidth, MIN_WIDTH);
-  const top = Math.max(MIN_TOP, (state.counters.length > 0 ? COUNTER_BAND : 0) + (state.window ? WINDOW_BAND : 0));
+  const top = Math.max(MIN_TOP, (state.reading && state.counters.length > 0 ? COUNTER_BAND : 0) + (state.window || state.room.window ? WINDOW_BAND : 0));
   const levels = state.pointers.length === 0 ? 0 : Math.max(...state.pointers.map((pointer) => pointerLevel(state, pointer)));
-  const below = (state.pointers.length === 0 ? INDEX_BOTTOM : POINTER_TIP + POINTER_REACH + levels * POINTER_LEVEL) + BOTTOM_MARGIN;
-  return { cell, cellWidth, labelSize, gap, width, offset: (width - rowWidth) / 2, top, height: top + cell + below };
+  const pointed = state.pointers.length > 0 || state.room.pointers;
+  const below = (pointed ? POINTER_TIP + (state.reading ? POINTER_REACH : 0) + levels * POINTER_LEVEL : state.reading ? INDEX_BOTTOM : 0) + BOTTOM_MARGIN;
+  const rowHeight = state.reading ? cell : Math.round(cell * BAR_RISE);
+  return { cell, rowHeight, cellWidth, labelSize, gap, width, offset: (width - rowWidth) / 2, top, height: top + rowHeight + below };
 }
 
 function pointerLevel(state: ArrayState, pointer: Pointer): number {
@@ -96,8 +116,8 @@ function slotCenterX(state: ArrayState, slot: number): number {
 }
 
 function cellCenterY(state: ArrayState): number {
-  const { top, cell } = metrics(state);
-  return top + cell / 2;
+  const { top, rowHeight } = metrics(state);
+  return top + rowHeight / 2;
 }
 
 function readValues(values: unknown, objectId: string): Cell[] {
@@ -180,7 +200,19 @@ const SLOT_STYLE: Record<string, { stroke: Role; fill: Role }> = {
   done: { stroke: "done", fill: "fill" },
 };
 
+const BAR_STYLE: Record<string, Role> = { none: "series1", compare: "compare", swap: "swap", done: "done" };
+
+function barDrawable(state: ArrayState, cell: Cell, slot: number, at: { x: number; y: number; scale?: number }): Drawable {
+  const { rowHeight: size, cellWidth } = metrics(state);
+  const role = BAR_STYLE[state.slotRoles[slot] ?? "none"]!;
+  const scale = at.scale ?? 1;
+  const height = size * scale * Math.max(SHORTEST_BAR, Math.min(1, Math.abs(Number(cell.value)) / state.tallest));
+  const bottom = at.y + (size * scale) / 2;
+  return { id: `cell-${cell.id}`, kind: "rect", x: at.x, y: bottom - height / 2, w: cellWidth * 0.82 * scale, h: height, fill: role, stroke: role, strokeWidth: 1, radius: 4, z: 1, part: `${state.objectId}[${slot}]` };
+}
+
 function cellDrawables(state: ArrayState, cell: Cell, slot: number, at: { x: number; y: number; scale?: number }): Drawable[] {
+  if (!state.reading) return [barDrawable(state, cell, slot, at)];
   const { cell: size, cellWidth, labelSize } = metrics(state);
   const role = state.slotRoles[slot] ?? "none";
   const style = SLOT_STYLE[role]!;
@@ -208,6 +240,7 @@ function counterLayout(state: ArrayState, values: Map<string, string>): { counte
 }
 
 function counterDrawables(state: ArrayState, values: Map<string, string>): Drawable[] {
+  if (!state.reading) return [];
   return counterLayout(state, values).flatMap(({ counter, labelEnd, valueText }) => [
     textDrawable(`counter-${counter.name}-label`, counter.name, { x: labelEnd, y: COUNTER_Y }, { size: COUNTER_LABEL_SIZE, anchor: "end", fill: "muted" }),
     textDrawable(`counter-${counter.name}-value`, valueText, { x: labelEnd + COUNTER_LABEL_GAP, y: COUNTER_Y }, { size: COUNTER_VALUE_SIZE, anchor: "start" }),
@@ -215,14 +248,14 @@ function counterDrawables(state: ArrayState, values: Map<string, string>): Drawa
 }
 
 function pointerDrawables(state: ArrayState): Drawable[] {
-  const { top, cell } = metrics(state);
-  const bottom = top + cell;
+  const { top, rowHeight } = metrics(state);
+  const bottom = top + rowHeight;
   return state.pointers.flatMap((pointer) => {
     const x = slotCenterX(state, pointer.slot);
     const tip = bottom + POINTER_TIP + pointerLevel(state, pointer) * POINTER_LEVEL;
     return [
       { id: `pointer-${pointer.name}`, kind: "path" as const, x, y: tip, points: [x, tip, x - 13, tip + 22, x + 13, tip + 22], closed: true, fill: "active" as const, stroke: "none" as const, z: 3 },
-      textDrawable(`pointer-${pointer.name}-label`, pointer.name, { x, y: tip + POINTER_LABEL }, { size: 32, fill: "active", z: 3 }),
+      ...(state.reading ? [textDrawable(`pointer-${pointer.name}-label`, pointer.name, { x, y: tip + POINTER_LABEL }, { size: 32, fill: "active", z: 3 })] : []),
     ];
   });
 }
@@ -271,15 +304,17 @@ function compareLift(after: ArrayState, op: LabOp, progress: number): Drawable[]
 export const lab: LabDef<ArraySpec, ArrayState> = {
   id: "array",
   title: "Array",
-  reading: "required",
+  reading: "optional",
+  framed: true,
   catalog: {
-    summary: "A row of cells with pointers, a window bracket and counters. Cell parts are slot indices: arr[3].",
+    summary: "A row of cells with pointers, a window bracket and counters. Cell parts are slot indices: arr[3]. In a Lesson with reading false, for a small child, each value is a bar as tall as the value and no number shows, so a sort reads as bars trading places until they stand from short to tall.",
     spec: {
       values: "list of numbers or text, the cells in order",
       counters: 'optional list of counter names, or {"name": start}',
       pointers: 'optional {"i": slot} named pointers under cells',
       sorted: "optional slot indices already holding their final sorted value",
       window: "optional [from, to] bracket over cells",
+      room: 'optional ["pointers", "window"]: space kept from the start for pointers or a window bracket a later Step brings, so the row holds still when they appear; a traced array gets it from its trace',
     },
     example: [
       '{"step":1,"say":"Compare the first pair. Four and three swap.","scene":{"arr":{"lab":"array","values":[4,3,2,1],"counters":["comparisons"]}},"do":[{"cue":"Compare","op":"compare","on":["arr[0]","arr[1]"],"count":"comparisons"},{"cue":"swap","op":"swap","on":["arr[0]","arr[1]"]}]}',
@@ -288,13 +323,18 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
 
   init(spec, objectId) {
     const cells = readValues(spec.values, objectId);
+    const reading = readsWords({ ...spec });
+    if (!reading && !cells.every((cell) => typeof cell.value === "number")) fail(`${objectId}: a child who cannot read sees each value as a bar as tall as the value, so "values" must all be numbers`);
     const state: ArrayState = {
       objectId,
+      reading,
+      tallest: Math.max(1, ...cells.map((cell) => Math.abs(Number(cell.value)))),
       cells,
       slotRoles: cells.map(() => null),
       pointers: [],
       window: null,
       counters: readCounters(spec.counters, objectId),
+      room: specRoom(spec, objectId),
     };
     const pointers = Object.entries(specPointers(spec, objectId)).map(([name, slot]) => ({ name, slot: checkedSlot(state, slot) }));
     const sorted = placedSlots(state, (specList(spec, "sorted", objectId, "a list of slot indices, such as [3]") ?? []).map((slot) => checkedSlot(state, slot)));
@@ -406,7 +446,7 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
     const y = cellCenterY(state);
     const { top, cell: cellSize } = metrics(state);
     const cells = state.cells.flatMap((cell, slot) => cellDrawables(state, cell, slot, { x: slotCenterX(state, slot), y }));
-    const indices = state.cells.map((_, slot) => textDrawable(`index-${slot}`, String(slot), { x: slotCenterX(state, slot), y: top + cellSize + 26 }, { size: 26, fill: "muted" }));
+    const indices = !state.reading ? [] : state.cells.map((_, slot) => textDrawable(`index-${slot}`, String(slot), { x: slotCenterX(state, slot), y: top + cellSize + 26 }, { size: 26, fill: "muted" }));
     return [...cells, ...indices, ...pointerDrawables(state), ...windowDrawable(state), ...counterDrawables(state, new Map())];
   },
 };

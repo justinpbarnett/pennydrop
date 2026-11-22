@@ -58,14 +58,21 @@ function setField(scene: SceneState, op: ParsedOp, field: "tint" | "highlight", 
   const role = roleArg(op, fallbackRole);
   let next = scene;
   const touches: Touch[] = [];
-  for (const id of ids(op)) {
+  for (const id of new Set(ids(op))) {
     const before = requireObject(next, id);
-    const { [field]: _removed, ...rest } = before;
-    const after: SceneObject = role === "none" ? rest : { ...rest, [field]: role };
+    const { [field]: _removed, highlightParts: _parts, ...rest } = before;
+    const kept = field === "tint" && before.highlightParts ? { ...rest, highlightParts: before.highlightParts } : rest;
+    const parts = field === "highlight" ? partsNamed(op, id) : [];
+    const after: SceneObject = role === "none" ? kept : { ...kept, [field]: role, ...(parts.length > 0 ? { highlightParts: parts } : {}) };
     next = upsertObject(next, after);
     touches.push(sceneTouch(id, before, after));
   }
   return { scene: next, touches };
+}
+
+function partsNamed(op: ParsedOp, id: string): string[] {
+  const selectors = op.selectors.filter((selector) => selector.id === id);
+  return selectors.every((selector) => selector.part !== null) ? selectors.map((selector) => `${id}[${selector.part}]`) : [];
 }
 
 function drawsOnlyStrokes(scene: SceneState, object: SceneObject): boolean {

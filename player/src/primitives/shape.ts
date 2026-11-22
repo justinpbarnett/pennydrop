@@ -14,7 +14,6 @@ interface ShapeState {
   label: string;
   role: Role;
   fillRole: Role | "none";
-  reading: boolean;
 }
 
 const DIRECTIONS = { right: [1, 0], left: [-1, 0], up: [0, -1], down: [0, 1] } as const;
@@ -71,7 +70,8 @@ export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
     const role = roleField(spec, "role", "ink", objectId);
     const fillRole: ShapeState["fillRole"] = spec.fill === undefined ? "none" : roleField(spec, "fill", "fill", objectId);
     const label = typeof spec.label === "string" ? spec.label : "";
-    const base = { shape, label, role, fillRole, points: [] as number[], direction: "right" as Direction, reading: readsWords(spec) };
+    if (label && !readsWords(spec)) fail(`${objectId}: a child who cannot read sees no words, so its label "${label}" would leave an empty outline; leave out "label" and show the thing itself, with a filled shape or a picture`);
+    const base = { shape, label, role, fillRole, points: [] as number[], direction: "right" as Direction };
     const labelW = label ? markWidth(label) : 0;
     const wideEnough = (w: number) => (label ? Math.max(w, labelW + 2 * LABEL_PAD) : w);
     const tallEnough = (h: number) => (label ? Math.max(h, LABEL_BAND + LABEL_PAD) : h);
@@ -119,7 +119,7 @@ export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
       out.push(segmentDrawable(shape, from, to, role, STROKE));
     }
     if (shape === "path") out.push({ id: "body", kind: "path", x: 0, y: 0, points: state.points, fill: state.fillRole, stroke: role, strokeWidth: 2, closed: state.fillRole !== "none" });
-    if (state.reading && label) out.push(labelDrawable(label, labelAnchor(state), LABEL_SIZE, "mark", "ink", 1));
+    if (label) out.push(labelDrawable(label, labelAnchor(state), LABEL_SIZE, "mark", "ink", 1));
     return out;
   },
 };

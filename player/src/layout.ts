@@ -11,6 +11,7 @@ const CHILD_SCALE_CAP = 2.5;
 const FLOW_GAP = 44;
 const GROUP_GAP = 44;
 const MIN_FIT_SCALE = 0.6;
+const MAX_PACKED_FLOW = 6;
 
 export interface Box extends Rect {
   scale: number;
@@ -197,17 +198,30 @@ function buildClusters(nodes: Node[], joined: Joined): Cluster[] {
   });
 }
 
-function placeClusters(clusters: Cluster[]): Map<string, Rect> {
+const flowOf = (clusters: Cluster[]) => clusters.filter((cluster) => regionOf(cluster.root.relation) === "flow");
+const rowWidth = (row: Cluster[]) => row.reduce((sum, cluster) => sum + cluster.w, 0) + FLOW_GAP * (row.length - 1);
+const rowHeight = (row: Cluster[]) => Math.max(...row.map((cluster) => cluster.h));
+
+function rowsOf(flow: Cluster[], breaks: number): Cluster[][] {
+  const rows: Cluster[][] = [];
+  flow.forEach((cluster, index) => {
+    if (index === 0 || breaks & (1 << (index - 1))) rows.push([]);
+    rows.at(-1)!.push(cluster);
+  });
+  return rows;
+}
+
+function placeClusters(clusters: Cluster[], breaks: number): Map<string, Rect> {
   const origins = new Map<Cluster, { x: number; y: number }>();
-  const inRegion = (region: Region | "flow") => clusters.filter((cluster) => regionOf(cluster.root.relation) === region);
+  const inRegion = (region: Region) => clusters.filter((cluster) => regionOf(cluster.root.relation) === region);
   const tops = inRegion("top");
   const bottoms = inRegion("bottom");
   const centers = inRegion("center");
-  const flow = inRegion("flow");
+  const rows = rowsOf(flowOf(clusters), breaks);
   const lefts = inRegion("left");
   const rights = inRegion("right");
   const edgeHeight = (edge: Cluster[]) => edge.reduce((sum, cluster) => sum + cluster.h + FLOW_GAP, 0);
-  const flowHeight = flow.reduce((sum, cluster) => sum + cluster.h, 0) + FLOW_GAP * Math.max(0, flow.length - 1);
+  const flowHeight = rows.reduce((sum, row) => sum + rowHeight(row), 0) + FLOW_GAP * Math.max(0, rows.length - 1);
   const bandHeight = Math.max(flowHeight, ...[...lefts, ...rights, ...centers].map((cluster) => cluster.h));
   const stackHeight = edgeHeight(tops) + bandHeight + edgeHeight(bottoms);
   const squeezed = stackHeight > STAGE.h - 2 * MARGIN;
@@ -229,19 +243,24 @@ function placeClusters(clusters: Cluster[]): Map<string, Rect> {
   const centeredY = (cluster: Cluster) => areaTop + (areaBottom - areaTop - cluster.h) / 2;
   for (const cluster of centers) origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: centeredY(cluster) });
 
-  const flowWidth = flow.length > 0 ? Math.max(...flow.map((cluster) => cluster.w)) : 0;
-  const rowParts = [...lefts.map((cluster) => cluster.w), ...(flow.length > 0 ? [flowWidth] : []), ...rights.map((cluster) => cluster.w)];
-  const rowWidth = rowParts.reduce((sum, width) => sum + width, 0) + FLOW_GAP * (rowParts.length - 1);
-  let x = (STAGE.w - rowWidth) / 2;
+  const flowWidth = rows.length > 0 ? Math.max(...rows.map(rowWidth)) : 0;
+  const bandParts = [...lefts.map((cluster) => cluster.w), ...(rows.length > 0 ? [flowWidth] : []), ...rights.map((cluster) => cluster.w)];
+  const bandWidth = bandParts.reduce((sum, width) => sum + width, 0) + FLOW_GAP * (bandParts.length - 1);
+  let x = (STAGE.w - bandWidth) / 2;
   for (const cluster of lefts) {
     origins.set(cluster, { x, y: centeredY(cluster) });
     x += cluster.w + FLOW_GAP;
   }
-  if (flow.length > 0) {
+  if (rows.length > 0) {
     let y = areaTop + (areaBottom - areaTop - flowHeight) / 2;
-    for (const cluster of flow) {
-      origins.set(cluster, { x: x + (flowWidth - cluster.w) / 2, y });
-      y += cluster.h + FLOW_GAP;
+    for (const row of rows) {
+      const height = rowHeight(row);
+      let rowX = x + (flowWidth - rowWidth(row)) / 2;
+      for (const cluster of row) {
+        origins.set(cluster, { x: rowX, y: y + (height - cluster.h) / 2 });
+        rowX += cluster.w + FLOW_GAP;
+      }
+      y += height + FLOW_GAP;
     }
     x += flowWidth + FLOW_GAP;
   }
@@ -259,6 +278,20 @@ function placeClusters(clusters: Cluster[]): Map<string, Rect> {
     }
   }
   return rects;
+}
+
+const scaleOf = (layout: Layout) => Math.min(...[...layout.values()].map((box) => box.scale));
+
+function packedToStage(clusters: Cluster[], maxScale: number): Layout {
+  const flowCount = flowOf(clusters).length;
+  const column = 2 ** Math.max(0, flowCount - 1) - 1;
+  let best = fitToStage(placeClusters(clusters, column), maxScale);
+  if (scaleOf(best) >= MIN_FIT_SCALE || flowCount > MAX_PACKED_FLOW) return best;
+  for (let breaks = 0; breaks < column; breaks++) {
+    const packed = fitToStage(placeClusters(clusters, breaks), maxScale);
+    if (scaleOf(packed) > scaleOf(best)) best = packed;
+  }
+  return best;
 }
 
 function fitToStage(rects: Map<string, Rect>, maxScale: number): Layout {
@@ -302,7 +335,7 @@ export function layoutScene(scene: SceneState, theme?: Theme): Layout {
   const reachOfId = new Map<string, Reach>(scene.objects.map((object) => [object.id, theme ? reachFor(object, theme) : NO_REACH]));
   const joined = joinedBy(scene);
   const clusters = buildClusters(buildNodes(scene, reachOfId, joined), joined);
-  const fitted = fitToStage(placeClusters(clusters), scene.reading === false ? CHILD_SCALE_CAP : 1);
+  const fitted = packedToStage(clusters, scene.reading === false ? CHILD_SCALE_CAP : 1);
   return new Map(
     [...fitted].map(([id, box]) => {
       const reach = reachOfId.get(id) ?? NO_REACH;
@@ -314,7 +347,7 @@ export function layoutScene(scene: SceneState, theme?: Theme): Layout {
 
 export function crowdedSceneError(scene: SceneState, theme: Theme): string | null {
   const layout = layoutScene(scene, theme);
-  const scale = Math.min(...[...layout.values()].map((box) => box.scale));
+  const scale = scaleOf(layout);
   if (scale >= MIN_FIT_SCALE) return null;
   return `the Scene has too much on stage: ${[...layout.keys()].join(", ")} fit only at ${Math.round(scale * 100)}% size and would be too small to read; remove an object (op "remove") or use fewer, smaller ones`;
 }

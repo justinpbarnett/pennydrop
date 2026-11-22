@@ -214,7 +214,7 @@ function variableDrawables(state: CodeStepperState): Drawable[] {
   const { left, inner, nameWidth } = variableRowGeometry(state);
   const panel = panelsOf(state).variables;
   const out = panelDrawables(state, "variables", frame.label === GLOBAL_FRAME ? undefined : frame.label.replace(/\(.*$/, ""));
-  if (frame.variables.length === 0) out.push(codeText("variables-empty", "nothing yet", left, variableRowY(state, 0), TEXT_SIZE, "muted"));
+  if (frame.variables.length === 0) out.push(codeText("variables-empty", state.returned ? "none left" : "nothing yet", left, variableRowY(state, 0), TEXT_SIZE, "muted"));
   frame.variables.forEach((variable, index) => {
     const y = variableRowY(state, index);
     const changed = frame.changed === variable.name;
@@ -286,7 +286,9 @@ function stackDrawables(state: CodeStepperState): Drawable[] {
   });
   if (state.returned) {
     const text = `${state.returned.function} returned${state.returned.value === null ? "" : ` ${state.returned.value}`}`;
-    const lines = textWidth(text, TEXT_SIZE, "code") <= width ? [text] : [`${state.returned.function} returned`, elideMiddle(state.returned.value ?? "", TEXT_SIZE, width)];
+    const fits = (line: string) => textWidth(line, TEXT_SIZE, "code") <= width;
+    const value = state.returned.value === null ? "" : ` ${state.returned.value}`;
+    const lines = fits(text) ? [text] : fits(`${state.returned.function} returned`) ? [`${state.returned.function} returned`, value.trim()] : [state.returned.function, `returned${value}`];
     lines.forEach((line, index) => out.push(codeText(`returned${index === 0 ? "" : `-${index}`}`, elideMiddle(line, TEXT_SIZE, width), left, rect.y + rect.h - PANEL_PAD - footer + CARD_GAP + (index + 0.5) * FOOTER_LINE, TEXT_SIZE, "ok")));
   }
   return out;

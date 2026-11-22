@@ -49,21 +49,38 @@ function tinted(drawable: Drawable, role: Role): Drawable {
   };
 }
 
-function highlightOutline(role: Role, size: { w: number; h: number }): Drawable {
-  const pad = 14;
+type Bounds = [number, number, number, number];
+
+function highlightOutline(role: Role, [left, top, right, bottom]: Bounds, pad: number): Drawable {
   return {
     id: "_highlight",
     kind: "rect",
-    x: size.w / 2,
-    y: size.h / 2,
-    w: size.w + 2 * pad,
-    h: size.h + 2 * pad,
+    x: (left + right) / 2,
+    y: (top + bottom) / 2,
+    w: right - left + 2 * pad,
+    h: bottom - top + 2 * pad,
     fill: "none",
     stroke: role,
     strokeWidth: 1.6,
     radius: 1,
     z: -1,
   };
+}
+
+function outlined(object: SceneObject, local: Drawable[], box: Box): Drawable | null {
+  if (!object.highlight) return null;
+  const whole: Bounds = [0, 0, box.w / box.scale, box.h / box.scale];
+  if (!object.highlightParts) return highlightOutline(object.highlight, whole, 14);
+  const parts = local.filter((drawable) => drawable.part !== undefined && object.highlightParts!.includes(drawable.part)).map(shapeBounds).filter((bounds) => bounds !== null);
+  if (parts.length === 0) return highlightOutline(object.highlight, whole, 14);
+  const union: Bounds = [Math.min(...parts.map((bounds) => bounds[0])), Math.min(...parts.map((bounds) => bounds[1])), Math.max(...parts.map((bounds) => bounds[2])), Math.max(...parts.map((bounds) => bounds[3]))];
+  return highlightOutline(object.highlight, union, 8);
+}
+
+function shapeBounds(drawable: Drawable): Bounds | null {
+  if (drawable.kind === "rect" && drawable.w !== undefined && drawable.h !== undefined) return [drawable.x - drawable.w / 2, drawable.y - drawable.h / 2, drawable.x + drawable.w / 2, drawable.y + drawable.h / 2];
+  if (drawable.kind === "circle" && drawable.r !== undefined) return [drawable.x - drawable.r, drawable.y - drawable.r, drawable.x + drawable.r, drawable.y + drawable.r];
+  return null;
 }
 
 const localDrawables = new WeakMap<SceneObject, Drawable[]>();
@@ -105,7 +122,8 @@ export function buildStage(scene: SceneState, layout: LayoutOf = layoutScene, th
       if (!def.overlay) localDrawables.set(object, local);
     }
     const drawn = object.tint ? local.map((drawable) => tinted(drawable, object.tint!)) : local;
-    const withOutline = object.highlight && !def.overlay ? [...drawn, highlightOutline(object.highlight, { w: box.w / box.scale, h: box.h / box.scale })] : drawn;
+    const outline = def.overlay ? null : outlined(object, local, box);
+    const withOutline = outline ? [...drawn, outline] : drawn;
     return { id: object.id, box, drawables: placeDrawables(object.id, withOutline, box) };
   });
   const stage = { objects, camera: cameraFor(scene, boxes) };
