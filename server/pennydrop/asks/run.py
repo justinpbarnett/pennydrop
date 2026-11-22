@@ -23,7 +23,7 @@ from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import PROMISE_WORDS, brings_in_a_figure, mended, mended_by_verdict, mended_cues, retold, with_one_figure_on_stage
 from .stage import Stage, question_without_challenge, ran_something, trace_totals
-from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, card_matches, event_plays, plot_views, shapes_plays, shown_pictures
+from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, card_matches, event_plays, plot_views, shapes_plays, shown_pictures, stress_marks
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
 from .writer import Brief, Writer
@@ -65,6 +65,7 @@ STILL_RUN = STILL_OPENING + ': its "{directive}" repeats the stop of the Step be
 STILL_SIMULATION = STILL_OPENING + ', so the learner hears new words over a still picture; the run on stage plays only through its "simulate" directive, never through "do", so carry the simulation of the Step before, {simulation}, with the next stop after its "until", or with no "until" to play the rest of the run, and keep "say" telling only the part this Step plays'
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
 ANSWERS_CUT_QUESTION = 'say: the Step before could not keep its Challenge, so the learner was never asked "{asked}", yet this narration announces its answer as if they had been; tell this beat as a plain statement over the stage, with no words that answer a question, and keep every other field as it is'
+STRESS_OFF_STAGE = 'say: the narration singles out a different syllable from the one this Step\'s stress marks, "{marked}" ("syllable": {index}) of "{word}", the word on stage; make "syllable" the index of the syllable the narration means, or rewrite "say" to name the syllable the stage marks, and when the narration means a syllable of another word, put that word on stage first; keep every other field as it is'
 ASKS_ANOTHER_QUESTION = 'challenge: this Step\'s "say" asks a different question from its Challenge, so the learner hears one question and is asked to answer another; make "say" ask the Challenge prompt\'s own question, for the same form of answer, and keep the Challenge as it is'
 ANSWER_FORMS = {"number": "The learner answers with a number.", "choice": "The learner picks one of: {choices}.", "click": "The learner answers by tapping a thing on the stage.", "order": "The learner puts these in order: {choices}.", "match": "The learner matches pairs."}
 CHALLENGE_FLAW = re.compile(r"^(step \d+ )?challenge:")
@@ -393,6 +394,7 @@ class LessonRun:
             self._missing_hinge(step, number, pending.last_after),
             self._narration_off_stage(step, arrays, figures, events),
             self._card_off_stage(step, scene),
+            self._stress_off_stage(step, scene),
             self._reveal_off_answer(step),
             self._answers_cut_question(step, pending.number),
             self._answer_on_stage(step, written, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines] + [play.told() for play in events]),
@@ -524,6 +526,20 @@ class LessonRun:
                 return None
             if named is not None and named != match.marked:
                 return CARD_OFF_STAGE.format(named=match.meanings[named], marked=match.meanings[match.marked], index=match.marked)
+        return None
+
+    async def _stress_off_stage(self, step: dict[str, Any], scene: Any) -> str | None:
+        say = step.get("say")
+        if not isinstance(say, str):
+            return None
+        for mark in stress_marks(scene, step):
+            try:
+                off = await self._kit.classifier.stress_off_stage(say, mark.syllables, mark.marked, self._record.id)
+            except GatewayError as error:
+                LOG.warning("lesson %s stress could not be checked against its narration: %s", self._record.id, error)
+                return None
+            if off:
+                return STRESS_OFF_STAGE.format(marked=mark.syllables[mark.marked], index=mark.marked, word="-".join(mark.syllables))
         return None
 
     async def _reveal_off_answer(self, step: dict[str, Any]) -> str | None:

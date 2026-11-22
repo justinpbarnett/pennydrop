@@ -191,6 +191,15 @@ class Classifier:
             lesson_id,
         )
 
+    async def stress_off_stage(self, say: str, syllables: tuple[str, ...], marked: int, lesson_id: str) -> bool:
+        word, mark, listed = "-".join(syllables), syllables[marked], ", ".join(f'"{syllable}"' for syllable in dict.fromkeys(syllables))
+        questions = {
+            "elsewhere": YesNo(f'The word on stage is "{word}", and the syllable marked as stressed is "{mark}", number {marked + 1} of {len(syllables)}. Does the narration name by its sound or count by its place a stressed, loud or listened-for syllable that is not "{mark}" or not number {marked + 1}?'),
+            "unlisted": YesNo(f'The word on stage is "{word}", whose syllables are {listed}. Does the narration name, by its sound, a syllable to listen for or stress that is none of {listed}?'),
+        }
+        result = await self._gateway.classify(say, questions, lesson_id=lesson_id)
+        return any(_yes(result.answers[name]) for name in questions)
+
     async def answer_confirmed(self, say: str, asked: str, answers: tuple[str, ...], lesson_id: str) -> int | None:
         return await self._one_named(
             f'The learner was just asked: "{asked}". Read only the narration, not what you know: which one answer does the narration itself name as the answer to that question? When the narration names none of them as the answer, choose none.',

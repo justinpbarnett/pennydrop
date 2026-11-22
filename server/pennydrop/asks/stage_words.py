@@ -349,6 +349,26 @@ def card_matches(scene_before: Any, step: dict[str, Any]) -> list[CardMatch]:
     return matches
 
 
+@dataclass(frozen=True)
+class StressMark:
+    syllables: tuple[str, ...]
+    marked: int
+
+
+def stress_marks(scene_before: Any, step: dict[str, Any]) -> list[StressMark]:
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    objects = scene_before.get("objects") if isinstance(scene_before, dict) else None
+    words = {**_words_on_stage(objects), **_words_brought_in(scene)}
+    marks: list[StressMark] = []
+    for operation in step.get("do") or []:
+        if not isinstance(operation, dict) or operation.get("op") != "stress" or not isinstance(operation.get("on"), list):
+            continue
+        index = operation.get("syllable")
+        names = {found[0] for target in operation["on"] if (found := OBJECT_NAME.match(str(target)))}
+        marks += [StressMark(words[name], index) for name in names if name in words and isinstance(index, int) and 0 <= index < len(words[name])]
+    return marks
+
+
 def shown_pictures(scene: Any) -> dict[str, bool]:
     objects = scene.get("objects") if isinstance(scene, dict) else None
     return {
@@ -368,6 +388,18 @@ def _cards_on_stage(objects: Any) -> dict[str, tuple[str, ...]]:
 
 def _cards_brought_in(scene: dict[str, Any]) -> dict[str, tuple[str, ...]]:
     return {name: tuple(map(str, spec["meanings"])) for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") == WORDS_LAB and isinstance(spec.get("meanings"), list)}
+
+
+def _words_on_stage(objects: Any) -> dict[str, tuple[str, ...]]:
+    return {
+        thing["id"]: tuple(str(syllable.get("text")) for syllable in state["syllables"] if isinstance(syllable, dict))
+        for thing in objects or []
+        if isinstance(thing, dict) and thing.get("defKey") == WORDS_DEF and isinstance(state := thing.get("state"), dict) and isinstance(state.get("syllables"), list)
+    }
+
+
+def _words_brought_in(scene: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    return {name: tuple(spec["word"].split("-")) for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") == WORDS_LAB and isinstance(spec.get("word"), str)}
 
 
 def _event(operation: dict[str, Any], docs: dict[str, str]) -> str:
