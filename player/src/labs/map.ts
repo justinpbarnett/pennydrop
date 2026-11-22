@@ -863,7 +863,7 @@ const BORDER_TOLERANCE = 4;
 
 function onMapBorder([from, to]: [Point, Point], map: Size): boolean {
   const near = (value: number, edge: number) => Math.abs(value - edge) < BORDER_TOLERANCE;
-  const alongSide = Math.abs(from.x - to.x) < BORDER_TOLERANCE && (near(from.x, 0) || near(from.x, map.w));
+  const alongSide = near(from.x, to.x) && (near(from.x, 0) || near(from.x, map.w));
   const alongTop = near(from.y, to.y) && (near(from.y, 0) || near(from.y, map.h));
   return alongSide || alongTop;
 }
