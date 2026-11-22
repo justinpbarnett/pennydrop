@@ -56,8 +56,8 @@ export const primitive: LabDef<Record<string, unknown>, NodeState> = {
     return { label, radius: given ?? radiusForLabels([label], MIN_RADIUS), fitted: given === undefined, role: roleField(spec, "role", "ink", objectId), reading: readsWords(spec) };
   },
   size: (state) => ({ w: state.radius * 2, h: state.radius * 2 }),
-  draw(state) {
+  draw(state, { objectId: part }) {
     const drawables = nodeDrawables(state.label, { x: state.radius, y: state.radius }, state.radius, { stroke: state.role, fill: "fill", strokeWidth: 1.6, labelFill: "ink" });
-    return state.reading ? drawables : drawables.filter((drawable) => drawable.kind !== "text");
+    return (state.reading ? drawables : drawables.filter((drawable) => drawable.kind !== "text")).map((drawable) => (drawable.kind === "circle" ? { ...drawable, part } : drawable));
   },
 };

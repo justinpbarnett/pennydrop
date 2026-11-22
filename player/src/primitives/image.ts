@@ -39,8 +39,8 @@ export const primitive: LabDef<Record<string, unknown>, ImageState> = {
     return { url: stringField(spec, "url", objectId), w: positiveField(spec, "w", 520, objectId), h: positiveField(spec, "h", 340, objectId), boxes, reading: readsWords(spec) };
   },
   size: (state) => ({ w: state.w, h: state.h }),
-  draw(state) {
-    const out: Drawable[] = [{ id: "picture", kind: "image", x: state.w / 2, y: state.h / 2, w: state.w, h: state.h, href: state.url }];
+  draw(state, { objectId: part }) {
+    const out: Drawable[] = [{ id: "picture", kind: "image", x: state.w / 2, y: state.h / 2, w: state.w, h: state.h, href: state.url, part }];
     state.boxes.forEach((box, index) => {
       out.push({ id: `box-${index}`, kind: "rect", x: (box.x + box.w / 2) * state.w, y: (box.y + box.h / 2) * state.h, w: box.w * state.w, h: box.h * state.h, fill: "none", stroke: "accent", strokeWidth: 2, radius: 0.3, z: 1 });
       if (state.reading) out.push({ id: `box-${index}-label`, kind: "text", x: box.x * state.w, y: box.y * state.h - 18, text: box.label, size: 24, font: "mark", fill: "accent", anchor: "start", z: 2 });
