@@ -5,7 +5,7 @@ import math
 import re
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .._support import DirectiveError, Simulation
 
@@ -17,7 +17,8 @@ GUIDE = "\n".join([
     'To tell the run in stages, give `until` a stop. Access k has a stop after each thing it shows, in this order: `"k split"` splits the address into its fields; `"k tlb"` looks the page up in the TLB, when there is one; `"k L1"`, `"k L2"` and so on, one per field, read that level\'s entry on a TLB miss, so the last one ends on the frame, or on the invalid entry of a page fault; `"k load"` has the OS load the page into a free frame and fill the entry, only when access k faults; and the number k forms the physical address and fills the TLB after a miss. `"until": 0` draws the address and the tables before access 1 starts. `"k walk"` is the same stop as the last level, and on an access that faults, so is `"k fault"`.',
     'A later Step carries the same simulation with a later stop, or no `until` for the rest of the run, and plays only the new part on the same Lab. Give each Step the stop of what its narration describes: a Step about the split stops at `"k split"`, a Step about the invalid entry stops at `"k fault"`, and a Step about the OS filling the entry stops at `"k load"`.',
     'A page fault told one beat per Step, with `"addresses": ["0x3B10"]` and no TLB: `"1 split"`, then `"1 L1"`, then `"1 fault"` where the walk finds the invalid entry, then `"1 load"`, then no `until` for the physical address. Fewer Steps can skip stops, such as `"1 fault"`, `"1 load"` and no `until`.',
-    'For a TLB hit after a miss, run two addresses on the same page with an empty `tlb`, such as `"addresses": ["0x3A5C", "0x3A10"]`: access 1 misses, walks both levels and fills the TLB, and access 2 hits. Put both addresses in the simulation from the first Step that simulates, so every later Step continues the same run. With `"until": 1` in one Step and no `until` in the next, the miss and the hit get a Step each.',
+    'For a TLB hit after a miss, run two addresses on the same page with an empty `tlb`, such as `"addresses": ["0x3A5C", "0x3A10"]`: access 1 misses, walks both levels and fills the TLB, and access 2 hits. Put both addresses in the simulation from the first Step that simulates, so every later Step continues the same run.',
+    'A TLB Lesson with those two addresses gives each Step a later stop than the Step before, in this order: the promise at `"until": 0`; `"1 tlb"`, where the first lookup misses; `"1 L2"`, where the walk reads a table entry at each level, which is the cost; `1`, where the physical address forms and the TLB keeps the page; `"2 split"`, where the second address turns out to share the page, and this Step is the hinge, whose choice Challenge asks whether the next lookup will hit or miss before any Step has said which; `"2 tlb"`, the reveal, where the lookup hits and skips the walk; and no `until` for the last Step, which forms the physical address and says the point.',
     "Values for access number k from 1: `virtual_k_hex`, `page_k`, `offset_k`, `offset_k_hex` and `index_k_<field>` such as `index_1_L1` from `\"k split\"`; `tlb_k` (hit or miss) from `\"k tlb\"`; `entry_k_<field>_hex` (where that entry sits in memory) from `\"k <field>\"`; `frame_k` and `frame_k_hex` from the last level, or from `\"k tlb\"` on a hit, or from `\"k load\"` when access k faults; and `physical_k` and `physical_k_hex` from k. A value can be used only in a Step whose `until` has reached its stop.",
 ])
 
@@ -112,10 +113,18 @@ class Spec(BaseModel):
     until: int | str | None = None
     on: str | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _one_address(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "address" in data and "addresses" not in data:
+            return {**{name: value for name, value in data.items() if name != "address"}, "addresses": [data["address"]]}
+        return data
+
 
 UNTIL = re.compile(r"(\d+)(?:\s+(.+))?")
 SPLIT, TLB, LOAD = "split", "tlb", "load"
-WALK, FAULT = "walk", "fault"
+WALK, FAULT, FRAME = "walk", "fault", "frame"
+END_OF_ACCESS = ("fill", "physical")
 Stop = str | None
 
 
@@ -160,7 +169,14 @@ def _reach(spec: Spec, accesses: list[dict[Stop, int]]) -> int | None:
         raise DirectiveError(f'simulate directive: "until" names access {number}, and the run has {count} access{"" if count == 1 else "es"}; "until" counts accesses, and the stops of access {count} are {_listed(count, accesses[-1])}')
     moments = accesses[number - 1]
     walked = [stop for stop in moments if stop in spec.fields]
-    named = {**{str(stop).lower(): moment for stop, moment in moments.items() if stop is not None}, **({WALK: moments[walked[-1]]} if walked else {}), **({FAULT: moments[walked[-1]]} if LOAD in moments else {})}
+    framed = moments[LOAD] if LOAD in moments else moments[walked[-1]] if walked else moments.get(TLB)
+    named = {
+        **{str(stop).lower(): moment for stop, moment in moments.items() if stop is not None},
+        **({WALK: moments[walked[-1]]} if walked else {}),
+        **({FAULT: moments[walked[-1]]} if LOAD in moments else {}),
+        **({FRAME: framed} if framed is not None else {}),
+        **{alias: moments[None] for alias in (*END_OF_ACCESS, str(number))},
+    }
     if written is None:
         return moments[None]
     if written.strip().lower() in named:
@@ -178,8 +194,6 @@ def _why_missing(number: int, written: str, accesses: list[dict[Stop, int]], spe
         return f", because access {number} hits the TLB and walks no table"
     if written == TLB:
         return ", because this run has no TLB; give the simulation a \"tlb\", such as {\"slots\": 2, \"entries\": []}, in every Step that carries it"
-    if written == "fill":
-        return f', because access {number} fills the TLB at stop {number}, where it forms the physical address'
     return ""
 
 
