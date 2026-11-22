@@ -33,6 +33,7 @@ HONOR_CODE_ERROR = "the Step touches project code or an assignment spec; explain
 MISSING_HINGE = 'no Step so far asks the predict Challenge, and only the last Step comes after this one, so this Step is the hinge: add a "challenge" that the earlier Steps let the learner answer, make "say" ask that question in plain words without giving the answer, and keep the scene, because the next Step reveals it; the narration never names the story\'s parts, such as "hinge" or "reveal"'
 REVEALED_NEXT = '; the last Step says "{say}", so ask what that Step shows that no earlier Step has played or said, and never what the stage already shows'
 NARRATION_ONLY = 'this Step could not keep its challenge, so it ships without one, and its narration still asks the learner to answer or tap; rewrite "say" alone so it tells this beat of the story over the stage as it stands and asks the learner nothing, and keep every other field as it is'
+TRUE_NARRATION = 'say: this Step could not be repaired, so it ships with the narration you write now, and every sentence of its narration disagrees with what running the Lesson\'s examples computed: {facts}; rewrite "say" alone so it tells this beat of the story with only claims these values bear out, naming the run each value comes from, and keep every other field as it is'
 NARRATION_OFF_STAGE = 'say: this Step plays only this on the stage: {played}; the narration tells a move the stage does not play here, so rewrite "say" to tell the moves this Step plays, in their order, and keep every other field as it is'
 ANSWER_ON_STAGE = 'challenge: a Challenge waits after its Step plays, and by then the stage shows {shown}, so the learner reads the answer off it instead of predicting; ask what a later Step plays that the stage does not show yet: stop this Step\'s run at an earlier "until", or graph the line that settles the answer in the next Step, so the answer is still to come'
 STORY_OFF_LAB = 'the stage still holds only text and shapes after this Step, but the Lesson plans the {labs} Lab, where the story is shown rather than told; bring that Lab on stage in this Step, with its directive when it has one, and show on it what "say" tells'
@@ -435,13 +436,17 @@ class LessonRun:
             LOG.warning("lesson %s Step could not be checked against its computed facts: %s", self._record.id, error)
             return True
 
-    async def _only_true(self, say: str, facts: list[str]) -> str:
+    async def _true_say(self, brief: Brief, step: dict[str, Any], say: str, facts: list[str], scene: Any) -> str:
         sentences = SENTENCE_BREAK.split(say)
         holds = await asyncio.gather(*(self._claim_holds(sentence, facts) for sentence in sentences))
-        kept = " ".join(sentence for sentence, true in zip(sentences, holds, strict=True) if true)
-        if not kept:
-            raise LessonError("a Step could not be repaired, and every sentence of its narration disagrees with what running the Lesson's examples computed")
-        return kept
+        if kept := " ".join(sentence for sentence, true in zip(sentences, holds, strict=True) if true):
+            return kept
+        for _ in range(MAX_REPAIR_TRIES):
+            rewritten = await self._kit.writer.repair(brief, scene, {**step, "say": say}, [TRUE_NARRATION.format(facts="; ".join(facts))], self._record.id)
+            retold = rewritten.get("say") if isinstance(rewritten, dict) else None
+            if isinstance(retold, str) and retold.strip() and not PLACEHOLDER.search(retold) and await self._claim_holds(retold, facts):
+                return retold
+        raise LessonError(f"a Step could not be repaired, and its narration, rewritten {MAX_REPAIR_TRIES} more times, still disagrees with what running the Lesson's examples computed")
 
     async def _fine_for_child(self, step: dict[str, Any]) -> bool:
         if not self._is_kid or not isinstance(step.get("say"), str):
@@ -458,7 +463,7 @@ class LessonRun:
         step = last.step or {}
         self._remembered_values.update(last.values)
         recovered = _recover_say(step, written, self._remembered_values)
-        say = await self._only_true(recovered, last.disputed) if last.disputed else recovered
+        say = await self._true_say(brief, step, recovered, last.disputed, scene) if last.disputed else recovered
         validator = self._kit.validator
         self._stage.lost_runs = self._stage.lost_runs or ran_something(written)
         answerable = not self._stage.unran_values(step, False)
@@ -481,8 +486,8 @@ class LessonRun:
             if trial.ok:
                 kept_ops.append(operation)
                 verdict = trial
-        dropped_sentences = len(SENTENCE_BREAK.split(recovered)) - len(SENTENCE_BREAK.split(say))
-        outcome = f"kept the narration less {dropped_sentences} sentences the computed facts disprove, dropped fields {sorted(set(step) - set(candidate))} and {len(step.get('do', [])) - len(kept_ops)} operations"
+        told = "kept the narration" if say == recovered else f"narrated only what the computed facts bear out, {json.dumps(say)}"
+        outcome = f"{told}, dropped fields {sorted(set(step) - set(candidate))} and {len(step.get('do', [])) - len(kept_ops)} operations"
         self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, outcome)
         return SettledStep({**candidate, **({"do": kept_ops} if kept_ops else {})}, verdict.scene)
 
