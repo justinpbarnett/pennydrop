@@ -10,6 +10,7 @@ interface MessageRow {
   label: string;
   status: Status;
   retry: boolean;
+  marked: boolean;
 }
 
 interface TimeoutRow {
@@ -90,6 +91,7 @@ const ARROW_SHORT = 6;
 const START_OFFSET = ROW_TOP_PAD + LABEL_MAX_SIZE + LABEL_LINE_CLEAR;
 
 const MESSAGE_STROKE = 3;
+const MARK_OPACITY = 0.16;
 const LIFELINE_STROKE = 2;
 const BOX_STROKE = 3;
 const DOT_RADIUS = 9;
@@ -324,13 +326,21 @@ function withStatus(state: SequenceState, op: LabOp, status: Status): SequenceSt
   return { ...state, rows: state.rows.map((row, index) => (index === target && row.kind === "message" ? { ...row, status } : row)) };
 }
 
+function mark(state: SequenceState, op: LabOp): SequenceState {
+  const label = stringArg(op.args, "label", "mark");
+  const arrived = messageRows(state).filter(({ row }) => row.status === "arrived");
+  if (!arrived.some(({ row }) => row.label === label))
+    fail(`op "mark": ${state.objectId} has no arrived message "${label}"; mark one of ${arrived.map(({ row }) => `"${row.label}"`).join(", ") || "no arrived messages yet"}`);
+  return { ...state, rows: state.rows.map((row) => (row.kind === "message" && row.status === "arrived" && row.label === label ? { ...row, marked: true } : row)) };
+}
+
 function send(state: SequenceState, op: LabOp): SequenceState {
   const from = participantArg(state, op, "from");
   const to = participantArg(state, op, "to");
   if (from === to) fail(`op "send": "from" and "to" are both ${state.participants[from]}; a message goes to another participant`);
   const label = stringArg(op.args, "label", "send");
   checkLabel(state, op, from, to, label);
-  return withRow(state, op, { kind: "message", from, to, label, status: "flight", retry: false });
+  return withRow(state, op, { kind: "message", from, to, label, status: "flight", retry: false, marked: false });
 }
 
 function retransmit(state: SequenceState, op: LabOp): SequenceState {
@@ -349,7 +359,7 @@ function retransmit(state: SequenceState, op: LabOp): SequenceState {
       }`,
     );
   if (earlier.row.status === "flight") fail(`op "retransmit": "${label}" is still in flight; receive or drop it first`);
-  return withRow(state, op, { ...earlier.row, status: "flight", retry: true });
+  return withRow(state, op, { ...earlier.row, status: "flight", retry: true, marked: false });
 }
 
 function timeout(state: SequenceState, op: LabOp): SequenceState {
@@ -436,9 +446,13 @@ const MESSAGE_SHAPES: Record<Status, (id: string, path: Path, row: MessageRow) =
   dropped: (id, path) => [segment(`${id}-path`, "line", path.start, pointAlong(path, 0.5), "fault", MESSAGE_STROKE, 4), ...crossDrawables(id, pointAlong(path, 0.5), 1)],
 };
 
+function markBand(state: SequenceState, index: number, opacity: number): Drawable {
+  return boxDrawable(`row-${index}-mark`, { x: 0, y: rowTop(state, index), w: WIDTH, h: rowPitch(state) }, { fill: "active", stroke: "none", opacity, radius: 0, z: 0 });
+}
+
 function messageDrawables(state: SequenceState, index: number, row: MessageRow): Drawable[] {
   const id = `row-${index}`;
-  const shapes = MESSAGE_SHAPES[row.status](id, messagePath(state, index, row), row);
+  const shapes = [markBand(state, index, row.marked ? MARK_OPACITY : 0), ...MESSAGE_SHAPES[row.status](id, messagePath(state, index, row), row)];
   if (!state.reading) return shapes;
   const label = messageLabel(state, index, row);
   return [...shapes, textDrawable(`${id}-label`, label.text, label.at, { size: label.size, z: 5 })];
@@ -510,6 +524,14 @@ function losing(before: SequenceState, after: SequenceState, _op: LabOp, progres
   return [dotDrawable(`row-${index}-dot`, mid, messageColor(row), DOT_RADIUS * fading), ...crossDrawables(`row-${index}`, mid, clamp01(progress))];
 }
 
+function marking(before: SequenceState, after: SequenceState, _op: LabOp, progress: number): Drawable[] {
+  return after.rows.flatMap((row, index) => {
+    const was = before.rows[index];
+    const newlyMarked = row.kind === "message" && row.marked && was?.kind === "message" && !was.marked;
+    return newlyMarked ? [markBand(after, index, MARK_OPACITY * clamp01(progress))] : [];
+  });
+}
+
 function timing(_before: SequenceState, after: SequenceState, _op: LabOp, progress: number): Drawable[] {
   const index = after.rows.length - 1;
   const row = after.rows[index] as TimeoutRow;
@@ -570,6 +592,12 @@ export const lab: LabDef<SequenceSpec, SequenceState> = {
       seconds: 1.0,
       apply: retransmit,
       during: departing,
+    },
+    mark: {
+      doc: '{"label": "Finished"}; every arrived message with that label gets a tinted band across its row, so a closing Step can point back at the messages the point names instead of sending a new one',
+      seconds: 0.8,
+      apply: mark,
+      during: marking,
     },
     timeout: {
       doc: '{"at": "Client"}; a new row: a timer bar runs down the participant\'s lifeline from its last sent message to a clock marked "timeout"; the participant must have sent a message',
