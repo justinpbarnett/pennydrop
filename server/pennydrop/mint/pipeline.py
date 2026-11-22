@@ -54,6 +54,7 @@ class Seed:
     problems: list[str]
     reviewed: list[str]
     reported: list[str]
+    history: list[dict]
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,8 @@ class Mint:
             (workspace_path / "lesson.jsonl").write_text(seeding.lesson)
         started = time.monotonic()
         record = MintRecord(lab_id, brief, MintStatus.MINTING, str(workspace_path), request_id)
+        if seeding:
+            record = replace(record, round_log=seeding.history)
         self._store.save_mint(record)
         prompt = SEEDED_ROUND.format(lab_id=lab_id, problems="\n".join(f"- {line}" for line in seeding.problems), earlier=_earlier_section([line for line in seeding.reported if line not in seeding.problems][-MAX_EARLIER_PROBLEMS:])) if seeding else FIRST_ROUND
         remaining: list[str] = []
@@ -176,7 +179,7 @@ class Mint:
             raise MintError(f"only a failed attempt that still has its Lab and lesson.jsonl can seed a mint; '{lab_id}' is {previous.status.value}")
         last = previous.round_log[-1]
         reported = list(dict.fromkeys(line for entry in previous.round_log for line in [*entry["check_findings"], *entry["judge_findings"]]))
-        return Seed(source.read_text(), lesson.read_text(), [*last["check_findings"], *last["judge_findings"]], list(last["judge_findings"]), reported)
+        return Seed(source.read_text(), lesson.read_text(), [*last["check_findings"], *last["judge_findings"]], list(last["judge_findings"]), reported, list(previous.round_log))
 
     def _fresh_workspace(self, lab_id: str, brief: str, ask: str | None) -> Path:
         if (self._paths.labs / f"{lab_id}.ts").exists():
