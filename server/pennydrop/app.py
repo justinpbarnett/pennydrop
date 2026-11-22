@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.middleware.gzip import GZipMiddleware
 
 from .asks import AskRequest, FromStep
 from .courses import Course
@@ -88,6 +89,7 @@ def create_app(services: Services) -> FastAPI:
         await services.asks.close()
 
     app = FastAPI(title="Pennydrop", lifespan=lifespan)
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.include_router(minted_labs_router(MintPaths.of(services.settings)))
 
     @app.exception_handler(LookupError)
@@ -231,6 +233,10 @@ def _event(name: str, data: dict[str, Any]) -> str:
     return f"event: {name}\ndata: {json.dumps(data)}\n\n"
 
 
+IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
+REVALIDATE = {"Cache-Control": "no-cache"}
+
+
 def _mount_player(app: FastAPI, services: Services) -> None:
     dist = services.settings.player_dist
     if not dist.exists():
@@ -242,7 +248,6 @@ def _mount_player(app: FastAPI, services: Services) -> None:
             raise HTTPException(404)
         candidate = (dist / path).resolve()
         if path and candidate.is_file() and dist.resolve() in candidate.parents:
-            return FileResponse(candidate)
-        if path.rstrip("/") == "kids":
-            return FileResponse(dist / "kids.html")
-        return FileResponse(dist / "index.html")
+            hashed = candidate.parent == (dist / "assets").resolve()
+            return FileResponse(candidate, headers=IMMUTABLE if hashed else REVALIDATE)
+        return FileResponse(dist / ("kids.html" if path.rstrip("/") == "kids" else "index.html"), headers=REVALIDATE)
