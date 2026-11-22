@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -268,3 +269,43 @@ def _value_at(points: list[list[float]], x: float) -> float:
 
 def _number(value: float) -> str:
     return f"{value:,.2f}".rstrip("0").rstrip(".") if isinstance(value, float) else f"{value:,}"
+
+
+EVENT_LABS = ("scheduler", "sequence", "threads", "address", "hash", "memory", "graph")
+STILL_OPERATIONS = ("highlight", "focus", "unhighlight", "label", "note")
+UNSPOKEN_FIELDS = ("op", "on", "cue", "role", "ms")
+OBJECT_NAME = re.compile(r"^[\w-]+")
+
+
+@dataclass(frozen=True)
+class EventPlay:
+    name: str
+    lab: str
+    events: tuple[str, ...]
+
+    def told(self) -> str:
+        return f'the {self.lab} Lab "{self.name}" plays: {"; then ".join(self.events)}'
+
+
+def event_plays(scene_before: Any, step: dict[str, Any]) -> list[EventPlay]:
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    objects = scene_before.get("objects") if isinstance(scene_before, dict) else None
+    labs = {
+        **{thing["id"]: thing["defKey"].removeprefix("lab:") for thing in objects or [] if isinstance(thing, dict) and isinstance(thing.get("defKey"), str) and isinstance(thing.get("id"), str)},
+        **{name: spec["lab"] for name, spec in scene.items() if isinstance(spec, dict) and isinstance(spec.get("lab"), str)},
+    }
+    events: dict[str, list[str]] = {}
+    for operation in step.get("do") or []:
+        if not isinstance(operation, dict) or operation.get("op") in STILL_OPERATIONS or not isinstance(operation.get("on"), list):
+            continue
+        names = {found[0] for target in operation["on"] if (found := OBJECT_NAME.match(str(target)))}
+        for name in names:
+            if labs.get(name) in EVENT_LABS:
+                events.setdefault(name, []).append(_event(operation))
+    return [EventPlay(name, labs[name], tuple(played)) for name, played in events.items()]
+
+
+def _event(operation: dict[str, Any]) -> str:
+    fields = ", ".join(f"{key} {json.dumps(value) if isinstance(value, dict | list) else value}" for key, value in operation.items() if key not in UNSPOKEN_FIELDS)
+    parts = [str(target) for target in operation["on"] if "[" in str(target)]
+    return " ".join(filter(None, (str(operation.get("op")), f"on {', '.join(parts)}" if parts else "", f"({fields})" if fields else "")))

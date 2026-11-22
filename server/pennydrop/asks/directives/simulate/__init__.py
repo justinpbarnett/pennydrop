@@ -13,6 +13,7 @@ END = math.inf
 RUNS_SHOWN = 2
 
 PLAYS_IN_STAGES = True
+PLAYED_BY_HAND = 'simulate directive: the {lab} Lab plays only through its "simulate" directive, so "do" entries on {name} never play; drop them, and to play the next part of its run carry "simulate": {{"lab": "{lab}", "on": "{name}", "until": <the next stop>}}, whose other fields carry over from the Step before, or show this beat with text and shapes beside it'
 
 BRIEF = 'Only the simulate directive draws and plays these Labs: {lab}. Every Step that shows one carries a "simulate" directive for it, and no Step puts an object of these Labs in "scene" or writes operations for them, so skip their spec fields and operations in the Catalog.'
 
@@ -32,21 +33,24 @@ GUIDE = "\n".join([
 
 
 def prepare(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
-    step = _with_scene_figure_as_simulation(step, tools)
     scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
     carried = step["simulate"].get("lab") if isinstance(step.get("simulate"), dict) else None
     drawn_by_hand = sorted({spec["lab"] for spec in scene.values() if isinstance(spec, dict) and spec.get("lab") in TARGETS and spec["lab"] != carried})
     if drawn_by_hand:
         raise DirectiveError(f'simulate directive: the {drawn_by_hand[0]} Lab is simulated, so leave its figure out of "scene" and carry a "simulate" directive for it in this Step, which draws the figure and plays the run; to show it before the run starts, give that simulation "until": 0')
-    simulated = {name for name, spec in {**tools.staged, **scene}.items() if isinstance(spec, dict) and spec.get("lab") in TARGETS}
-    played_by_hand = lambda operation: isinstance(operation, dict) and bool(simulated & set(operation_targets(operation)))  # noqa: E731
-    if not any(played_by_hand(operation) for operation in step.get("do") or []):
+    simulated = {name: spec["lab"] for name, spec in {**tools.staged, **scene}.items() if isinstance(spec, dict) and spec.get("lab") in TARGETS}
+    operations = step.get("do") or []
+    played_by_hand = [operation for operation in operations if isinstance(operation, dict) and simulated.keys() & set(operation_targets(operation))]
+    if not played_by_hand:
         return step
-    kept = [operation for operation in step["do"] if not played_by_hand(operation)]
+    if carried is None:
+        name = next(name for name in operation_targets(played_by_hand[0]) if name in simulated)
+        raise DirectiveError(PLAYED_BY_HAND.format(lab=simulated[name], name=name))
+    kept = [operation for operation in operations if operation not in played_by_hand]
     return {**{key: value for key, value in step.items() if key != "do"}, **({"do": kept} if kept else {})}
 
 
-def _with_scene_figure_as_simulation(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
+def with_scene_figure_as_simulation(step: dict[str, Any], staged: dict[str, dict[str, Any]]) -> dict[str, Any]:
     scene = step.get("scene")
     if "simulate" in step or not isinstance(scene, dict):
         return step
@@ -55,8 +59,7 @@ def _with_scene_figure_as_simulation(step: dict[str, Any], tools: DirectiveTools
         return step
     name, spec = figures[0]
     rest = {key: value for key, value in scene.items() if key != name}
-    staged = tools.staged.get(name)
-    if isinstance(staged, dict) and staged.get("lab") == spec["lab"]:
+    if staged.get(name, {}).get("lab") == spec["lab"]:
         return {key: value for key, value in {**step, "scene": rest}.items() if key != "scene" or rest}
     return {**step, "scene": rest, "simulate": {**spec, "on": name, "until": 0}}
 

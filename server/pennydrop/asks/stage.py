@@ -154,6 +154,9 @@ class Stage:
         if isinstance(raw, dict) and isinstance(raw.get("lab"), str):
             self.simulations[raw["lab"]] = filled_from(raw, self.simulations)
 
+    def unfinished_simulation(self) -> dict[str, Any] | None:
+        return next((raw for lab, raw in self.simulations.items() if raw.get("until") is not None and lab in self.labs.values()), None)
+
     def errors_in_written(self, written: Any) -> list[str]:
         return self._graph_played_by_hand(written) + self._counters_owned_by_trace(written) + self._declared_again(written)
 

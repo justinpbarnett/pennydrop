@@ -62,6 +62,16 @@ class PlayedHops:
         if self._asked:
             self._hoppers[self._asked.line] = replace(self._hoppers[self._asked.line], asked=True)
 
+    def without_hops_after_reveal(self, step: dict[str, Any]) -> dict[str, Any]:
+        revealed = {name for name, hopper in self._hoppers.items() if hopper.asked and not (self._asked and self._asked.line == name)}
+        operations = step.get("do")
+        if not self._warm_up_only_one or not revealed or not isinstance(operations, list):
+            return step
+        kept = [operation for operation in operations if not (isinstance(operation, dict) and operation.get("op") == HOP and set(operation.get("on") or []) & revealed)]
+        if len(kept) == len(operations):
+            return step
+        return {**{key: value for key, value in step.items() if key != "do"}, **({"do": kept} if kept else {})}
+
     def errors_in(self, step: dict[str, Any]) -> list[str]:
         return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step) + self._block_tapped(step) + self._pile_too_early(step) + self._position_errors(step)
 
@@ -84,7 +94,7 @@ class PlayedHops:
             say = f"Hop one {'more' if by > 0 else 'back'}, to {_number_name(hopper.at + by)}."
         elif abs(hopper.at - hopper.base) == 1:
             by = hopper.base - hopper.at
-            say = f"Hop back to {_number_name(hopper.base)}."
+            say = f"Hop {'forward' if by > 0 else 'back'} to {_number_name(hopper.base)} again."
         else:
             return None
         return {"say": say, "do": [{"op": HOP, "on": [name], "by": by, "each": 1}]}
@@ -190,7 +200,7 @@ class PlayedHops:
             return [f'{prefix} the narration says {told}, where the hopper will land, before the learner taps it; leave that number out of "say" and let the next Step tell it']
         if hopper.at != hopper.base:
             back = hopper.base - hopper.at
-            return [f'{prefix} the sum starts with the hopper on {hopper.base}, but when the Challenge waits it stands on {hopper.at}, after the hops played so far, so the learner predicts only the last few hops instead of the sum. Add {{"op": "{HOP}", "on": ["{asked.line}"], "by": {back}, "each": {abs(back)}}} to the end of this Step\'s "do" so the hopper is back on {hopper.base}, say that it goes back, and make the answer the spot the asked hops from {hopper.base} land on']
+            return [f'{prefix} the sum starts with the hopper on {hopper.base}, but when the Challenge waits it stands on {hopper.at}, after the hops played so far, so the learner predicts only the last few hops instead of the sum. Add {{"op": "{HOP}", "on": ["{asked.line}"], "by": {back}, "each": {abs(back)}}} to the end of this Step\'s "do" so the hopper is back on {hopper.base}, say that it returns to {hopper.base}, and make the answer the spot the asked hops from {hopper.base} land on']
         if asked.spot == hopper.at:
             return [f"{prefix} the hopper already stands on {asked.spot} when the Challenge waits, so the learner taps where it is instead of predicting where it lands; ask where it lands after the hops the Ask is about, and make that spot the answer"]
         if (seen := hopper.landed_on(asked.spot)) is not None:

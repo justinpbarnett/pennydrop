@@ -21,7 +21,7 @@ from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import PROMISE_WORDS, mended, mended_by_verdict, mended_cues, with_one_figure_on_stage
 from .stage import Stage, question_without_challenge, ran_something, trace_totals
-from .stage_words import ArrayPlay, FigurePlay, PlotView, StagePlay, array_plays, plot_views, shapes_plays
+from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, event_plays, plot_views, shapes_plays
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
 from .writer import Brief, Writer
@@ -49,6 +49,7 @@ END_TOLD_EARLY = 'say: the narration gives {value}, where the {line} line ends, 
 STILL_SIDE_RUN = "; the contrast run is not played yet, so carry its trace in this Step exactly as the brief gives it, and play it here"
 ASKED_AT_THE_CLOSE = 'challenge: this is the last Step, which closes the story on the point, and a Challenge here comes after the reveal, with nothing left to show its answer; leave "challenge" out of this Step and make "say" state the point'
 STILL_RUN = 'this Step plays nothing on the stage and asks nothing: its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
+STILL_SIMULATION = 'this Step plays nothing on the stage and asks nothing, so the learner hears new words over a still picture; the run on stage plays only through its "simulate" directive, never through "do", so carry the simulation of the Step before, {simulation}, with the next stop after its "until", or with no "until" to play the rest of the run, and keep "say" telling only the part this Step plays'
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
 ASKS_ANOTHER_QUESTION = 'challenge: this Step\'s "say" asks a different question from its Challenge, so the learner hears one question and is asked to answer another; make "say" ask the Challenge prompt\'s own question, for the same form of answer, and keep the Challenge as it is'
 ANSWER_FORMS = {"number": "The learner answers with a number.", "choice": "The learner picks one of: {choices}.", "click": "The learner answers by tapping a thing on the stage.", "order": "The learner puts these in order: {choices}.", "match": "The learner matches pairs."}
@@ -332,7 +333,7 @@ class LessonRun:
             self._claims_agree(step, written, known, facts),
             _asked_at_the_close(step, number, pending.followed),
             self._missing_hinge(step, number, pending.last_after),
-            self._narration_off_stage(step, arrays, figures),
+            self._narration_off_stage(step, arrays, figures, event_plays(scene, step)),
             self._answer_on_stage(step, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines]),
             self._answer_told(step),
             self._asks_the_challenge(step),
@@ -408,24 +409,28 @@ class LessonRun:
         staged = next(iter(staged_directives(written)), None)
         if staged:
             return STILL_RUN.format(directive=staged)
+        if running := self._stage.unfinished_simulation():
+            return STILL_SIMULATION.format(simulation=json.dumps(running))
         return STILL_STAGE + STILL_SIDE_RUN if self._stage.side_run_unplayed() else STILL_STAGE
 
-    async def _narration_off_stage(self, step: dict[str, Any], arrays: list[ArrayPlay], figures: list[FigurePlay]) -> str | None:
+    async def _narration_off_stage(self, step: dict[str, Any], arrays: list[ArrayPlay], figures: list[FigurePlay], events: list[EventPlay]) -> str | None:
         say = step.get("say")
         moved_arrays = "; and ".join(play.told() for play in arrays if play.moves)
         moved_figures = "; and ".join(play.told() for play in figures if play.moves)
-        if not isinstance(say, str) or not (moved_arrays or moved_figures):
+        played_events = "; and ".join(play.told() for play in events)
+        if not isinstance(say, str) or not (moved_arrays or moved_figures or played_events):
             return None
         classifier = self._kit.classifier
         try:
             off = await asyncio.gather(
                 *([classifier.tells_other_moves(moved_arrays, say, self._record.id)] if moved_arrays else []),
                 *([classifier.misnumbers_figures(moved_figures, say, self._record.id)] if moved_figures else []),
+                *([classifier.tells_other_events(played_events, say, self._record.id)] if played_events else []),
             )
         except GatewayError as error:
             LOG.warning("lesson %s Step could not be checked against its stage: %s", self._record.id, error)
             return None
-        return NARRATION_OFF_STAGE.format(played="; and ".join(filter(None, (moved_arrays, moved_figures)))) if any(off) else None
+        return NARRATION_OFF_STAGE.format(played="; and ".join(filter(None, (moved_arrays, moved_figures, played_events)))) if any(off) else None
 
     async def _answer_on_stage(self, step: dict[str, Any], views: list[str]) -> str | None:
         asked = _predicted(step)

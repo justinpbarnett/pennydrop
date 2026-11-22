@@ -6,7 +6,7 @@ from typing import Any
 
 from ..tracer import ALGORITHMS
 from .directives._support import operation_targets
-from .directives.simulate import filled_from
+from .directives.simulate import filled_from, with_scene_figure_as_simulation
 from .directives.trace.code import shown_source
 from .played_hops import says_number
 from .stage import FRONTIER_OPERATIONS, TRACE_TOTAL_PREFIX, Stage, answer_given_away
@@ -25,6 +25,7 @@ NUMBER_WITH_COMMAS = re.compile(r"^-?\d{1,3}(,\d{3})+(\.\d+)?$|^-?\d+(\.\d+)?$")
 def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     step = _with_promise_alone(step)
     step = _with_trace_for_its_values(step, stage)
+    step = with_scene_figure_as_simulation(step, stage.on_stage())
     step = _with_simulation_filled(step, stage)
     step = _with_trace_filled(step, stage)
     step = _with_hand_search_as_trace(step, stage)
@@ -33,6 +34,7 @@ def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     step = _with_tap_answer_on_its_node(step, stage)
     step = _without_the_answer_said(step, stage)
     step = _without_the_landing_said(step, stage)
+    step = stage.hops.without_hops_after_reveal(step)
     step = stage.setups.with_reveal_run(step)
     return _with_every_send_settled(_with_library_listing(step), stage.in_flight)
 
