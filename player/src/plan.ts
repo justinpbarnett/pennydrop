@@ -67,6 +67,8 @@ function handledByLab(scene: SceneState, op: ParsedOp): boolean {
 }
 
 function unknownOp(scene: SceneState, op: ParsedOp): LabError {
+  const owners = scene.objects.filter((object) => hasOp(definitionOf(object), op.name)).map((object) => object.id);
+  if (op.selectors.length === 0 && owners.length > 0) return new LabError(`"${op.name}" is a Lab op, so it names the object it acts on in "on", such as "on": ["${owners[0]}"]`);
   const first = op.selectors[0];
   const object = first && findObject(scene, first.id);
   const own = object ? Object.keys(definitionOf(object).ops) : [];
