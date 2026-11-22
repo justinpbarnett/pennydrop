@@ -563,7 +563,7 @@ export const lab: LabDef<MusicSpec, MusicState> = {
   reading: "optional",
   catalog: {
     summary:
-      "A piano roll for rhythm, pitch and harmony: rows are pitches named by letter and octave (high at the top; a black key reads as a sharp, such as D#4, until a note, chord or scale spells it with a flat, such as Eb4, and then that row reads Eb4), columns are numbered beats. Notes sit on their pitch row across their beats, rests are framed silent gaps, chords are stacked notes in one frame, tempo plays the roll back with a playhead, and a scale lights its notes in turn. Every op also sounds. Every op targets the whole roll object.",
+      "Music you see and hear: notes, rhythm and beats, tempo, scales, intervals, chords and harmony, and why a chord or melody sounds the way it does. A piano roll: rows are pitches named by letter and octave (high at the top; a black key reads as a sharp, such as D#4, until a note, chord or scale spells it with a flat, such as Eb4, and then that row reads Eb4), columns are numbered beats. Notes sit on their pitch row across their beats, rests are framed silent gaps, chords are stacked notes in one frame, tempo plays the roll back with a playhead, and a scale lights its notes in turn. Every op also sounds. Every op targets the whole roll object.",
     spec: {
       low: 'lowest pitch row, such as "C4" (letter A to G, optional # or b, octave 0 to 8); default "C4"',
       high: `highest pitch row, above low; default "C5"; low to high is at most ${MAX_ROWS} rows (semitones), so C4 to F5 is the widest from C4`,
