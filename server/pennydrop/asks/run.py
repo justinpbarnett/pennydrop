@@ -39,6 +39,7 @@ ANSWER_ON_STAGE = 'challenge: a Challenge waits after its Step plays, and by the
 STORY_OFF_LAB = 'the stage still holds only text and shapes after this Step, but the Lesson plans the {labs} Lab, where the story is shown rather than told; bring that Lab on stage in this Step, with its directive when it has one, and show on it what "say" tells'
 RUN_ENDS_BEFORE_HINGE = 'this Step plays the run to its end before the Lesson has asked its predict Challenge, and once the run ends the stage shows every result, so nothing is left to predict; give this Step\'s trace an "until" that stops before the turn that settles the answer, so a later Step can ask the Challenge over the unfinished run and the Step after it can play the end'
 RUN_ENDS_AFTER_STOP = 'this Step plays the run to its end before the Lesson has asked its predict Challenge, and once the run ends the stage shows every result, so nothing is left to predict; the Step before stopped the run at "until": {until}, so repeat the trace here with "until": {until}, which keeps the stage as it is, make this Step the hinge that asks the predict Challenge over the unfinished run without giving the answer, and leave the end of the run to the next Step\'s trace with no "until"'
+LOADED_BEFORE_HINGE = 'this Step has the OS load the missing page before the Lesson has asked its predict Challenge, and once the page is loaded the stage shows what the OS does, so nothing is left to predict; stop this Step\'s simulation at "k fault", where the walk finds the invalid entry, make this Step the hinge that asks what happens next without giving the answer, and leave "k load" to the next Step'
 OPEN_QUESTION = 'say: the narration ends on a question, but this Step has no Challenge, so the learner gets no turn to answer it; give this Step the predict Challenge that question asks, or end the narration on the statement it is leading to'
 PLOT_ENDS_BEFORE_HINGE = 'this Step draws the {plot} plot to its end before the Lesson has asked its predict Challenge, and once every line is drawn the learner reads any answer off the plot; graph the {line} line here only part way, with "to" at an x before the end, so a later Step can ask the Challenge about where it ends and the Step after it can graph the rest and mark the end'
 RUN_LEFT_UNFINISHED = 'the run on stage stopped part way, and this is the last Step, so the learner never sees how it ends; carry the trace directive here with no "until", so this Step plays the rest of the run to its end, and let the narration tell what the finished run shows'
@@ -49,6 +50,8 @@ STILL_SIDE_RUN = "; the contrast run is not played yet, so carry its trace in th
 ASKED_AT_THE_CLOSE = 'challenge: this is the last Step, which closes the story on the point, and a Challenge here comes after the reveal, with nothing left to show its answer; leave "challenge" out of this Step and make "say" state the point'
 STILL_RUN = 'this Step plays nothing on the stage and asks nothing: its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
+ASKS_ANOTHER_QUESTION = 'challenge: this Step\'s "say" asks a different question from its Challenge, so the learner hears one question and is asked to answer another; make "say" ask the Challenge prompt\'s own question, for the same form of answer, and keep the Challenge as it is'
+ANSWER_FORMS = {"number": "The learner answers with a number.", "choice": "The learner picks one of: {choices}.", "click": "The learner answers by tapping a thing on the stage.", "order": "The learner puts these in order: {choices}.", "match": "The learner matches pairs."}
 CHALLENGE_FLAW = re.compile(r"^(step \d+ )?challenge:")
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
 QUOTED = re.compile(r'"[^"]*"')
@@ -260,11 +263,28 @@ class LessonRun:
             self._log_repair(pending.number, attempt + 1, reasons, "redone by the writer")
             written = self._mended(await self._kit.writer.repair(brief, scene, written, reasons, self._record.id), pending.number)
         if not checked.errors:
+            if isinstance(written, dict) and "challenge" in written and any(CHALLENGE_FLAW.match(advice) for advice in checked.advice):
+                unasked = await self._unasked(brief, pending, written, scene)
+                if unasked is not None:
+                    self._log_repair(pending.number, attempt + 1, checked.advice, "dropped the Challenge, whose flaw the writer could not fix")
+                    return unasked
             self._log_repair(pending.number, attempt + 1, checked.advice, "kept as written")
             return self._accepted(written, checked)
         if HONOR_CODE_ERROR in checked.errors:
             raise LessonError(f"Step {pending.number} still broke the honor code after {MAX_REPAIR_TRIES} rewrites")
         return await self._salvage(brief, pending, written, checked, scene)
+
+    async def _unasked(self, brief: Brief, pending: PendingStep, written: dict[str, Any], scene: Any) -> SettledStep | None:
+        unasked = {field: value for field, value in written.items() if field != "challenge"}
+        rewritten = await self._kit.writer.repair(brief, scene, unasked, [NARRATION_ONLY], self._record.id)
+        say = rewritten.get("say") if isinstance(rewritten, dict) else None
+        if not isinstance(say, str) or not say.strip() or PLACEHOLDER.search(say):
+            return None
+        unasked["say"] = say
+        checked = await self._check(unasked, pending, scene)
+        if checked.errors or any(CHALLENGE_FLAW.match(advice) for advice in checked.advice) or OPEN_QUESTION in checked.advice:
+            return None
+        return self._accepted(unasked, checked)
 
     def _mended(self, written: dict[str, Any] | Malformed, number: int) -> dict[str, Any] | Malformed:
         if isinstance(written, Malformed):
@@ -315,6 +335,7 @@ class LessonRun:
             self._narration_off_stage(step, arrays, figures),
             self._answer_on_stage(step, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines]),
             self._answer_told(step),
+            self._asks_the_challenge(step),
             self._story_off_lab(step, number),
             self._ends_before_hinge(step, written, values, plots, pending.followed),
             self._still_stage(step, written, number, pending.followed),
@@ -368,6 +389,8 @@ class LessonRun:
             advice = RUN_ENDS_AFTER_STOP.format(until=until) if isinstance(until, int) and until > 0 else RUN_ENDS_BEFORE_HINGE
         elif finished := next((view for view in plots if view.graphed and not view.unfinished), None):
             advice = PLOT_ENDS_BEFORE_HINGE.format(plot=finished.name, line=finished.graphed[-1])
+        elif any(operation.get("op") == "fault" and self._stage.labs.get(next(iter(operation.get("on") or []), "")) == "address" for operation in step.get("do", []) if isinstance(operation, dict)):
+            advice = LOADED_BEFORE_HINGE
         else:
             return None
         return advice if await followed else None
@@ -415,6 +438,19 @@ class LessonRun:
             LOG.warning("lesson %s Challenge could not be checked against its stage: %s", self._record.id, error)
             return None
         return ANSWER_ON_STAGE.format(shown=shown) if readable else None
+
+    async def _asks_the_challenge(self, step: dict[str, Any]) -> str | None:
+        challenge, say = step.get("challenge"), step.get("say")
+        if not isinstance(challenge, dict) or not isinstance(say, str) or not isinstance(challenge.get("prompt"), str):
+            return None
+        choices = ", ".join(map(str, challenge.get("choices") or []))
+        form = ANSWER_FORMS.get(str(challenge.get("type")), "").format(choices=choices)
+        try:
+            same = await self._kit.classifier.asks_the_challenge(say, f'{challenge["prompt"]} {form}'.strip(), self._record.id)
+        except GatewayError as error:
+            LOG.warning("lesson %s Challenge could not be checked against its narration: %s", self._record.id, error)
+            return None
+        return None if same else ASKS_ANOTHER_QUESTION
 
     async def _answer_told(self, step: dict[str, Any]) -> str | None:
         asked = _predicted(step)

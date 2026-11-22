@@ -42,6 +42,10 @@ ANSWER_TOLD_QUESTIONS = {
     "told": YesNo("Does the earlier narration state the Challenge's answer outright? Answer no when it only gives causes or facts that the learner must combine to work the answer out."),
     "said": YesNo("Has the earlier narration already said the very thing the answer says, so the learner only has to remember it? Answer no when the learner still has to reason from the narration to reach the answer."),
 }
+ASKS_THE_CHALLENGE_QUESTIONS = {
+    "same": YesNo("Does the narration ask the learner the same question as the Challenge, so that the Challenge's answer answers what the narration asks?"),
+    "form": YesNo("Does the narration ask for the same form of answer the Challenge takes, such as a number, one of the listed choices, or a thing to tap on the stage?"),
+}
 OTHER_MOVES_QUESTIONS = {
     "other": YesNo("Does the narration say that a value moves in this Step when the stage does not move that value, or say nothing moves when the stage moves values?"),
     "contradicts": YesNo("Does the narration state a move, a swap or a resting place that contradicts the moves listed for the stage? Leaving moves out is not a contradiction."),
@@ -181,6 +185,10 @@ class Classifier:
     async def answer_told(self, told: str, challenge: str, lesson_id: str) -> bool:
         result = await self._gateway.classify(f"Earlier narration: {told}\nChallenge: {challenge}", ANSWER_TOLD_QUESTIONS, lesson_id=lesson_id)
         return _mean_yes(result.answers[name] for name in ANSWER_TOLD_QUESTIONS) >= 0.5
+
+    async def asks_the_challenge(self, say: str, challenge: str, lesson_id: str) -> bool:
+        result = await self._gateway.classify(f"Narration: {say}\nChallenge: {challenge}", ASKS_THE_CHALLENGE_QUESTIONS, lesson_id=lesson_id)
+        return _mean_yes(result.answers[name] for name in ASKS_THE_CHALLENGE_QUESTIONS) >= 0.5
 
     async def claims_agree(self, claimed: str, facts: list[str], lesson_id: str) -> bool:
         text = "\n".join([*(f"Fact: {fact}" for fact in facts), f"Step: {claimed}"])
