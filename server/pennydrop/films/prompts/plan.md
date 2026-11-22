@@ -27,5 +27,7 @@ Rules to hold.
 - The first line's scene adds the cold open card.
 - Show the story with the story pieces and every mechanism with a Lab where one fits. A card that only repeats the narration is acceptable for a beat, but do not make the Film a run of cards: whenever the narration walks a mechanism, run it on a Lab.
 - The final line adds a question card.
+- A quote card holds only words a person said or wrote, word for word as the script's sources record them, with who in `by`. A term goes on a keyword card; a paraphrase, a summary or the Film's own question never goes in quotation marks.
+- Text on screen writes numbers, years and amounts as digits: June 1795, No. 42 of 58, 1,562 against. Only `say` and cues spell them out as spoken.
 - Put objects on one route through the world, each next to the one before.
 Answer with the JSONL and nothing else, no fences.

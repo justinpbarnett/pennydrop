@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 from ..services import Services
 from ..settings import Job
@@ -17,6 +18,12 @@ WORD_PARTS = re.compile(r"[^\W_]+")
 CLOSER_VIEW = {None: "close", "wide": "fit", "fit": "close"}
 FARTHER_VIEW = {None: "wide", "close": "fit", "fit": "wide"}
 MEND_PASSES = 4
+NUMBER_WORDS = (
+    "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen"
+    " twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million billion"
+)
+SPELLED_NUMBER = re.compile(r"\b(?:" + "|".join(NUMBER_WORDS.split()) + r")(?:[\s-]+(?:" + "|".join(NUMBER_WORDS.split()) + r"))+\b", re.IGNORECASE)
+SPOKEN_KEYS = {"say", "cue", "spine", "voice"}
 
 
 def catalog(services: Services) -> str:
@@ -98,6 +105,26 @@ def adjusted_views(rows: list[dict], audit: list[dict], moved_closer: set[int]) 
     return changed
 
 
+def shown_texts(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [text for item in value for text in shown_texts(item)]
+    if isinstance(value, dict):
+        return [text for key, item in value.items() if key not in SPOKEN_KEYS for text in shown_texts(item)]
+    return []
+
+
+def spelled_numbers(rows: list[dict]) -> list[str]:
+    return [
+        f"line {row.get('line')}: the on-screen text {text!r} spells out {found.group()!r}; write numbers, years and amounts as digits on screen, such as 1795, 42 or 1,562, and spell them only in say and cues"
+        for row in rows[1:]
+        for text in shown_texts(row)
+        for found in SPELLED_NUMBER.finditer(text)
+        if not found.group().istitle()
+    ]
+
+
 def as_jsonl(rows: list[dict]) -> str:
     return "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
 
@@ -119,7 +146,7 @@ def plan_problems(services: Services, workspace: Workspace, rows: list[dict], sc
                 break
     except FilmError as error:
         return [str(error)]
-    return cue_problems(manifest) + audit_problems(audit)
+    return spelled_numbers(planned) + cue_problems(manifest) + audit_problems(audit)
 
 
 async def plan(services: Services, workspace: Workspace) -> dict:
