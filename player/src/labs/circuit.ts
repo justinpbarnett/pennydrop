@@ -1,7 +1,7 @@
 import { boxDrawable, clamp01, type Drawable, fail, integerField, type LabDef, type LabOp, lerp, type Point, type Rect, type Role, textDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
-type Kind = "battery" | "resistor" | "lamp" | "switch";
+type Kind = "battery" | "resistor" | "lamp" | "switch" | "transistor";
 type Quantity = "voltage" | "current";
 
 interface Part {
@@ -68,6 +68,12 @@ interface SymbolLook {
   part: string;
   lit: boolean;
   bladeAngle: number;
+  base: BaseFlow;
+}
+
+interface BaseFlow {
+  level: number;
+  shift: number;
 }
 
 const WIDTH = 1480;
@@ -98,6 +104,18 @@ const LAMP_GLOW_OPACITY = 0.45;
 const SWITCH_HALF = 50;
 const SWITCH_CONTACT_RADIUS = 9;
 const SWITCH_OPEN_ANGLE = 0.6;
+const TRANSISTOR_RADIUS = 50;
+const TRANSISTOR_BAR = 26;
+const TRANSISTOR_BAR_HALF = 28;
+const TRANSISTOR_BAR_GAP = 8;
+const TRANSISTOR_INNER_WIDTH = 4;
+const TRANSISTOR_ARROW_AT = 0.82;
+const TRANSISTOR_ARROW_SIZE = 17;
+const TRANSISTOR_ARROW_SPREAD = 0.5;
+const BASE_REACH = 88;
+const BASE_DOT_COUNT = 3;
+const BASE_DOT_RADIUS = 6;
+const BASE_DOT_ADVANCE = 0.5;
 
 const LABEL_GAP = 18;
 const NAME_SIZE = 32;
@@ -296,15 +314,56 @@ function switchSymbol(frame: Frame, part: Part, look: SymbolLook): Drawable[] {
   ];
 }
 
+function baseDotDrawables(frame: Frame, look: SymbolLook): Drawable[] {
+  if (look.base.level <= 0) return [];
+  return Array.from({ length: BASE_DOT_COUNT }, (_, index) => {
+    const share = ((index + 0.5) / BASE_DOT_COUNT + look.base.shift) % 1;
+    const at = local(frame, 0, BASE_REACH - share * (BASE_REACH - TRANSISTOR_BAR));
+    return circleDrawable(`${look.id}-base-dot-${index}`, at, BASE_DOT_RADIUS, { fill: "accent", stroke: "none", opacity: look.base.level, z: 7 });
+  });
+}
+
+function transistorSymbol(frame: Frame, part: Part, look: SymbolLook): Drawable[] {
+  const color = KINDS[part.kind].color;
+  const line = (id: string, from: [number, number], to: [number, number], width = TRANSISTOR_INNER_WIDTH) => lineDrawable(`${look.id}-${id}`, local(frame, ...from), local(frame, ...to), color, width, 6, look.part);
+  const pin: [number, number] = [TRANSISTOR_RADIUS, 0];
+  const foot: [number, number] = [TRANSISTOR_BAR_GAP, TRANSISTOR_BAR];
+  const run = Math.hypot(pin[0] - foot[0], pin[1] - foot[1]);
+  const heading = { u: (pin[0] - foot[0]) / run, v: (pin[1] - foot[1]) / run };
+  const tip: [number, number] = [foot[0] + (pin[0] - foot[0]) * TRANSISTOR_ARROW_AT, foot[1] + (pin[1] - foot[1]) * TRANSISTOR_ARROW_AT];
+  const barb = (spread: number): [number, number] => {
+    const cos = Math.cos(spread);
+    const sin = Math.sin(spread);
+    return [tip[0] - TRANSISTOR_ARROW_SIZE * (heading.u * cos - heading.v * sin), tip[1] - TRANSISTOR_ARROW_SIZE * (heading.u * sin + heading.v * cos)];
+  };
+  return [
+    ...leads(frame, TRANSISTOR_RADIUS, look),
+    circleDrawable(`${look.id}-ring`, frame.center, TRANSISTOR_RADIUS, { fill: "fill", stroke: color, strokeWidth: SYMBOL_WIDTH, z: 5, part: look.part }),
+    line("bar", [-TRANSISTOR_BAR_HALF, TRANSISTOR_BAR], [TRANSISTOR_BAR_HALF, TRANSISTOR_BAR]),
+    line("collector", [-TRANSISTOR_BAR_GAP, TRANSISTOR_BAR], [-TRANSISTOR_RADIUS, 0]),
+    line("emitter", foot, pin),
+    line("arrow-a", tip, barb(TRANSISTOR_ARROW_SPREAD)),
+    line("arrow-b", tip, barb(-TRANSISTOR_ARROW_SPREAD)),
+    line("base", [0, TRANSISTOR_BAR], [0, BASE_REACH]),
+    circleDrawable(`${look.id}-base-terminal`, local(frame, 0, BASE_REACH), TERMINAL_RADIUS, { fill: "ink", stroke: "none", z: 6 }),
+    ...baseDotDrawables(frame, look),
+  ];
+}
+
 const KINDS: Record<Kind, KindRule> = {
-  battery: { color: "series1", rated: { key: "volts", fallback: 9, min: 0.5, max: 1000, unit: "V" }, symbol: batterySymbol },
-  resistor: { color: "series2", rated: { key: "ohms", fallback: 100, min: 0.1, max: 1e6, unit: "Ω" }, symbol: resistorSymbol },
-  lamp: { color: "series3", rated: { key: "ohms", fallback: 20, min: 0.1, max: 1e6, unit: "Ω" }, symbol: lampSymbol },
+  battery: { color: "series1", rated: { key: "volts", fallback: 9, min: 0.5, max: 1000, unit: " V" }, symbol: batterySymbol },
+  resistor: { color: "series2", rated: { key: "ohms", fallback: 100, min: 0.1, max: 1e6, unit: " Ω" }, symbol: resistorSymbol },
+  lamp: { color: "series3", rated: { key: "ohms", fallback: 20, min: 0.1, max: 1e6, unit: " Ω" }, symbol: lampSymbol },
   switch: { color: "series4", rated: null, symbol: switchSymbol },
+  transistor: { color: "series5", rated: { key: "gain", fallback: 100, min: 10, max: 500, unit: "×" }, symbol: transistorSymbol },
 };
 
 const KIND_NAMES = Object.keys(KINDS).join(", ");
 const QUANTITY_UNITS: Record<Quantity, string> = { voltage: "V", current: "A" };
+
+function isSwitching(kind: Kind): boolean {
+  return kind === "switch" || kind === "transistor";
+}
 
 function isKind(value: unknown): value is Kind {
   return typeof value === "string" && Object.hasOwn(KINDS, value);
@@ -336,7 +395,7 @@ function readPart(raw: unknown, slot: number, where: string): Part {
     kind,
     slot,
     value: rated ? readRated(entry, rated, where) : 0,
-    closed: kind === "switch" ? readBoolean(entry, "closed", false, where) : true,
+    closed: isSwitching(kind) ? readBoolean(entry, "closed", false, where) : true,
   };
 }
 
@@ -357,7 +416,7 @@ function withPart(state: CircuitState, raw: unknown, where: string): CircuitStat
   const entry = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
   const part = readPart(raw, freeSlot(state, entry.slot, where), where);
   if (state.parts.some((other) => other.name === part.name)) fail(`${where}: ${state.objectId} already has a part named "${part.name}"; give it another name`);
-  const switchAngles = part.kind === "switch" ? { ...state.switchAngles, [part.name]: bladeAngle(part.closed) } : state.switchAngles;
+  const switchAngles = isSwitching(part.kind) ? { ...state.switchAngles, [part.name]: bladeAngle(part.closed) } : state.switchAngles;
   return { ...state, parts: [...state.parts, part], switchAngles };
 }
 
@@ -464,7 +523,7 @@ function currentOf(state: CircuitState): number {
 
 function voltageOf(state: CircuitState, part: Part): number {
   if (part.kind === "battery") return part.value;
-  if (part.kind === "switch") {
+  if (isSwitching(part.kind)) {
     const breaks = breaksOf(state);
     return breaks.length === 1 && breaks[0]!.id === `break-${part.name}` ? totalOf(state, ["battery"]) : 0;
   }
@@ -493,7 +552,7 @@ function formatReading(value: number, what: Quantity): string {
 function ratingText(part: Part): string {
   const rated = KINDS[part.kind].rated;
   if (!rated) return part.closed ? "closed" : "open";
-  return `${formatNumber(part.value)} ${rated.unit}`;
+  return `${formatNumber(part.value)}${rated.unit}`;
 }
 
 function inwardBox(frame: Frame, offset: number, w: number, h: number): Rect {
@@ -507,9 +566,14 @@ function inwardExtent(frame: Frame, rect: Rect): number {
   return Math.abs(frame.out.x) * rect.w + Math.abs(frame.out.y) * rect.h;
 }
 
-function labelBox(frame: Frame, part: Part): Rect {
-  const w = Math.max(textWidth(part.name, NAME_SIZE, "mark"), textWidth(ratingText(part), RATING_SIZE, "read"));
-  return inwardBox(frame, LABEL_GAP, w, NAME_SIZE + LINE_GAP + RATING_SIZE);
+function baseText(state: CircuitState, part: Part): string | null {
+  return part.kind === "transistor" && part.closed && state.flowing ? `base ${formatReading(currentOf(state) / part.value, "current")}` : null;
+}
+
+function labelBox(state: CircuitState, frame: Frame, part: Part): Rect {
+  const base = baseText(state, part);
+  const w = Math.max(textWidth(part.name, NAME_SIZE, "mark"), textWidth(ratingText(part), RATING_SIZE, "read"), base ? textWidth(base, RATING_SIZE, "read") : 0);
+  return inwardBox(frame, LABEL_GAP, w, NAME_SIZE + LINE_GAP + RATING_SIZE + (base ? LINE_GAP + RATING_SIZE : 0));
 }
 
 function nearEdge(frame: Frame, box: Rect): { x: number; anchor: "start" | "middle" | "end" } {
@@ -520,17 +584,20 @@ function nearEdge(frame: Frame, box: Rect): { x: number; anchor: "start" | "midd
 
 function labelDrawables(state: CircuitState, frame: Frame, part: Part): Drawable[] {
   if (!state.reading) return [];
-  const box = labelBox(frame, part);
+  const box = labelBox(state, frame, part);
   const { x, anchor } = nearEdge(frame, box);
   const look = { z: 6, anchor, part: `${state.objectId}[${part.name}]` };
+  const ratingY = box.y + NAME_SIZE + LINE_GAP + RATING_SIZE / 2;
+  const base = baseText(state, part);
   return [
     textDrawable(`label-${part.name}-name`, part.name, { x, y: box.y + NAME_SIZE / 2 }, { size: NAME_SIZE, font: "mark", ...look }),
-    textDrawable(`label-${part.name}-rating`, ratingText(part), { x, y: box.y + box.h - RATING_SIZE / 2 }, { size: RATING_SIZE, fill: "muted", ...look }),
+    textDrawable(`label-${part.name}-rating`, ratingText(part), { x, y: ratingY }, { size: RATING_SIZE, fill: "muted", ...look }),
+    ...(base ? [textDrawable(`label-${part.name}-base`, base, { x, y: ratingY + LINE_GAP + RATING_SIZE }, { size: RATING_SIZE, fill: "accent", ...look })] : []),
   ];
 }
 
-function tagBox(frame: Frame, part: Part, w: number): Rect {
-  const label = labelBox(frame, part);
+function tagBox(state: CircuitState, frame: Frame, part: Part, w: number): Rect {
+  const label = labelBox(state, frame, part);
   if (frame.along.x === 0) {
     const edge = nearEdge(frame, label);
     const x = edge.anchor === "start" ? edge.x : edge.x - w;
@@ -541,7 +608,7 @@ function tagBox(frame: Frame, part: Part, w: number): Rect {
 
 function tagDrawables(state: CircuitState, frame: Frame, part: Part, meter: Meter): Drawable[] {
   const text = formatReading(readingOf(state, meter, part), meter.what);
-  const box = tagBox(frame, part, textWidth(text, TAG_SIZE, "read") + TAG_PADDING * 2);
+  const box = tagBox(state, frame, part, textWidth(text, TAG_SIZE, "read") + TAG_PADDING * 2);
   return [
     boxDrawable(`meter-${part.name}-box`, box, { fill: "fill2", stroke: "accent", strokeWidth: 3, radius: 1, z: 6 }),
     textDrawable(`meter-${part.name}-value`, text, { x: box.x + box.w / 2, y: box.y + box.h / 2 }, { size: TAG_SIZE, z: 7 }),
@@ -578,7 +645,9 @@ function bodyLook(state: CircuitState, part: Part): Partial<Drawable> {
 function symbolDrawables(state: CircuitState, part: Part, look: Partial<SymbolLook> = {}): Drawable[] {
   const frame = slotFrame(state, part.slot);
   const id = `part-${part.name}`;
-  const symbolLook: SymbolLook = { id, part: `${state.objectId}[${part.name}]`, lit: state.flowing, bladeAngle: state.switchAngles[part.name] ?? 0, ...look };
+  const baseOn = part.kind === "transistor" && part.closed && state.flowing;
+  const base: BaseFlow = { level: baseOn ? 1 : 0, shift: 0 };
+  const symbolLook: SymbolLook = { id, part: `${state.objectId}[${part.name}]`, lit: state.flowing, bladeAngle: state.switchAngles[part.name] ?? 0, base, ...look };
   return [
     boxDrawable(`${id}-body`, slotRect(frame), { fill: "fill2", radius: 1, z: 3, part: symbolLook.part, ...bodyLook(state, part) }),
     ...KINDS[part.kind].symbol(frame, part, symbolLook),
@@ -642,7 +711,7 @@ function wire(state: CircuitState, op: LabOp): CircuitState {
 
 function flipSwitch(state: CircuitState, op: LabOp): CircuitState {
   const target = onePart(state, op, "switch");
-  if (target.kind !== "switch") fail(`op "switch": ${target.name} is a ${target.kind}; only a switch opens and closes`);
+  if (!isSwitching(target.kind)) fail(`op "switch": ${target.name} is a ${target.kind}; only a switch or a transistor can be switched`);
   const closed = readBoolean(op.args, "closed", !target.closed, `op "switch"`);
   const parts = state.parts.map((part) => (part === target ? { ...part, closed } : part));
   const stopped = state.flowing && !closed;
@@ -680,7 +749,8 @@ function switchDuring(before: CircuitState, after: CircuitState, op: LabOp, prog
   const target = onePart(after, op, "switch");
   const angle = lerp(before.switchAngles[target.name] ?? 0, after.switchAngles[target.name] ?? 0, clamp01(progress));
   const shown = progress >= 1 ? after : { ...after, showBreaks: before.showBreaks };
-  return symbolDrawables(shown, target, { bladeAngle: angle, lit: before.flowing && after.flowing });
+  const level = before.flowing && target.kind === "transistor" ? clamp01(1 - angle / SWITCH_OPEN_ANGLE) : 0;
+  return symbolDrawables(shown, target, { bladeAngle: angle, lit: before.flowing && after.flowing, base: { level, shift: 0 } });
 }
 
 function distanceFromSource(state: CircuitState, part: Part): number {
@@ -691,7 +761,10 @@ function flowDuring(_before: CircuitState, after: CircuitState, _op: LabOp, prog
   if (!after.flowing) return breakDrawables(after, Math.sin(Math.PI * clamp01(progress)));
   const reach = clamp01(progress / FRONT_SHARE) * PERIMETER;
   const lamps = after.parts.filter((part) => part.kind === "lamp").flatMap((part) => symbolDrawables(after, part, { lit: distanceFromSource(after, part) <= reach }));
-  return [...lamps, ...dotDrawables(after, progress * DOT_SPACING * DOT_ADVANCE, reach)];
+  const transistors = after.parts
+    .filter((part) => part.kind === "transistor" && part.closed && distanceFromSource(after, part) <= reach)
+    .flatMap((part) => symbolDrawables(after, part, { base: { level: 1, shift: progress * BASE_DOT_ADVANCE } }));
+  return [...lamps, ...transistors, ...dotDrawables(after, progress * DOT_SPACING * DOT_ADVANCE, reach)];
 }
 
 export const lab: LabDef<CircuitSpec, CircuitState> = {
@@ -700,16 +773,17 @@ export const lab: LabDef<CircuitSpec, CircuitState> = {
   reading: "optional",
   catalog: {
     summary:
-      "A simple series circuit on a board: up to 6 parts (battery, resistor, lamp, switch) sit in slots around one loop, wires join each part to the next, and current flows as moving dots only when the loop is closed, lighting every lamp it reaches. Teaches parts, closed versus open loops, switches, and measuring volts and amps. Parts are named: c[lamp].",
+      "A simple series circuit on a board: up to 6 parts (battery, resistor, lamp, switch, transistor) sit in slots around one loop, wires join each part to the next, and current flows as moving dots only when the loop is closed, lighting every lamp it reaches. Teaches parts, closed versus open loops, switches, a transistor that lets a small base current switch a much larger loop current, and measuring volts and amps. A transistor is open until its base current is switched on with the switch op, and then its label shows the small base current. Parts are named: c[lamp].",
     spec: {
       slots:
         "optional number of places around the loop, 2 to 6, default 4 (or the number of parts when more); slot 0 is on the left, and the slots run clockwise over the top, down the right and back along the bottom",
       parts:
-        'optional list of parts already on the board, filling slots in order: {"name":"battery","kind":"battery","volts":9}; kind is battery (volts, default 9), resistor (ohms, default 100), lamp (ohms, default 20) or switch ("closed": true or false, default false); name is 1 to 12 letters or digits, such as "lamp" or "R1"; optional "slot" picks a free slot',
+        'optional list of parts already on the board, filling slots in order: {"name":"battery","kind":"battery","volts":9}; kind is battery (volts, default 9), resistor (ohms, default 100), lamp (ohms, default 20), switch ("closed": true or false, default false) or transistor ("gain", 10 to 500, default 100; "closed": true or false for the base current, default false); name is 1 to 12 letters or digits, such as "lamp" or "R1"; optional "slot" picks a free slot',
       wired: "optional true or false, default false; true starts with a wire between every pair of neighbouring parts",
       reading: "optional, default true; false draws no names, values or units, for a child who cannot read: a meter becomes a dial whose needle swings with the reading",
     },
     example: [
+      '{"step":1,"say":"A small current into the transistor base switches a much bigger current through the lamp. With no base current the transistor is open, and with it the lamp lights.","scene":{"c":{"lab":"circuit","slots":3,"wired":true,"parts":[{"name":"battery","kind":"battery","volts":9},{"name":"lamp","kind":"lamp","ohms":30},{"name":"t","kind":"transistor","gain":100}]}},"do":[{"cue":"base current","op":"switch","on":["c[t]"],"closed":true},{"cue":"big current","op":"flow","on":["c"]},{"cue":"lamp current","op":"measure","on":["c[lamp]"],"what":"current"}]}',
       '{"step":1,"say":"Here is a battery, a lamp and a switch, joined by wires. Close the switch and current flows around the loop, so the lamp lights.","scene":{"c":{"lab":"circuit","slots":3,"wired":true,"parts":[{"name":"battery","kind":"battery","volts":9},{"name":"lamp","kind":"lamp","ohms":30},{"name":"switch","kind":"switch"}]}},"do":[{"cue":"Close the switch","op":"switch","on":["c[switch]"],"closed":true},{"cue":"current flows","op":"flow","on":["c"]},{"cue":"lamp lights","op":"measure","on":["c[lamp]"],"what":"current"}]}',
     ],
   },
@@ -739,7 +813,7 @@ export const lab: LabDef<CircuitSpec, CircuitState> = {
 
   ops: {
     place: {
-      doc: '{"name": "lamp", "kind": "lamp", "ohms": 20, "slot": 1}; puts a new part in a slot of the loop; kind is battery (volts), resistor (ohms), lamp (ohms) or switch ("closed", default false); slot defaults to the first empty one',
+      doc: '{"name": "lamp", "kind": "lamp", "ohms": 20, "slot": 1}; puts a new part in a slot of the loop; kind is battery (volts), resistor (ohms), lamp (ohms), switch ("closed", default false) or transistor ("gain", default 100; "closed", default false); slot defaults to the first empty one',
       seconds: 0.8,
       apply: place,
     },
@@ -750,7 +824,7 @@ export const lab: LabDef<CircuitSpec, CircuitState> = {
       during: wireDuring,
     },
     switch: {
-      doc: 'on one switch part, such as ["c[switch]"], with {"closed": true} to close it or {"closed": false} to open it; leaving "closed" out flips it; opening it stops any flow and rings the break',
+      doc: 'on one switch or transistor part, such as ["c[switch]"] or ["c[t]"], with {"closed": true} to close the switch or turn the transistor\'s base current on, or {"closed": false} to open it or turn the base current off; leaving "closed" out flips it; opening it stops any flow and rings the break; while a transistor\'s base current is on and the loop flows, dots run in along its base lead and its label shows the base current, the loop current divided by the gain',
       seconds: 0.7,
       apply: flipSwitch,
       during: switchDuring,
