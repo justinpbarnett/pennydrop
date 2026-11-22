@@ -13,8 +13,9 @@ HOP = "hop"
 PILE_SUMS = ("add", "take")
 SPOT = re.compile(r"^(?P<line>[\w-]+)\[(?P<spot>-?\d+)\]$")
 NUMBER_NAMES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split()
-STANDING_CLAIM = re.compile(r"\b(?:stands?|is|sits?|starts?|waits?)\s+(?:on|at)\s+(?P<number>\w+)", re.IGNORECASE)
-HOPPING_CLAIM = re.compile(r"\b(?P<preposition>on|at|to)\s+(?P<number>\w+)", re.IGNORECASE)
+NOT_A_SPOT = r"(?!\s+(?:more|hops?|times|steps?|blocks?)\b)"
+STANDING_CLAIM = re.compile(r"\b(?:stands?|is|sits?|starts?|waits?)\s+(?:on|at)\s+(?P<number>\w+)\b" + NOT_A_SPOT, re.IGNORECASE)
+HOPPING_CLAIM = re.compile(r"\b(?P<preposition>on|at|to)\s+(?P<number>\w+)\b" + NOT_A_SPOT, re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -61,7 +62,7 @@ class PlayedHops:
             self._hoppers[self._asked.line] = replace(self._hoppers[self._asked.line], asked=True)
 
     def errors_in(self, step: dict[str, Any]) -> list[str]:
-        return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step) + self._block_tapped(step) + self._pile_sum_too_early(step) + self._position_errors(step)
+        return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step) + self._block_tapped(step) + self._pile_too_early(step) + self._position_errors(step)
 
     def plain_step(self, step: dict[str, Any]) -> dict[str, Any] | None:
         if not self._warm_up_only_one or self._challenged or len(self._hoppers) != 1:
@@ -114,10 +115,13 @@ class PlayedHops:
             return None
         return asked.spot if says_number(asked.spot, step.get("say")) else None
 
-    def _pile_sum_too_early(self, step: dict[str, Any]) -> list[str]:
+    def _pile_too_early(self, step: dict[str, Any]) -> list[str]:
         if not self._warm_up_only_one or self._challenged:
             return []
         piles = self._piles_after(step)
+        brought = [name for name in step.get("scene") or {} if name in piles]
+        if brought and self._play(step):
+            return [f'step {step.get("step")}: the pile {brought[0]} comes in before the Challenge while the sum\'s number line is on stage, so the child sees two pictures of the sum before predicting it; leave {brought[0]} out of this Step\'s "scene", keep only the line until the Challenge\'s reveal, and bring the pile in after it, if at all']
         summed = next((target for operation in step.get("do") or [] if isinstance(operation, dict) and operation.get("op") in PILE_SUMS for target in operation.get("on") or [] if target in piles), None)
         if summed is None:
             return []
@@ -144,8 +148,9 @@ class PlayedHops:
         if not self._warm_up_only_one:
             return []
         errors = []
+        before = self._play({**step, "do": []})
         for name, hopper in self._play(step).items():
-            earlier = self._hoppers.get(name)
+            earlier = before.get(name)
             far = [spot for spot, _ in hopper.landed[len(earlier.landed) :] if abs(spot - hopper.base) > 1] if earlier and not earlier.asked else []
             if not far:
                 continue
@@ -206,7 +211,7 @@ class PlayedHops:
             if isinstance(targets, list) and len(targets) == 1 and targets[0] in hoppers and by:
                 each = abs(_whole(operation.get("each"), by)) or abs(by)
                 hoppers[targets[0]] = hoppers[targets[0]].hopped(by, each, step.get("step", 0))
-        for name in brought:
+        for name in brought if not self._warm_up_only_one else ():
             hoppers[name] = replace(hoppers[name], base=hoppers[name].at)
         return hoppers
 
