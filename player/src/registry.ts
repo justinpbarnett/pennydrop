@@ -57,6 +57,7 @@ export function definitionKeyForSpec(objectId: string, spec: ObjectSpec): string
     return labKey(spec.lab);
   }
   if (typeof spec.kind === "string") {
+    if (definitions.has(labKey(spec.kind))) fail(`${objectId}: "${spec.kind}" is a Lab, not a kind; write "lab": "${spec.kind}" in place of "kind"`);
     if (!definitions.has(primitiveKey(spec.kind))) fail(`${objectId}: unknown kind "${spec.kind}"; available kinds: ${known("primitive:")}`);
     return primitiveKey(spec.kind);
   }
