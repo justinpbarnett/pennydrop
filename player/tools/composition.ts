@@ -250,7 +250,7 @@ export async function compositionFindings(lesson: LessonSource, wants: (defKey: 
         }
         const holders = drawables.filter((shape) => ["rect", "path"].includes(shape.kind) && clearance(box, shape) === null);
         for (const shape of drawables) {
-          if (!["rect", "circle", "line", "arrow", "path"].includes(shape.kind)) continue;
+          if (!["rect", "circle", "line", "arrow", "path"].includes(shape.kind) || shape.backdrop) continue;
           if (shape.part !== undefined && holders.some((holder) => holder.part !== undefined && encloses(holder, shape))) continue;
           const gap = clearance(box, shape);
           if (gap !== null && gap < CLEARANCE) crowded.push(`label ${describe(text)} is ${Math.round(gap)} px from the edge of ${shape.kind} ${shape.id} that it does not sit inside (need ${CLEARANCE}); move the label or enlarge the shape around it`);

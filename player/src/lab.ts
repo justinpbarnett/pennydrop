@@ -50,6 +50,7 @@ export interface Drawable {
   rotation?: number;
   draw?: number;
   part?: string;
+  backdrop?: boolean;
 }
 
 export interface Point {
