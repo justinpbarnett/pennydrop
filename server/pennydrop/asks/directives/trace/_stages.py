@@ -26,12 +26,34 @@ class Window:
 
 
 def loop_turns(run: TracedRun) -> list[int]:
-    entry = next((event.function for event in run.trace.events if event.type == "call"), None)
-    function = next((node for node in ast.walk(ast.parse(run.source)) if isinstance(node, ast.FunctionDef) and node.name == entry), None)
-    loop = next((node for node in function.body if isinstance(node, ast.For | ast.While)), None) if function else None
-    if loop is None:
+    called = list(dict.fromkeys(event.function for event in run.trace.events if event.type == "call"))
+    functions = {node.name: node for node in ast.walk(ast.parse(run.source)) if isinstance(node, ast.FunctionDef)}
+    loops = {name: loop for name in called if name in functions and (loop := _outer_loop(functions[name]))}
+    if not called:
         return []
-    return [position for position, event in enumerate(run.trace.events) if event.type == "line" and event.line == loop.lineno and event.stack == [entry]]
+    if called[0] in loops:
+        return [position for position, event in enumerate(run.trace.events) if event.type == "line" and event.line == loops[called[0]].lineno and event.stack == called[:1]]
+    helper = next((name for name in called[1:] if name in loops), None)
+    return _first_loop_line_of_each_call(run, helper, loops[helper].lineno) if helper else []
+
+
+def _outer_loop(function: ast.FunctionDef) -> ast.For | ast.While | None:
+    return next((node for node in function.body if isinstance(node, ast.For | ast.While)), None)
+
+
+def _first_loop_line_of_each_call(run: TracedRun, function: str, line: int) -> list[int]:
+    calls: list[int] = []
+    looped: set[int] = set()
+    turns = []
+    for position, event in enumerate(run.trace.events):
+        if event.type == "call":
+            calls.append(position)
+        elif event.type == "return" and calls:
+            calls.pop()
+        elif event.type == "line" and event.line == line and event.stack[-1:] == [function] and calls and calls[-1] not in looped:
+            looped.add(calls[-1])
+            turns.append(position)
+    return turns
 
 
 def node_turns(run: TracedRun) -> list[int]:
@@ -47,7 +69,7 @@ def window(until: int | None, turns: list[int], by_event: OperationsByEvent, pla
     end = events if until is None or until >= len(turns) else 0 if until == 0 else turns[until]
     if end < start:
         done = sum(1 for turn in turns[1:] if turn <= start)
-        raise DirectiveError(f'trace directive: "until": {until} is earlier than the stage, which already shows the run through turn {done}; the stage cannot go back, so repeat the trace with "until": {done} to keep it as it is, or a later one to play more')
+        raise DirectiveError(f'trace directive: "until": {until} is earlier than the stage, which already shows the run through turn {done}; the stage cannot go back, so repeat the trace with "until": {done} to keep it as it is, a later one to play more, or no "until" to play the run to its end')
     return Window(start, end, finished=not any(position >= end for position, _ in by_event))
 
 

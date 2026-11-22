@@ -10,7 +10,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from ..settings import Settings
-from .lesson_format import Step, describe
+from .lesson_format import Step
+from .writer_errors import describe
 
 LOG = logging.getLogger("pennydrop.asks")
 REQUEST_TIMEOUT_SECONDS = 20.0

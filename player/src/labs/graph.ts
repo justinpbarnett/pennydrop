@@ -676,7 +676,7 @@ export const lab: LabDef<GraphSpec, GraphState> = {
   catalog: {
     summary: "Nodes and edges laid out by the Lab, with a frontier strip (queue, stack or heap), distance labels, and tree edits. For BFS, DFS, Dijkstra, BST, heaps and tries. Name nodes in args; no parts.",
     spec: {
-      nodes: 'list of node ids as text or numbers, or {"id","label"}; [] is fine for a tree that grows by insert',
+      nodes: 'list of node ids as text or numbers, or {"id","label"}; [] is fine for a tree that grows by insert; in a binary search tree the ids are the keys themselves, such as [8, 3, 10, 1, 6], so every comparison the narration makes is one the picture shows',
       edges: 'optional [from, to] or [from, to, weight]; in a tree the third item may be "left" or "right"; a tree edge goes parent to child',
       directed: "optional true for arrows, default false",
       layout: '"layers" (default: BFS columns from root), "tree" (top down), or "ring"',

@@ -168,7 +168,7 @@ function buildClusters(nodes: Node[], joined: Joined): Cluster[] {
     let root = node;
     if (relative) {
       const target = nodeOf.get(relative.target);
-      if (!target) fail(`${node.key} is placed relative to "${relative.target}", which is not in the Scene`);
+      if (!target) fail(`${node.key} is placed relative to "${relative.target}", which is not an object in the Scene; "at" names a whole object, never a node, part or value inside one; objects: ${[...nodeOf.keys()].join(", ")}`);
       root = resolve(target, [...trail, node.key]);
       const anchor = placements.get(target.key) ?? { x: 0, y: 0 };
       const member = target.members.find((candidate) => candidate.id === relative.target)!;

@@ -98,7 +98,7 @@ export function upsertObject(scene: SceneState, object: SceneObject): SceneState
 }
 
 export function removeObject(scene: SceneState, id: string): SceneState {
-  requireObject(scene, id);
+  if (!findObject(scene, id)) fail(`"${id}": null takes an object off the stage, and "${id}" is not on stage (on stage: ${scene.objects.map((entry) => entry.id).join(", ") || "none yet"}); leave "${id}" out of "scene", or give its full spec there to bring it in`);
   const focus = scene.focus === id ? null : scene.focus;
   return { ...scene, objects: scene.objects.filter((entry) => entry.id !== id), focus };
 }

@@ -156,7 +156,7 @@ export function relationProblems(placed: readonly { id: string; at?: Relation }[
   const problems: string[] = [];
   for (const object of placed) {
     for (const target of relationTargets(object.at)) {
-      if (!ids.has(target)) problems.push(`${object.id} is placed relative to "${target}", which is not in the Scene`);
+      if (!ids.has(target)) problems.push(`${object.id} is placed relative to "${target}", which is not an object in the Scene; "at" names a whole object, never a node, part or value inside one; objects: ${[...ids].join(", ")}`);
     }
   }
   const cleared = new Set<string>();

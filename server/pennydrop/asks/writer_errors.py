@@ -1,0 +1,20 @@
+from __future__ import annotations
+
+from pydantic import ValidationError
+
+STEP_FIELDS = "A Step holds only step, say, scene, do, challenge and its directives"
+
+
+def describe(error: ValidationError, fields: str = STEP_FIELDS) -> list[str]:
+    messages = []
+    for item in error.errors():
+        where = ".".join(str(part) for part in item["loc"])
+        if item["type"] == "extra_forbidden":
+            messages.append(f"{where}: unknown field. {fields}" if len(item["loc"]) == 1 else f"{where}: unknown field")
+        elif item["type"] == "missing" and isinstance(item.get("input"), dict):
+            messages.append(f"{where}: Field required; the entry holds only {', '.join(item['input']) or 'nothing'}")
+        elif item["type"] == "union_tag_invalid":
+            messages.append(f"{where}: unknown challenge type. Use number, choice, click, order or match")
+        else:
+            messages.append(f"{where}: {item['msg']}")
+    return messages

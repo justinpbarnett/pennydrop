@@ -15,6 +15,9 @@ from .code import shown_source
 from .._support import MAX_STEP_OPERATIONS, DirectiveError, DirectiveTools, TracedRun, discover, limit_operations, operation_targets, parse_spec, trace_key, values_said, with_answer_from
 
 TRACE_TOTALS = ("comparisons", "swaps", "writes")
+RUN_LABS = ("array", "code")
+RUN_OPERATIONS = ("compare", "swap", "set", "line", "call", "return", "print")
+ALGORITHM_MOVES = ("compare", "swap")
 TARGETS = discover(sys.modules[__name__])
 
 BRIEF = 'The trace directive plays the {lab} Labs whenever a library algorithm or a short function of your own fits the Ask, and it writes every operation of the run: compare, swap and set on an array, line, call, set, return and print on code, and visit, push, pop and relax on a graph search. Then carry the same trace in every Step that moves the run, each with a later "until", and write none of those operations yourself, even though the Catalog lists them. When none fits, such as a tree you build by hand, show the idea with plain objects and operations.'
@@ -27,12 +30,12 @@ GUIDE = "\n".join([
     *(f"- `{algorithm.name}`: {algorithm.input_help}" for algorithm in ALGORITHMS.values()),
     "The first Step that carries the trace sets the traced object in its own `scene`, and `on` names it when the scene holds several objects of those Labs; without `on`, the first Lab below that can play the algorithm is traced. Labs that can play a trace: " + ", ".join(TARGETS) + ".",
     "A Step that carries a trace plays the whole run, unless the trace has an `until`. To tell one run across several Steps, repeat the same trace, with the same `code` and `input`, in each Step, give every Step but the last a later `until` than the Step before, and leave `until` out of the Step that plays the end of the run. Each Step then plays only the part no earlier Step played, on the same objects, and its narration talks only about that part.",
-    "`until` counts turns: one turn of the traced function's outer loop for the array and code Labs, and one node taken for the graph Lab, so `\"until\": 2` stops the run after its second turn. `\"until\": 0` draws the objects with the run's input and plays none of it, for Step 1 or any Step that asks a question before the run starts. A Step with the same `until` as the Step before keeps the stage as it is. merge_sort and quick_sort call themselves and have no outer loop, so they play whole, without `until`.",
+    "`until` counts turns: one turn of the traced function's outer loop for the array and code Labs, and one node taken for the graph Lab, so `\"until\": 2` stops the run after its second turn. bubble_sort, selection_sort and insertion_sort take one turn fewer than the number of values, and their first turn already moves values: turn 1 of insertion_sort inserts the second value into the sorted first one, so a Step that only shows the first value as sorted uses `\"until\": 0`, and turn k inserts the value at index k; turn k of bubble_sort carries the k-th largest value to its place at the end, and turn k of selection_sort puts the k-th smallest value at index k - 1. So on 4 values `\"until\": 3` already plays the whole run, and the Step before a predict Challenge on their total stops at `\"until\": 2` or earlier. `\"until\": 0` draws the objects with the run's input and plays none of it, for Step 1 or any Step that asks a question before the run starts. A Step with the same `until` as the Step before keeps the stage as it is. merge_sort and quick_sort call themselves, so one of their turns is one merge or one partition: `\"until\": 1` stops quick_sort after its first partition has placed the first pivot. partition is that first partition alone, told value by value: its pivot is the last value, turn k compares the value at index k - 1 with the pivot and, when it is smaller, swaps it onto the boundary and moves the boundary one cell right, and only the Step without `until` swaps the pivot onto the boundary at the end. So on 6 values `\"until\": 5` plays all 5 compares with the pivot still last, and the next Step, without `until`, places it. Trace partition when the Ask is about how one partition works, and quick_sort when it is about the whole sort.",
     *(target.GUIDE for target in TARGETS.values()),
     "An `array` object is played only when its `values` equal the traced `input` list. A hash table, a stack or any other structure that the code builds is not that, so trace it on a `code` object alone, and show any array of buckets with plain operations after the run.",
     "The directive writes the operations and counters for you, so write no `do` entries for the traced run.",
-    'Use the measured totals as `{trace.comparisons}`, `{trace.swaps}` or `{trace.writes}` inside `say` or text, and as `"answer": "trace.comparisons"` (or `swaps`, `writes`) in a number Challenge, in the Step that plays the run to its end or in any later Step, so the narration never states a total before the stage shows it. Only the totals the run makes exist: insertion sort shifts and never swaps, so it has no `trace.swaps`, and a graph search has none of the three.',
-    'A predict Challenge may name a total as its `"answer"` in any Step that carries the trace, even one with an `until`, because the whole run is computed there; that is how the hinge asks for the result before the reveal Step plays it.',
+    'Use the measured totals as `{trace.comparisons}`, `{trace.swaps}` or `{trace.writes}` inside `say` or text in the Step that plays the run to its end or in any later Step, so the narration never states a total before the stage shows it. Only the totals the run makes exist: insertion sort shifts and never swaps, so it has no `trace.swaps`, and a graph search has none of the three.',
+    'A predict Challenge names a total as `"answer": "trace.comparisons"` (or `swaps`, `writes`) in a Step that repeats the trace with an `until`, before the run ends: the whole run is computed there, and the stage does not show the total yet. A Challenge waits after its Step plays, so in the Step that plays the run to its end, or any later Step, the counter already shows the total and the learner would read it off; that Step reveals it instead.',
     'For your own code, `code` is the whole source text of one function, such as `"def grow(balance, years):\\n    for _ in range(years):\\n        balance = balance * 1.05\\n    return balance"`, never a bare function name that is not in the library list',
     "Write the `input` with exactly the keys named above, such as `{\"array\": [1, 3, 5], \"target\": 3}` for binary_search, and never `arr` or other short names.",
     "For binary_search choose a target that is not the middle value of the array: the first guess is the middle, and a search that ends at once shows no halving, so aim for at least 3 comparisons.",
@@ -49,11 +52,36 @@ class TraceSpec(BaseModel):
     until: int | None = Field(default=None, ge=0)
 
 
-def prepare(step: dict[str, Any], _tools: DirectiveTools) -> dict[str, Any]:
+def prepare(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
+    step = _with_nested_trace_lifted(step)
+    _require_trace_for_runs(step, tools)
     scene = step.get("scene")
     if not isinstance(scene, dict):
         return step
     return {**step, "scene": {name: _with_library_source(spec) for name, spec in scene.items()}}
+
+
+def _require_trace_for_runs(step: dict[str, Any], tools: DirectiveTools) -> None:
+    if "trace" in step:
+        return
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    labs = {name: spec.get("lab") for name, spec in {**tools.staged, **scene}.items() if isinstance(spec, dict)}
+    code_objects = sorted(name for name, lab in labs.items() if lab == "code")
+    moves = RUN_OPERATIONS if code_objects else ALGORITHM_MOVES
+    played = sorted({target for operation in step.get("do") or [] if isinstance(operation, dict) and operation.get("op") in moves for target in operation_targets(operation) if labs.get(target) in RUN_LABS})
+    if not played:
+        return
+    if code_objects:
+        raise DirectiveError(f'trace directive: {code_objects[0]} shows code, so its run plays only through the trace directive, never through "do" entries for {", ".join(played)}; carry the same "trace" as the Lesson\'s other Steps, with the code and input on stage and a later "until", and write no operations for the run yourself')
+    raise DirectiveError(f'trace directive: compares and swaps on {", ".join(played)} are an algorithm\'s run, which plays only through the trace directive, so the stage moves exactly as the real code does; carry "trace": {{"code": "<library algorithm, such as insertion_sort, or the source of one short function>", "input": <the array\'s values>, "until": <turns played by the end of this Step>}} in every Step that moves the run, and write no compare, swap or set yourself')
+
+
+def _with_nested_trace_lifted(step: dict[str, Any]) -> dict[str, Any]:
+    raw = step.get("trace")
+    nested = raw.get("trace") if isinstance(raw, dict) else None
+    if not isinstance(nested, dict):
+        return step
+    return {**step, "trace": {**nested, **{key: value for key, value in raw.items() if key != "trace"}}}
 
 
 def _with_library_source(spec: Any) -> Any:
@@ -92,12 +120,12 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     continuing = object_id in tools.staged and trace_key(raw) in tools.traced
     turns = target.turns(run)
     played_run = [operation for name, operation in tools.played if name == object_id and operation.get("op") in target.OPERATIONS] if continuing else []
-    window = stages.window(spec.until, turns, by_event, played_run, run, spec.code)
+    window = stages.window(_held_for_prediction(step, spec.until, turns), turns, by_event, played_run, run, spec.code)
     code_id = _following_code(pool, object_id)
     step = _without_hand_run(step, {object_id: target.OPERATIONS, **({code_id: code.OPERATIONS} if code_id else {})})
     played = len(step.get("do", []))
     if continuing and not window.of(by_event):
-        return _without_replay(step, object_id), _totals(run) if window.finished else {}
+        return _settled(_without_replay(step, object_id), spec, run, window)
     if continuing:
         step = _without_replay(step, object_id)
         expanded = {**step, "do": [*step.get("do", []), *window.of(by_event)]}
@@ -111,14 +139,30 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     elif code_id:
         expanded = _with_code_following(expanded, played, code_id, by_event, run, window)
     _require_within_a_step(expanded.get("do", [])[played:], bool(turns))
-    if not window.finished:
-        _require_totals_unsaid(expanded, spec.until)
-        return with_answer_from(expanded, _totals(run)), {}
-    return expanded, _totals(run)
+    return _settled(expanded, spec, run, window)
+
+
+def _held_for_prediction(step: dict[str, Any], until: int | None, turns: list[int]) -> int | None:
+    challenge = step.get("challenge")
+    answer = challenge.get("answer") if isinstance(challenge, dict) and challenge.get("kind") == "predict" else None
+    predicts_a_total = answer in {f"trace.{name}" for name in TRACE_TOTALS}
+    return len(turns) - 1 if predicts_a_total and until is not None and until >= len(turns) > 1 else until
+
+
+def _settled(step: dict[str, Any], spec: TraceSpec, run: TracedRun, window: Window) -> tuple[dict[str, Any], dict[str, Any]]:
+    if window.finished:
+        return step, _totals(run)
+    _require_totals_unsaid(step, spec.until)
+    return with_answer_from(step, _totals(run)), {}
+
+
+def describe_value(name: str) -> str | None:
+    return {"comparisons": "comparisons in the whole run", "swaps": "swaps in the whole run", "writes": "array writes in the whole run, counting every shift and placement"}.get(name)
 
 
 def _totals(run: TracedRun) -> dict[str, Any]:
-    return {f"trace.{name}": count for name in TRACE_TOTALS if (count := getattr(run.trace.counters, name))}
+    counts = {f"trace.{name}": getattr(run.trace.counters, name) for name in TRACE_TOTALS}
+    return counts if any(counts.values()) else {}
 
 
 def _without_hand_run(step: dict[str, Any], owned: dict[str, frozenset[str]]) -> dict[str, Any]:
@@ -224,7 +268,7 @@ async def _run(spec: TraceSpec, tracer: Tracer) -> TracedRun:
         raise DirectiveError(f"trace directive: the traced code raised {trace.error}{hint}")
     if trace.truncated:
         raise DirectiveError("trace directive: the traced code ran too long to play; trace a smaller input")
-    return TracedRun(trace, spec.input, source)
+    return TracedRun(trace, spec.input, source, ALGORITHMS[spec.code].pointers if spec.code in ALGORITHMS else ())
 
 
 def _entry_point(source: str) -> str:

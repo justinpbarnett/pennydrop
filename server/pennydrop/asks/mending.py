@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
 from ..tracer import ALGORITHMS
-from .directives import DIRECTIVES
 from .directives._support import operation_targets
 from .directives.simulate import filled_from
 from .directives.trace.code import shown_source
-from .stage import FRONTIER_OPERATIONS, Stage, answer_given_away
+from .stage import FRONTIER_OPERATIONS, TRACE_TOTAL_PREFIX, Stage, answer_given_away
 
 NUMBER_WORDS = {
     word: str(number)
@@ -20,9 +20,7 @@ NUMBER_WITH_COMMAS = re.compile(r"^-?\d{1,3}(,\d{3})+(\.\d+)?$|^-?\d+(\.\d+)?$")
 
 
 def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
-    step = _with_trace_out_of_scene(step)
-    step = _with_directives_out_of_operations(step)
-    step = _with_until_in_staged_directive(step)
+    step = _with_trace_for_its_values(step, stage)
     step = _with_simulation_filled(step, stage)
     step = _with_trace_filled(step, stage)
     step = _with_hand_search_as_trace(step, stage)
@@ -118,10 +116,14 @@ def _without_unchanged_restates(step: dict[str, Any], stage: Stage) -> dict[str,
     if not isinstance(scene, dict):
         return step
     worked_on = {name for operation in step.get("do", []) if isinstance(operation, dict) for name in operation.get("on", []) if isinstance(name, str)}
-    kept = {name: spec for name, spec in scene.items() if not (isinstance(spec, dict) and stage.specs.get(name) == spec and name not in worked_on)}
+    kept = {name: spec for name, spec in scene.items() if not (isinstance(spec, dict) and (_part_of(spec, stage.specs.get(name)) or stage.specs.get(name) == spec and name not in worked_on))}
     if len(kept) == len(scene):
         return step
     return {key: value for key, value in {**step, "scene": kept}.items() if key != "scene" or kept}
+
+
+def _part_of(spec: dict[str, Any], staged: Any) -> bool:
+    return isinstance(staged, dict) and len(spec) < len(staged) and all(key in staged and staged[key] == value for key, value in spec.items())
 
 
 def _with_numeric_answer(step: dict[str, Any]) -> dict[str, Any]:
@@ -234,10 +236,11 @@ def _spans(spoken: list[str], wanted: list[str]) -> list[int]:
 
 CROWDED_STAGE = re.compile(r"too much on stage: (?P<names>[\w, ]+?) fit only")
 UNKNOWN_OBJECT = re.compile(r'unknown object "(?P<name>[^"]+)"; objects in the Scene')
+REMOVED_MISSING = re.compile(r'"(?P<name>[^"]+)": null takes an object off the stage, and "(?P=name)" is not on stage')
 
 
 EMPTY_STAGE = "nothing is on stage when this Step ends"
-REDUNDANT_OPERATION = re.compile(r"do\[(?P<index>\d+)\] \w+: \w+: (?:the TLB was already looked up|all \d+ levels are walked)")
+REDUNDANT_OPERATION = re.compile(r'do\[(?P<index>\d+)\] (?:\w+: \w+: (?:the TLB was already looked up|all \d+ levels are walked)|trace: op "trace" draws on a line)')
 
 
 def mended_by_verdict(step: dict[str, Any], errors: list[str], stage: Stage) -> dict[str, Any] | None:
@@ -247,7 +250,16 @@ def mended_by_verdict(step: dict[str, Any], errors: list[str], stage: Stage) -> 
     fixed = _without_redundant_operations(fixed or step, errors) or fixed
     fixed = _with_rewritten_operations(fixed or step, errors) or fixed
     fixed = _with_stage_kept(fixed or step, errors) or fixed
+    fixed = _without_removals_of_missing(fixed or step, errors) or fixed
     return fixed
+
+
+def _without_removals_of_missing(step: dict[str, Any], errors: list[str]) -> dict[str, Any] | None:
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    missing = {found["name"] for error in errors if (found := REMOVED_MISSING.search(error))}
+    if not any(name in scene and scene[name] is None for name in missing):
+        return None
+    return {**step, "scene": {name: spec for name, spec in scene.items() if not (name in missing and spec is None)}}
 
 
 def _with_stage_kept(step: dict[str, Any], errors: list[str]) -> dict[str, Any] | None:
@@ -364,22 +376,13 @@ def _with_rewritten_operations(step: dict[str, Any], errors: list[str]) -> dict[
     return {**step, "do": mended_operations}
 
 
-def _with_directives_out_of_operations(step: dict[str, Any]) -> dict[str, Any]:
-    operations = step.get("do")
-    if not isinstance(operations, list):
+def _with_trace_for_its_values(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    challenge = step.get("challenge") if isinstance(step.get("challenge"), dict) else {}
+    answer = challenge.get("answer")
+    names_values = "{" + TRACE_TOTAL_PREFIX in json.dumps(step) or (isinstance(answer, str) and answer.startswith(TRACE_TOTAL_PREFIX))
+    if "trace" in step or "simulate" in step or not stage.last_trace or not names_values:
         return step
-    written = [operation for operation in operations if isinstance(operation, dict) and operation.get("op") in DIRECTIVES and operation["op"] not in step]
-    directives = {operation["op"]: {key: value for key, value in operation.items() if key not in ("op", "on", "cue")} for operation in written}
-    if len(directives) < len(written):
-        return step
-    return {**step, "do": [operation for operation in operations if not any(operation is moved for moved in written)], **directives}
-
-
-def _with_until_in_staged_directive(step: dict[str, Any]) -> dict[str, Any]:
-    staged = [name for name in ("simulate", "trace") if isinstance(step.get(name), dict)]
-    if "until" not in step or len(staged) != 1 or "until" in step[staged[0]]:
-        return step
-    return {**{key: value for key, value in step.items() if key != "until"}, staged[0]: {**step[staged[0]], "until": step["until"]}}
+    return {**step, "trace": {**stage.last_trace, **({} if stage.trace_until is None else {"until": stage.trace_until})}}
 
 
 def _with_trace_filled(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
@@ -430,14 +433,14 @@ def _search_of(spec: dict[str, Any]) -> dict[str, Any] | None:
 
 def _with_simulation_filled(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     raw = step.get("simulate")
-    filled = filled_from(raw, stage.simulations)
+    filled = filled_from(raw, {**_labs_drawn_in(step), **stage.simulations})
     return step if filled is raw else {**step, "simulate": filled}
 
 
-def _with_trace_out_of_scene(step: dict[str, Any]) -> dict[str, Any]:
-    scene = step.get("scene")
-    inside = scene.get("trace") if isinstance(scene, dict) else None
-    if not isinstance(inside, dict) or "trace" in step or not {"code", "input"} <= inside.keys() or {"lab", "kind"} & inside.keys():
-        return step
-    kept = {name: spec for name, spec in scene.items() if name != "trace"}
-    return {**{key: value for key, value in step.items() if key != "scene"}, **({"scene": kept} if kept else {}), "trace": inside}
+def _labs_drawn_in(step: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    drawn = [spec for spec in scene.values() if isinstance(spec, dict) and isinstance(spec.get("lab"), str)]
+    labs = [spec["lab"] for spec in drawn]
+    return {spec["lab"]: spec for spec in drawn if labs.count(spec["lab"]) == 1}
+
+

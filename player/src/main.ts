@@ -155,6 +155,7 @@ async function open(id: string, beingWritten = false): Promise<void> {
   playback.subscribe(render);
   applyTheme(themeId);
   const current = playback;
+  history.replaceState(null, "", `?${new URLSearchParams({ ...Object.fromEntries(query), lesson: id })}`);
   if (beingWritten) current.play();
   await loadLesson(id, {
     header: (header) => { current.setHeader(header); document.title = `${header.title} - Pennydrop`; titlePickerOption(id, header.title); },
@@ -162,7 +163,6 @@ async function open(id: string, beingWritten = false): Promise<void> {
     done: () => current.finishLesson(),
     error: (message) => current.fail(message),
   }, loading.signal).catch((failure: Error) => current.fail(failure.message));
-  history.replaceState(null, "", `?${new URLSearchParams({ ...Object.fromEntries(query), lesson: id })}`);
   render();
 }
 

@@ -1,4 +1,5 @@
 import { boxDrawable, clamp01, fail, fitText, lerp, readsWords, textDrawable, type Drawable, type LabDef, type LabOp, type Role } from "../lab";
+import { curvesHeight, curvesPlot, drawCurves, graphCurve, growingCurve, markCurves, type CurvesPlot } from "./plot/curves";
 
 const functions = {
   linear: { expression: "ax", value: (x: number) => x, slope: (_x: number) => 1, primitive: (x: number) => (x * x) / 2 },
@@ -9,7 +10,8 @@ const functions = {
 type Family = keyof typeof functions;
 type Spec = Record<string, unknown>;
 type Interval = { from: number; to: number };
-interface State {
+interface FunctionPlot {
+  kind: "function";
   id: string;
   reading: boolean;
   family: Family;
@@ -17,6 +19,7 @@ interface State {
   tangent: number | null;
   area: Interval | null;
 }
+type State = FunctionPlot | CurvesPlot;
 
 const WIDTH = 1200;
 const X_LIMIT = 2;
@@ -29,16 +32,19 @@ const TRACK_LEFT = px(1);
 const TICK_LABEL_Y = py(-Y_LIMIT) + 38;
 const CAPTION_Y = TICK_LABEL_Y + 50;
 
-function panelHeight(state: State): number {
+function panelHeight(state: FunctionPlot): number {
   if (!state.reading) return py(-Y_LIMIT) + 44;
   const lastRow = state.area || state.tangent !== null ? CAPTION_Y : TICK_LABEL_Y;
   return lastRow + 44;
 }
 const format = (n: number) => String(Number(n.toFixed(3)));
 
-function target(state: State, op: LabOp, keys: string[]) {
-  if (op.parts.length || Object.keys(op.args).some((key) => !keys.includes(key))) {
-    fail(`${state.id}: use ${op.name} on the whole plot with ${keys.join(", ")}`);
+function target(state: FunctionPlot, op: LabOp, keys: string[]) {
+  if (op.parts.length) fail(`${state.id}: use ${op.name} on the whole plot, not on a part of it`);
+  const extra = Object.keys(op.args).filter((key) => !keys.includes(key));
+  if (extra.length) {
+    const coefficient = extra.includes("a") && op.name !== "slide" ? `; set a with the plot's own "a" field, or sweep it with the slide op's "to"` : "";
+    fail(`${state.id}: ${op.name} takes only ${keys.join(" and ")}, not ${extra.join(" or ")}${coefficient}`);
   }
 }
 
@@ -54,6 +60,11 @@ function family(value: unknown, id: string): Family {
   return value as Family;
 }
 
+function functionPlot(state: State, op: LabOp): FunctionPlot {
+  if (state.kind === "curves") fail(`${state.id}: ${op.name} works on a function plot; a plot made by the curves directive takes graph with "curve" and mark`);
+  return state;
+}
+
 function line(id: string, x: number, y: number, x2: number, y2: number, stroke: Role, strokeWidth = 2, z = 1): Drawable {
   return { id, kind: "line", x, y, x2, y2, stroke, strokeWidth, z };
 }
@@ -62,7 +73,7 @@ function label(id: string, content: string, x: number, y: number, size: number, 
   return textDrawable(id, content, { x, y }, { anchor, size: fitText(content, size, room, "read"), z: 6 });
 }
 
-function grid(state: State): Drawable[] {
+function grid(state: FunctionPlot): Drawable[] {
   const marks: Drawable[] = [];
   for (let i = -X_LIMIT; i <= X_LIMIT; i++) {
     marks.push(line(`vertical-${i}`, px(i), py(Y_LIMIT), px(i), py(-Y_LIMIT), i === 0 ? "muted" : "rule"), line(`x-tick-${i}`, px(i), py(0) - 7, px(i), py(0) + 7, "muted"));
@@ -76,6 +87,10 @@ function grid(state: State): Drawable[] {
 }
 
 function draw(state: State): Drawable[] {
+  return state.kind === "curves" ? drawCurves(state) : drawFunction(state);
+}
+
+function drawFunction(state: FunctionPlot): Drawable[] {
   const fn = functions[state.family];
   const samples = 100;
   const xs = new Set(Array.from({ length: samples + 1 }, (_, i) => lerp(-X_LIMIT, X_LIMIT, i / samples)));
@@ -133,11 +148,12 @@ export const lab: LabDef<Spec, State> = {
   title: "Plot",
   reading: "optional",
   catalog: {
-    summary: "A coordinate grid shows how a coefficient changes a curve, its tangent slope and its signed area. All ops target the whole plot.",
+    summary: "A coordinate grid shows how a coefficient changes a function's curve, its tangent slope and its signed area, or, made by the curves directive, draws the Ask's own quantities as lines over a range, such as money over years. All ops target the whole plot.",
     spec: {
-      function: "Optional linear (ax), square (ax²), or sine (a sin x in radians). Defaults to linear.",
+      function: "Optional linear (ax), square (ax²) or sine (a sin x in radians). Defaults to linear.",
       a: "Optional coefficient from −1 to 1, default 1.",
       reading: "Optional boolean, default true. False hides all text.",
+      curves: "Written by the curves directive, with x and y, the axis names; never write these three yourself.",
     },
     example: [
       '{"step":1,"say":"Graph a parabola and draw its tangent at one.","scene":{"p":{"lab":"plot"}},"do":[{"cue":"Graph","op":"graph","on":["p"],"function":"square"},{"cue":"draw its tangent","op":"tangent","on":["p"],"x":1}]}',
@@ -145,7 +161,9 @@ export const lab: LabDef<Spec, State> = {
   },
   init(spec, id) {
     if (spec.reading !== undefined && typeof spec.reading !== "boolean") fail(`${id}: use true or false for reading`);
+    if (spec.curves !== undefined) return curvesPlot(spec, id, readsWords(spec));
     return {
+      kind: "function",
       id,
       reading: readsWords(spec),
       family: family(spec.function === undefined ? "linear" : spec.function, id),
@@ -156,44 +174,63 @@ export const lab: LabDef<Spec, State> = {
   },
   ops: {
     graph: {
-      doc: '{"function":"square"} selects linear, square or sine, preserves a and clears measurements.',
+      doc: '{"function":"square"} selects linear, square or sine on a function plot, preserves a and clears measurements; {"curve":"compound"} draws that line of a plot made by the curves directive, and {"curve":"compound","to":10} draws it only up to x 10, so a later graph of the same line draws on from there.',
       seconds: 0.9,
       apply(s, op) {
+        if (s.kind === "curves") return graphCurve(s, op);
         target(s, op, ["function"]);
         return { ...s, family: family(op.args.function, s.id + " graph"), area: null, tangent: null };
       },
-      during(_before, after, _op, t) {
+      during(before, after, _op, t) {
+        if (after.kind === "curves" && before.kind === "curves") return growingCurve(before, after, clamp01(t));
         return draw(after)
           .filter((d) => d.id === "curve")
           .map((d) => ({ ...d, draw: clamp01(t) }));
       },
     },
+    mark: {
+      doc: '{"x":30} marks that x on a plot made by the curves directive and shows the value of every line drawn through it.',
+      seconds: 1.2,
+      apply(s, op) {
+        if (s.kind === "function") fail(`${s.id}: mark works on a plot made by the curves directive; a function plot takes tangent, shade and slide`);
+        return markCurves(s, op);
+      },
+      during(before, after, _op, t) {
+        if (after.kind !== "curves" || before.kind !== "curves") return [];
+        return draw({ ...after, mark: lerp(before.mark ?? after.axes.x0, after.mark!, clamp01(t)) });
+      },
+    },
     slide: {
       doc: '{"to":0.5} sweeps a to a number from −1 to 1 and updates all measurements.',
       seconds: 1.6,
-      apply(s, op) {
+      apply(state, op) {
+        const s = functionPlot(state, op);
         target(s, op, ["to"]);
         return { ...s, a: number(op.args.to, 1, s.id + " slide to") };
       },
       during(before, after, _op, t) {
+        if (before.kind !== "function" || after.kind !== "function") return [];
         return draw({ ...after, a: lerp(before.a, after.a, clamp01(t)) });
       },
     },
     tangent: {
       doc: '{"x":1} shows the tangent and slope at x from −2 to 2.',
       seconds: 1,
-      apply(s, op) {
+      apply(state, op) {
+        const s = functionPlot(state, op);
         target(s, op, ["x"]);
         return { ...s, tangent: number(op.args.x, X_LIMIT, s.id + " tangent x") };
       },
       during(before, after, _op, t) {
+        if (before.kind !== "function" || after.kind !== "function") return [];
         return draw({ ...after, tangent: lerp(before.tangent ?? 0, after.tangent!, clamp01(t)) });
       },
     },
     shade: {
       doc: '{"from":0,"to":2} shades the interval and reports its signed integral. Both bounds must be within [−2,2], with from less than to.',
       seconds: 1.3,
-      apply(s, op) {
+      apply(state, op) {
+        const s = functionPlot(state, op);
         target(s, op, ["from", "to"]);
         const from = number(op.args.from, X_LIMIT, s.id + " shade from");
         const to = number(op.args.to, X_LIMIT, s.id + " shade to");
@@ -201,11 +238,12 @@ export const lab: LabDef<Spec, State> = {
         return { ...s, area: { from, to } };
       },
       during(before, after, _op, t) {
+        if (before.kind !== "function" || after.kind !== "function") return [];
         const { from, to } = after.area!;
         return draw({ ...after, area: { from: lerp(before.area?.from ?? from, from, clamp01(t)), to: lerp(before.area?.to ?? from, to, clamp01(t)) } });
       },
     },
   },
-  size: (state) => ({ w: WIDTH, h: panelHeight(state) }),
+  size: (state) => ({ w: WIDTH, h: state.kind === "curves" ? curvesHeight(state) : panelHeight(state) }),
   draw,
 };

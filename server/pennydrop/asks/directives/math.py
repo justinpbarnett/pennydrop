@@ -40,24 +40,38 @@ async def expand(step: dict[str, Any], raw: Any, _: DirectiveTools) -> tuple[dic
 
 
 def evaluate(expression: str) -> int | float:
+    return _number(_parsed(expression, "math"), expression, "math")
+
+
+def evaluate_over(expression: str, variable: str, points: list[int | float], directive: str) -> list[int | float]:
+    symbol = sympy.Symbol(variable)
+    parsed = _parsed(expression, directive, {variable: symbol})
+    return [_number(parsed.subs(symbol, sympy.nsimplify(point)), expression, directive) for point in points]
+
+
+def _parsed(expression: str, directive: str, variables: dict[str, sympy.Symbol] | None = None) -> sympy.Expr:
+    names = {**SAFE_NAMES, **(variables or {})}
     source = expression.replace("^", "**")
     if len(source) > MAX_EXPRESSION_CHARACTERS:
-        raise DirectiveError(f"math directive: the expression is longer than {MAX_EXPRESSION_CHARACTERS} characters")
+        raise DirectiveError(f"{directive} directive: the expression is longer than {MAX_EXPRESSION_CHARACTERS} characters")
     try:
         tree = ast.parse(source, mode="eval")
     except SyntaxError as error:
-        raise DirectiveError(f"math directive: '{expression}' is not an arithmetic expression: {error.msg}") from None
+        raise DirectiveError(f"{directive} directive: '{expression}' is not an arithmetic expression: {error.msg}") from None
     for node in ast.walk(tree):
         if not isinstance(node, SAFE_NODES):
-            raise DirectiveError(f"math directive: '{expression}' uses {type(node).__name__}, and only arithmetic is allowed")
-        if isinstance(node, ast.Name) and node.id not in SAFE_NAMES:
-            raise DirectiveError(f"math directive: unknown name '{node.id}'; allowed names: {', '.join(SAFE_NAMES)}")
+            raise DirectiveError(f"{directive} directive: '{expression}' uses {type(node).__name__}, and only arithmetic is allowed")
+        if isinstance(node, ast.Name) and node.id not in names:
+            raise DirectiveError(f"{directive} directive: unknown name '{node.id}'; allowed names: {', '.join(names)}")
         if isinstance(node, ast.Call) and (not isinstance(node.func, ast.Name) or node.keywords):
-            raise DirectiveError(f"math directive: '{expression}' calls something other than a plain function such as sqrt(2)")
+            raise DirectiveError(f"{directive} directive: '{expression}' calls something other than a plain function such as sqrt(2)")
         if isinstance(node, ast.Constant) and not isinstance(node.value, int | float):
-            raise DirectiveError(f"math directive: '{expression}' holds a constant that is not a number")
-    value = sympy.sympify(source, locals=SAFE_NAMES)
+            raise DirectiveError(f"{directive} directive: '{expression}' holds a constant that is not a number")
+    return sympy.sympify(source, locals=names)
+
+
+def _number(value: sympy.Expr, expression: str, directive: str) -> int | float:
     if not value.is_real:
-        raise DirectiveError(f"math directive: '{expression}' does not evaluate to a real number")
+        raise DirectiveError(f"{directive} directive: '{expression}' does not evaluate to a real number")
     number = float(value.evalf(15))
     return int(number) if number.is_integer() else round(number, 6)

@@ -9,6 +9,7 @@ from .directives.simulate import contradictions, filled_from
 
 SHOWN_TEXT_FIELDS = ("text", "caption", "label", "title")
 LAB_KEY_PREFIX = "lab:"
+TRACE_TOTAL_PREFIX = "trace."
 STANDS_ALONE = r"(?<![\w.]){}(?![\w]|\.\d)"
 
 
@@ -43,7 +44,7 @@ ASKS_TO_PREDICT = re.compile(r"(?:^|[.!?]\s+|\b(?:can you|try to|pause and|stop 
 ASKS_TO_TAP = re.compile(r"(?:^|[.!?]\s+|\b(?:can you|try to|go ahead and|now)\s+)(?:tap|touch|press|click)\b", re.IGNORECASE)
 
 
-def _question_without_challenge(step: dict[str, Any]) -> list[str]:
+def question_without_challenge(step: dict[str, Any]) -> list[str]:
     say = step.get("say")
     if not isinstance(say, str) or step.get("challenge"):
         return []
@@ -69,6 +70,7 @@ class Stage:
         self.last_trace: dict[str, Any] = {}
         self.trace_until: int | None = None
         self.trace_counters: dict[str, set[str]] = {}
+        self.shown_totals: dict[str, Any] = {}
         self.in_flight: set[str] = set()
         self.lost_runs = False
         self.drawn_labs: set[str] = set()
@@ -89,7 +91,7 @@ class Stage:
             return raw
         return {**self.last_trace, **raw}
 
-    def remember_trace(self, written: Any, settled: dict[str, Any]) -> None:
+    def remember_trace(self, written: Any, settled: dict[str, Any], values: dict[str, Any]) -> None:
         raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
         key = trace_key(raw)
         if key is None:
@@ -99,10 +101,17 @@ class Stage:
         self.trace_until = raw.get("until")
         if "until" not in raw:
             self.finished_traces.add(key)
+        self.shown_totals = _trace_totals(values)
         for name, spec in (settled.get("scene") or {}).items():
             counters = spec.get("counters") if isinstance(spec, dict) else None
             if counters:
                 self.trace_counters[name] = {str(counter) for counter in counters}
+
+    def run_left_unfinished(self, written: Any, values: dict[str, Any]) -> bool:
+        if not self.traces or self.finished_traces or self.shown_totals or _trace_totals(values):
+            return False
+        raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
+        return not (isinstance(raw, dict) and "until" not in raw)
 
     def remember_simulation(self, written: Any) -> None:
         raw = written.get("simulate") if isinstance(written, dict) else None
@@ -181,8 +190,19 @@ class Stage:
                 name = operation["on"][0]
                 self.specs[name] = {**self.specs[name], "parts": operation.get("parts", [])}
 
-    def errors_in(self, step: dict[str, Any], ran: bool = False) -> list[str]:
-        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + _question_without_challenge(step) + self.unran_values(step, ran) + contradictions(step, self.labs, self.played)
+    def errors_in(self, step: dict[str, Any], written: Any, values: dict[str, Any]) -> list[str]:
+        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + question_without_challenge(step) + self._total_already_shown(step, written, values) + self.unran_values(step, ran_something(written)) + contradictions(step, self.labs, self.played)
+
+    def _total_already_shown(self, step: dict[str, Any], written: Any, values: dict[str, Any]) -> list[str]:
+        challenge = step.get("challenge")
+        answer = challenge.get("answer") if isinstance(challenge, dict) and challenge.get("kind") == "predict" else None
+        if isinstance(answer, bool) or not isinstance(answer, int | float):
+            return []
+        shown = _trace_totals(values) if isinstance(written, dict) and "trace" in written else self.shown_totals
+        named = [name for name, total in shown.items() if total == answer]
+        if not named:
+            return []
+        return [f'step {step.get("step")} challenge: its answer {answer} is {{{named[0]}}}, and by the time the Challenge waits the stage has played the run to its end and shows that total, so the learner reads it off instead of predicting it; ask this predict Challenge in a Step before the end of the run, one that repeats the trace with an "until", and let the next Step, which carries the trace without "until", play the end and reveal the total']
 
     def _empty_figures(self, step: dict[str, Any]) -> list[str]:
         scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
@@ -215,6 +235,14 @@ class Stage:
             if self.finished_traces and value not in already
         ]
         return shown_errors + replayed
+
+
+def ran_something(written: Any) -> bool:
+    return isinstance(written, dict) and any(key in written for key in ("trace", "simulate"))
+
+
+def _trace_totals(values: dict[str, Any]) -> dict[str, Any]:
+    return {name: value for name, value in values.items() if name.startswith(TRACE_TOTAL_PREFIX)}
 
 
 def answer_given_away(step: dict[str, Any]) -> list[str]:

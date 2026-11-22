@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from ..gateway import Choice, ChoiceAnswer, Gateway, Question, Score, ScoreAnswer, YesNo, YesNoAnswer
+from ..gateway import Answer, Choice, ChoiceAnswer, Gateway, Question, Score, ScoreAnswer, YesNo, YesNoAnswer
 from ..pictures import subject_phrases
 from ..settings import Job
 from ..store import Profile, ProfileKind
@@ -16,6 +17,26 @@ KID_LAB_HINTS = {
 }
 LAB_LIMITS = {
     "picture": "Answer yes when the Ask is about what a physical thing looks like or about its parts, such as an animal, a vehicle, a machine, a building, a plant or a body part: a real photo shows it. Answer no for mathematics, code, data, processes and abstract ideas.",
+}
+CONTRADICTION_QUESTIONS = {
+    "contradicted": YesNo(
+        "Does any fact contradict the Step? The facts are correct values from running the example."
+        " Answer yes when the Step states a number that differs from a fact, or a comparison the facts disprove, including a claim about every job when one job's facts show it fails, since equal values are not lower or sooner."
+        " Answer no when every number and comparison the Step states matches the facts, even if the Step also says things the facts do not cover."
+    ),
+    "stated_differently": YesNo(
+        "Does the Step state a value that a fact gives differently? The facts are correct values from running the example."
+        " Answer yes only when the Step names a value a fact also gives, such as a count, an index, an address or a result of one run, and states it differently, or states a comparison that the facts disprove, such as calling a value lower when the facts show it higher or equal, or a claim about every job when one job's facts show it fails."
+        " Answer no when every value the Step states matches the fact for the same thing, and for anything the facts do not give, such as how a step works or why."
+    ),
+}
+ANSWER_ON_STAGE_QUESTIONS = {
+    "readable": YesNo("Can the learner read the Challenge's answer straight off the stage as it stands, without predicting anything? Answer no when the answer is a count or a result of steps the stage has not played yet."),
+    "shown": YesNo("Does the stage as it stands already show the very value, order, position or comparison that the Challenge's answer gives? Answer no when the stage shows only an earlier state that the answer comes after."),
+}
+ANSWER_TOLD_QUESTIONS = {
+    "told": YesNo("Does the earlier narration state the Challenge's answer outright? Answer no when it only gives causes or facts that the learner must combine to work the answer out."),
+    "said": YesNo("Has the earlier narration already said the very thing the answer says, so the learner only has to remember it? Answer no when the learner still has to reason from the narration to reach the answer."),
 }
 FOLLOW_UP = "follow_up"
 NEW_TOPIC = "new_topic"
@@ -121,21 +142,33 @@ class Classifier:
         result = await self._gateway.classify(f"Point: {point}\nNarration: {say}", {"restates": question}, lesson_id=lesson_id)
         return _yes(result.answers["restates"])
 
+    async def tells_other_moves(self, played: str, say: str, lesson_id: str) -> bool:
+        question = YesNo("Does the narration say that a value moves in this Step when the stage does not move that value, or say nothing moves when the stage moves values?")
+        result = await self._gateway.classify(f"Stage in this Step: {played}.\nNarration: {say}", {"other": question}, lesson_id=lesson_id)
+        return _yes(result.answers["other"])
+
+    async def answer_on_stage(self, shown: str, challenge: str, lesson_id: str) -> bool:
+        result = await self._gateway.classify(f"Stage now: {shown}.\nChallenge: {challenge}", ANSWER_ON_STAGE_QUESTIONS, lesson_id=lesson_id)
+        return _mean_yes(result.answers[name] for name in ANSWER_ON_STAGE_QUESTIONS) >= 0.5
+
+    async def answer_told(self, told: str, challenge: str, lesson_id: str) -> bool:
+        result = await self._gateway.classify(f"Earlier narration: {told}\nChallenge: {challenge}", ANSWER_TOLD_QUESTIONS, lesson_id=lesson_id)
+        return _mean_yes(result.answers[name] for name in ANSWER_TOLD_QUESTIONS) >= 0.5
+
     async def claims_agree(self, claimed: str, facts: list[str], lesson_id: str) -> bool:
-        question = YesNo(
-            "The facts were computed by running the Lesson's examples and are correct."
-            " Does every claim the Step makes about those examples agree with the facts, such as a number, which run gives a lower or higher value,"
-            " which job finishes first or sooner, or whether a value drops or rises? A claim about every job, the short jobs or the whole run holds only when the facts show it for each of them,"
-            " and two equal values are neither lower nor sooner. A Challenge's stated answer is a claim. A question, or a claim the facts say nothing about, agrees."
-        )
         text = "\n".join([*(f"Fact: {fact}" for fact in facts), f"Step: {claimed}"])
-        result = await self._gateway.classify(text, {"agree": question}, lesson_id=lesson_id)
-        return _yes(result.answers["agree"])
+        result = await self._gateway.classify(text, CONTRADICTION_QUESTIONS, lesson_id=lesson_id)
+        return _mean_yes(result.answers[name] for name in CONTRADICTION_QUESTIONS) < 0.5
 
 
 def _yes(answer) -> bool:
     assert isinstance(answer, YesNoAnswer)
     return answer.yes
+
+
+def _mean_yes(answers: Iterable[Answer]) -> float:
+    probabilities = [answer.probability_yes for answer in answers if isinstance(answer, YesNoAnswer)]
+    return sum(probabilities) / len(probabilities)
 
 
 def _state(ask: str, profile: Profile | None, viewing: Viewing | None) -> str:

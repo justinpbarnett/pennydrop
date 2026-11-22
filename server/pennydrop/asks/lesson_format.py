@@ -6,6 +6,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from .directives import DIRECTIVES
+from .writer_errors import describe
+
 
 class Header(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -111,6 +114,7 @@ ParsedLine = Header | dict[str, Any] | Malformed
 
 
 EXTRA_SHOWN = 60
+MAX_STRAY_CLOSERS = 4
 
 
 def parse_line(text: str) -> ParsedLine | None:
@@ -118,10 +122,10 @@ def parse_line(text: str) -> ParsedLine | None:
     if not stripped or stripped.startswith("```"):
         return None
     try:
-        value, end = json.JSONDecoder().raw_decode(stripped)
+        read, value, end = _decoded(stripped)
     except json.JSONDecodeError as error:
         return Malformed(stripped, f"the line is not valid JSON: {error}")
-    read, value, end = _reopened(stripped, value, end)
+    read, value, end = _reopened(read, value, end)
     extra = read[end:].strip(" \t,]}")
     if extra:
         return Malformed(stripped, f"the line is not valid JSON: extra text after the object at character {end}, starting {extra[:EXTRA_SHOWN]!r}; write one complete JSON object per line and nothing after it")
@@ -132,6 +136,7 @@ def parse_line(text: str) -> ParsedLine | None:
             return Header.model_validate(value["lesson"])
         except ValidationError as error:
             return Malformed(stripped, "bad lesson header: " + "; ".join(describe(error)))
+    value = _reshaped(value)
     try:
         StepShape.model_validate(value)
     except ValidationError as error:
@@ -139,33 +144,99 @@ def parse_line(text: str) -> ParsedLine | None:
     return value
 
 
-STEP_FIELDS = "A Step holds only step, say, scene, do, challenge and its directives"
+def _reshaped(step: dict[str, Any]) -> dict[str, Any]:
+    step = _with_trace_out_of_scene(step)
+    step = _without_operations_naming_a_carried_directive(step)
+    step = _with_directives_out_of_operations(step)
+    step = _with_trace_named_by_code(step)
+    step = _with_until_in_staged_directive(step)
+    return _without_empty_directives(step)
 
 
-def describe(error: ValidationError, fields: str = STEP_FIELDS) -> list[str]:
-    messages = []
-    for item in error.errors():
-        where = ".".join(str(part) for part in item["loc"])
-        if item["type"] == "extra_forbidden":
-            messages.append(f"{where}: unknown field. {fields}" if len(item["loc"]) == 1 else f"{where}: unknown field")
-        elif item["type"] == "missing" and isinstance(item.get("input"), dict):
-            messages.append(f"{where}: Field required; the entry holds only {', '.join(item['input']) or 'nothing'}")
-        elif item["type"] == "union_tag_invalid":
-            messages.append(f"{where}: unknown challenge type. Use number, choice, click, order or match")
-        else:
-            messages.append(f"{where}: {item['msg']}")
-    return messages
-
+def _decoded(text: str) -> tuple[str, Any, int]:
+    for _ in range(MAX_STRAY_CLOSERS):
+        try:
+            value, end = json.JSONDecoder().raw_decode(text)
+            return text, value, end
+        except json.JSONDecodeError as error:
+            if not (error.msg.startswith("Expecting ',' delimiter") and text[error.pos : error.pos + 1] in ("}", "]")):
+                raise
+            text = text[: error.pos] + text[error.pos + 1 :]
+    value, end = json.JSONDecoder().raw_decode(text)
+    return text, value, end
 
 
 def _reopened(text: str, value: Any, end: int) -> tuple[str, Any, int]:
     while isinstance(value, dict) and text[end:].lstrip(" \t,").startswith('"'):
         joined = text[: end - 1].rstrip() + ", " + text[end:].lstrip(" \t,")
         try:
-            merged, merged_end = json.JSONDecoder().raw_decode(joined)
+            joined, merged, merged_end = _decoded(joined)
         except json.JSONDecodeError:
             break
         if not isinstance(merged, dict) or any(merged.get(key) != kept for key, kept in value.items()):
             break
         text, value, end = joined, merged, merged_end
     return text, value, end
+
+
+def _without_empty_directives(step: dict[str, Any]) -> dict[str, Any]:
+    empty = [name for name in DIRECTIVES if name in step and step[name] in (None, {}, [])]
+    return {key: value for key, value in step.items() if key not in empty} if empty else step
+
+
+def _with_trace_out_of_scene(step: dict[str, Any]) -> dict[str, Any]:
+    scene = step.get("scene")
+    inside = scene.get("trace") if isinstance(scene, dict) else None
+    if not isinstance(inside, dict) or "trace" in step or not {"code", "input"} <= inside.keys() or {"lab", "kind"} & inside.keys():
+        return step
+    kept = {name: spec for name, spec in scene.items() if name != "trace"}
+    return {**{key: value for key, value in step.items() if key != "scene"}, **({"scene": kept} if kept else {}), "trace": inside}
+
+
+def _without_operations_naming_a_carried_directive(step: dict[str, Any]) -> dict[str, Any]:
+    operations = step.get("do")
+    if not isinstance(operations, list):
+        return step
+    kept = [operation for operation in operations if not (isinstance(operation, dict) and operation.get("op") in DIRECTIVES and operation["op"] in step and operation.keys() <= {"op", "on", "cue"})]
+    return {**step, "do": kept} if len(kept) < len(operations) else step
+
+
+def _with_directives_out_of_operations(step: dict[str, Any]) -> dict[str, Any]:
+    operations = step.get("do")
+    if not isinstance(operations, list):
+        return step
+    written = [(operation, found) for operation in operations if (found := _directive_written_as_operation(operation)) and found[0] not in step]
+    directives = dict(found for _, found in written)
+    if len(directives) < len(written):
+        return step
+    return {**step, "do": [operation for operation in operations if not any(operation is moved for moved, _ in written)], **directives}
+
+
+def _directive_written_as_operation(operation: Any) -> tuple[str, dict[str, Any]] | None:
+    if not isinstance(operation, dict):
+        return None
+    if operation.get("op") in DIRECTIVES:
+        return operation["op"], {key: value for key, value in operation.items() if key not in ("op", "on", "cue")}
+    held = {name: spec for name in DIRECTIVES if (spec := _directive_spec(name, operation.get(name))) is not None}
+    if "op" in operation or len(held) != 1:
+        return None
+    ((name, spec),) = held.items()
+    beside = {key: value for key, value in operation.items() if key not in (name, "cue")}
+    return name, {**beside, **spec}
+
+
+def _directive_spec(name: str, value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    return {"code": value} if name == "trace" and isinstance(value, str) else None
+
+
+def _with_trace_named_by_code(step: dict[str, Any]) -> dict[str, Any]:
+    return {**step, "trace": {"code": step["trace"]}} if isinstance(step.get("trace"), str) else step
+
+
+def _with_until_in_staged_directive(step: dict[str, Any]) -> dict[str, Any]:
+    staged = [name for name in ("simulate", "trace") if isinstance(step.get(name), dict)]
+    if "until" not in step or len(staged) != 1 or "until" in step[staged[0]]:
+        return step
+    return {**{key: value for key, value in step.items() if key != "until"}, staged[0]: {**step[staged[0]], "until": step["until"]}}

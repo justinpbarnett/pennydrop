@@ -13,7 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from ...pictures import PartLocator, PictureFinder
 from ...tracer import Trace, Tracer
-from ..lesson_format import describe
+from ..writer_errors import describe
 
 
 MAX_STEP_OPERATIONS = 40
@@ -41,6 +41,7 @@ class TracedRun:
     trace: Trace
     input: Any
     source: str
+    pointers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

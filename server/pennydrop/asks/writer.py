@@ -36,7 +36,7 @@ Rules
 - When no Lab fits the Ask, build the explanation from primitives and the generic verbs.
 - Never write coordinates, pixel sizes or colors. Place objects with "at" relations and color with roles.
 - A Step's "scene" sets or replaces the objects it names, and null removes one. Every other object stays. A Step with no "scene" keeps the Scene as it was.
-- Because objects stay, a note or label that names one case, such as "Insert 6", stays true only while the story is on that case: the Step that moves to another case replaces or removes it. The stage only moves forward: never reset an object to an emptier state to build it up again; start it that way in Step 1.
+- Because objects stay, a note or label that names one case, such as "Insert 6", stays true only while the story is on that case: the Step that moves to another case replaces or removes it. A text never states a value the story changes, such as a count, a balance or an index, because the Lab shows that value live and the text goes stale: a title names the subject, as in "A shared counter". The stage only moves forward: never reset an object to an emptier state to build it up again; start it that way in Step 1.
 - Keep at most about three objects on stage at once, because a Scene that fits only below 60% size fails. Remove what a Step no longer talks about (null in "scene") before it adds a big panel such as a code trace or a simulation, and never show the same Lab twice, except where a directive's notes say it shows runs side by side.
 - An object's "scene" entry creates it, or resets it to the state of that entry when it is already on stage. A Step that continues an object leaves it out of "scene" and only adds "do" entries on it, and a "do" entry never names an object that is not on stage yet.
 - Put new objects in "scene". Use the generic verb "create" only for an object that must appear on a spoken Cue, and then always with "spec" holding the full object spec.
@@ -51,7 +51,7 @@ Rules
 - Challenge shapes, all with "kind": "predict":
   {"kind": "predict", "type": "number", "prompt": "...", "answer": 6}
   {"kind": "predict", "type": "choice", "prompt": "...", "choices": ["a", "b"], "answer": "a"}
-  {"kind": "predict", "type": "click", "prompt": "...", "answer": "object id or list of ids"}
+  {"kind": "predict", "type": "click", "prompt": "...", "answer": "object id or list of ids"}, where an id names a whole object or one part as object[part], such as a node tree[10]; only what is on stage can be tapped, so ask where a new key lands as the node it joins under
   {"kind": "predict", "type": "order", "prompt": "...", "choices": ["a", "b", "c"], "answer": ["b", "a", "c"]}
   {"kind": "predict", "type": "match", "prompt": "...", "pairs": [["left", "right"], ["left", "right"]]}
 - Every number that comes from running code or from arithmetic comes from a directive, never from you. A directive is a field of the Step that the server runs before the Step plays.

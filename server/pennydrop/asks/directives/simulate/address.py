@@ -29,6 +29,28 @@ NOT_A_PLAIN_CLAIM = re.compile(r"\b(?:no|not|never|without|if|when|whenever|unle
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 
+VALUE_NAME = re.compile(r"(virtual|page|offset|index|tlb|entry|frame|physical)_(\d+)(?:_(.+?))??(_hex)?")
+VALUE_WORDS = {
+    "virtual": "virtual address",
+    "page": "virtual page number",
+    "offset": "offset",
+    "index": "index into the {field} table",
+    "tlb": "TLB lookup",
+    "entry": "memory address where its {field} page table entry sits, not what the entry holds",
+    "frame": "frame number",
+    "physical": "physical address",
+}
+
+
+def describe_value(name: str) -> str | None:
+    found = VALUE_NAME.fullmatch(name)
+    if not found:
+        return None
+    kind, number, field, hexadecimal = found.groups()
+    words = VALUE_WORDS[kind].format(field=field)
+    return f"access {number} {words}{' in hex' if hexadecimal and kind in ('offset', 'frame', 'physical') else ''}"
+
+
 def _claimed_in(say: str, claim: re.Pattern[str]) -> bool:
     return any(claim.search(sentence) and SAYS_IT_HAPPENS_NOW.search(sentence) and not NOT_A_PLAIN_CLAIM.search(sentence) for sentence in SENTENCE_END.split(say))
 

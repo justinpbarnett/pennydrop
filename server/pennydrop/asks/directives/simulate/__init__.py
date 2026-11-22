@@ -32,6 +32,7 @@ GUIDE = "\n".join([
 
 
 def prepare(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
+    step = _with_scene_figure_as_simulation(step, tools)
     scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
     carried = step["simulate"].get("lab") if isinstance(step.get("simulate"), dict) else None
     by_hand = sorted({spec["lab"] for spec in scene.values() if isinstance(spec, dict) and spec.get("lab") in TARGETS and spec["lab"] != carried})
@@ -43,6 +44,21 @@ def prepare(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
         name = played_by_hand[0]
         raise DirectiveError(f'simulate directive: {name} is the simulated {simulated[name]} Lab, so write no "do" entries for it; to play more of its run, carry the same "simulate" directive again with a later "until", or with none to play the rest')
     return step
+
+
+def _with_scene_figure_as_simulation(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
+    scene = step.get("scene")
+    if "simulate" in step or not isinstance(scene, dict):
+        return step
+    figures = [(name, spec) for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") in TARGETS]
+    if len(figures) != 1:
+        return step
+    name, spec = figures[0]
+    rest = {key: value for key, value in scene.items() if key != name}
+    staged = tools.staged.get(name)
+    if isinstance(staged, dict) and staged.get("lab") == spec["lab"]:
+        return {key: value for key, value in {**step, "scene": rest}.items() if key != "scene" or rest}
+    return {**step, "scene": rest, "simulate": {**spec, "on": name, "until": 0}}
 
 
 async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -85,10 +101,22 @@ def describe_run(run: str) -> str | None:
     return None
 
 
+def describe_value(name: str) -> str | None:
+    for target in TARGETS.values():
+        if hasattr(target, "describe_value") and (words := target.describe_value(name)):
+            return words
+    return None
+
+
+PER_STEP_FIELDS = ("until", "on")
+
+
 def filled_from(raw: Any, earlier: dict[str, dict[str, Any]]) -> Any:
     target = TARGETS.get(raw.get("lab")) if isinstance(raw, dict) else None
     before = earlier.get(raw["lab"], {}) if target else {}
-    missing = {name: before[name] for name, field in target.Spec.model_fields.items() if field.is_required() and name not in raw and name in before} if target else {}
+    continues = bool(before) and all(before[name] == value for name, value in raw.items() if name in before and name not in PER_STEP_FIELDS)
+    carried = [name for name, field in target.Spec.model_fields.items() if name not in PER_STEP_FIELDS and (continues or field.is_required())] if target else []
+    missing = {name: before[name] for name in carried if name not in raw and name in before}
     return {**raw, **missing} if missing else raw
 
 

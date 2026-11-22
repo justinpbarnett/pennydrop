@@ -4,7 +4,7 @@ import inspect
 import sys
 from typing import Any
 
-from ._support import DirectiveError, DirectiveTools, discover, fill_values, unclear_values
+from ._support import PLACEHOLDER, DirectiveError, DirectiveTools, discover, fill_values, plain_text, unclear_values
 
 DIRECTIVES = discover(sys.modules[__name__])
 DEFAULT_BRIEF = "Play the {lab} Lab with the {directive} directive: write no operations for it yourself."
@@ -36,8 +36,11 @@ async def expand_directives(step: dict[str, Any], tools: DirectiveTools, remembe
 def as_promise(step: Any) -> Any:
     if not isinstance(step, dict) or step.get("step") != 1:
         return step
-    staged = [name for name, directive in DIRECTIVES.items() if getattr(directive, "PLAYS_IN_STAGES", False) and isinstance(step.get(name), dict)]
-    return {**step, **{name: {**step[name], "until": 0} for name in staged}}
+    return {**step, **{name: {**step[name], "until": 0} for name in staged_directives(step)}}
+
+
+def staged_directives(step: dict[str, Any]) -> list[str]:
+    return [name for name, directive in DIRECTIVES.items() if getattr(directive, "PLAYS_IN_STAGES", False) and isinstance(step.get(name), dict)]
 
 
 def computed_facts(known: dict[str, Any]) -> list[str]:
@@ -46,8 +49,26 @@ def computed_facts(known: dict[str, Any]) -> list[str]:
         directive, *run, name = key.split(".")
         if run and isinstance(value, int | float | str):
             by_value.setdefault(f"{directive}.{name}", []).append(f"{value} in {_run_words(directive, run[0])}")
-    single = [f"{key.split('.')[1].replace('_', ' ')}: {value}" for key, value in known.items() if key.count(".") == 1 and key not in by_value and isinstance(value, int | float | str)]
-    return single + [f"{key.split('.')[1].replace('_', ' ')}: {', '.join(values)}" for key, values in by_value.items()]
+    single = [f"{_value_words(key)}: {value}" for key, value in known.items() if key.count(".") == 1 and key not in by_value and isinstance(value, int | float | str)]
+    return single + [f"{_value_words(key)}: {', '.join(values)}" for key, values in by_value.items()]
+
+
+def with_sources(text: str, filled: str, known: dict[str, Any]) -> str:
+    if any(name not in known for name in PLACEHOLDER.findall(text)):
+        return filled
+    return PLACEHOLDER.sub(lambda found: f"{plain_text(known[found[1]])} ({_source_words(found[1])})", text)
+
+
+def _source_words(key: str) -> str:
+    directive, *run, name = key.split(".")
+    value = _value_words(f"{directive}.{name}")
+    return f"{value} in {_run_words(directive, run[0])}" if run else value
+
+
+def _value_words(key: str) -> str:
+    directive, name = key.split(".")
+    describe = getattr(DIRECTIVES.get(directive), "describe_value", None)
+    return (describe(name) if describe else None) or name.replace("_", " ")
 
 
 def _run_words(directive: str, run: str) -> str:

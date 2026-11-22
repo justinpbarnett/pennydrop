@@ -9,6 +9,7 @@ class Algorithm:
     entry: str
     source: str
     input_help: str
+    pointers: tuple[str, ...] = ()
 
 
 TREE_INPUT = 'an object like {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [null, "I"], "A": [null, null], "D": [null, null], "I": [null, null]}, "root": "F"}: every node maps to [left child, right child], null for none'
@@ -98,7 +99,18 @@ def sort_range(a, low, high):
     a[boundary], a[high] = a[high], a[boundary]
     sort_range(a, low, boundary - 1)
     sort_range(a, boundary + 1, high)
-''', "a list of numbers"),
+''', "a list of numbers", ("boundary", "j")),
+    Algorithm("partition", "partition", '''
+def partition(a):
+    pivot = a[-1]
+    boundary = 0
+    for j in range(len(a) - 1):
+        if a[j] < pivot:
+            a[boundary], a[j] = a[j], a[boundary]
+            boundary += 1
+    a[boundary], a[-1] = a[-1], a[boundary]
+    return a
+''', "a list of numbers whose last value is the pivot", ("boundary", "j")),
     Algorithm("binary_search", "binary_search", '''
 def binary_search(array, target):
     low, high = 0, len(array) - 1

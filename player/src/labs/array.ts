@@ -28,9 +28,22 @@ interface ArrayState {
 interface ArraySpec {
   values: unknown;
   counters?: unknown;
-  pointers?: Record<string, number>;
-  sorted?: number[];
-  window?: [number, number];
+  pointers?: unknown;
+  sorted?: unknown;
+  window?: unknown;
+}
+
+function specList(spec: ArraySpec, field: "sorted" | "window", objectId: string, wanted: string): unknown[] | undefined {
+  const value = spec[field];
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) fail(`${objectId}: "${field}" is ${wanted}, not ${JSON.stringify(value)}`);
+  return value;
+}
+
+function specPointers(spec: ArraySpec, objectId: string): Record<string, unknown> {
+  const value = spec.pointers ?? {};
+  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(`${objectId}: "pointers" is a map of pointer names to slots, such as {"i": 0}, not ${JSON.stringify(value)}`);
+  return value as Record<string, unknown>;
 }
 
 const MIN_WIDTH = 480;
@@ -93,6 +106,17 @@ function readValues(values: unknown, objectId: string): Cell[] {
     if (typeof value !== "number" && typeof value !== "string") fail(`${objectId}: values[${index}] must be a number or text`);
     return { id: `c${index}`, value };
   });
+}
+
+function placedSlots(state: ArrayState, slots: number[]): number[] {
+  const values = state.cells.map((cell) => cell.value);
+  if (!values.every((value) => typeof value === typeof values[0])) return slots;
+  const rising = [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const falling = [...rising].reverse();
+  const placedIn = (order: (string | number)[]) => slots.every((slot) => values[slot] === order[slot]);
+  if (placedIn(rising) || placedIn(falling)) return slots;
+  const unplaced = slots.filter((slot) => values[slot] !== rising[slot]);
+  fail(`${state.objectId}: "sorted" marks cells that hold their final sorted value, and ${unplaced.map((slot) => `index ${slot} holds ${values[slot]} where a full sort puts ${rising[slot]}`).join(", ")}; mark only the cells already in their final place, and show a part that is in order among itself with "window"`);
 }
 
 function readCounters(counters: unknown, objectId: string): Counter[] {
@@ -254,7 +278,7 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
       values: "list of numbers or text, the cells in order",
       counters: 'optional list of counter names, or {"name": start}',
       pointers: 'optional {"i": slot} named pointers under cells',
-      sorted: "optional slot indices already marked sorted",
+      sorted: "optional slot indices already holding their final sorted value",
       window: "optional [from, to] bracket over cells",
     },
     example: [
@@ -272,9 +296,11 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
       window: null,
       counters: readCounters(spec.counters, objectId),
     };
-    const pointers = Object.entries(spec.pointers ?? {}).map(([name, slot]) => ({ name, slot: checkedSlot(state, slot) }));
-    const sorted = (spec.sorted ?? []).map((slot) => checkedSlot(state, slot));
-    const window = spec.window ? ([checkedSlot(state, spec.window[0]), checkedSlot(state, spec.window[1])] as [number, number]) : null;
+    const pointers = Object.entries(specPointers(spec, objectId)).map(([name, slot]) => ({ name, slot: checkedSlot(state, slot) }));
+    const sorted = placedSlots(state, (specList(spec, "sorted", objectId, "a list of slot indices, such as [3]") ?? []).map((slot) => checkedSlot(state, slot)));
+    const bounds = specList(spec, "window", objectId, "a list of the first and last slot, such as [0, 2]");
+    if (bounds && bounds.length !== 2) fail(`${objectId}: "window" is a list of the first and last slot, such as [0, 2]`);
+    const window = bounds ? ([checkedSlot(state, bounds[0]), checkedSlot(state, bounds[1])] as [number, number]) : null;
     return { ...state, pointers, window, slotRoles: state.slotRoles.map((_, slot) => (sorted.includes(slot) ? "done" : null)) };
   },
 
@@ -297,12 +323,13 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
       during: (before, after, _op, progress) => [...tickingCounters(before, after, progress), ...swapArcs(before, after, progress)],
     },
     sorted: {
-      doc: 'on cells or ranges like arr[5-7], or {"from": index} through the last cell; marks them done',
+      doc: 'on cells or ranges like arr[5-7], or {"from": index} through the last cell; marks cells that already hold their final sorted value',
       seconds: 0.6,
       apply(state, op) {
         const from = op.args.from;
         const slots = typeof from === "number" ? Array.from({ length: state.cells.length - checkedSlot(state, from) }, (_, offset) => from + offset) : expandParts(state, op.parts);
         if (slots.length === 0) fail(`op "sorted" needs cells in "on" or a "from" index`);
+        placedSlots(state, slots);
         const slotRoles = state.slotRoles.map((role, slot) => (slots.includes(slot) ? "done" : role));
         return { ...state, slotRoles };
       },
