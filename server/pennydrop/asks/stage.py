@@ -71,6 +71,7 @@ class Stage:
         self.traces: set[str] = set()
         self.finished_traces: set[str] = set()
         self.last_trace: dict[str, Any] = {}
+        self.last_trace_on: dict[str, dict[str, Any]] = {}
         self.trace_untils: dict[str, int | None] = {}
         self.trace_counters: dict[str, set[str]] = {}
         self.shown_totals: dict[str, dict[str, Any]] = {}
@@ -94,9 +95,10 @@ class Stage:
             return raw
         on = raw.get("on")
         raw = {**raw, "on": on[0]} if isinstance(on, list) and len(on) == 1 else raw
-        if not self.last_trace or ("code" in raw and "input" in raw):
+        if "code" in raw and "input" in raw:
             return raw
-        return {**self.last_trace, **raw}
+        carried = self.last_trace_on.get(raw.get("on")) or self.last_trace
+        return {**carried, **raw} if carried else raw
 
     def remember_trace(self, written: Any, settled: dict[str, Any], values: dict[str, Any]) -> None:
         raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
@@ -105,6 +107,8 @@ class Stage:
             return
         self.traces.add(key)
         self.last_trace = {name: raw[name] for name in ("code", "input", "on") if name in raw}
+        if isinstance(raw.get("on"), str):
+            self.last_trace_on[raw["on"]] = self.last_trace
         self.trace_untils[key] = raw.get("until")
         if "until" not in raw:
             self.finished_traces.add(key)
@@ -137,9 +141,11 @@ class Stage:
 
     def plays_last_run(self, written: Any) -> bool:
         key = trace_key(self.filled_trace(written.get("trace")) if isinstance(written, dict) else None)
+        played = self.finished_traces | self.shown_totals.keys()
         if key in self.side_runs:
-            return bool(self.traces - self.side_runs)
-        return self.side_runs <= self.traces
+            main = self.traces - self.side_runs
+            return bool(main) and main <= played
+        return self.side_runs <= played
 
     def remember_simulation(self, written: Any) -> None:
         raw = written.get("simulate") if isinstance(written, dict) else None
