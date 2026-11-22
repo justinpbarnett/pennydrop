@@ -15,6 +15,7 @@ _Avoid_: unit, chapter
 
 **Course**:
 An ordered tree of Topics seeded from one public course syllabus, such as CS 6200.
+Each Topic names the Rules it teaches, and progress through a Course is Rules held, not Lessons watched.
 _Avoid_: curriculum tree, syllabus, track
 
 **Lesson**:
@@ -22,8 +23,29 @@ A short, interactive, narrated walk through one idea that poses Challenges befor
 _Avoid_: deep dive, module
 
 **Challenge**:
-What a Lesson asks of the learner before it reveals the answer: predict a number, a choice or a place, put things in order, match pairs, run code, or explain back by voice.
+What a Lesson asks of the learner before it reveals the answer: predict a number, a choice or a place, say yes or no, put things in order, match pairs, run code, or explain back in words.
 _Avoid_: quiz, question, check, ask
+
+**Rule**:
+The reusable statement under a Lesson's point, with the condition it holds under and the slots a new case can change. Each Lesson teaches one.
+A Rule is held once all three Forms pass on fresh Cases.
+_Avoid_: seed, pattern, takeaway
+
+**Practice**:
+The three Challenges after a Lesson's last Step, one per Form, that make the learner able to use its Rule.
+_Avoid_: quiz, drill, exercise
+
+**Form**:
+One of the three ways Practice tests a Rule. Say: state the Rule in your own words with a "because". Applies: say whether the Rule still works on a Near miss. Fresh: predict the result of a new Case, forward or back.
+_Avoid_: mode, kind, level
+
+**Near miss**:
+A case one condition away from where a Rule holds, so the Rule fails there, such as binary search on an unsorted list.
+_Avoid_: counterexample, trick question
+
+**Case**:
+One concrete instance a Practice Challenge poses, written and computed when it is served, so a review never repeats one.
+_Avoid_: example, item, card
 
 **Film**:
 A high production educational film, 8 to 20 minutes, rendered offline and watched before the hands on Lessons on its Topic. It ends on open questions that seed the first Lesson's Challenges. It is its own work, not a recorded Lesson.
@@ -34,7 +56,7 @@ The one hidden idea a Film is built on. The pattern check tests it and can rejec
 _Avoid_: hook, angle, pattern
 
 **Review queue**:
-The spaced recall list fed by every answer a person gives to a Challenge.
+The spaced list of Rules a person is practicing. Each review serves a Rule's next Form on a new Case, and a miss brings the Rule back sooner in the same Form.
 _Avoid_: flashcards, quiz
 
 **Profile**:
