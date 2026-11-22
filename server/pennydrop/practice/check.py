@@ -123,7 +123,7 @@ class PracticeChecker:
     async def _form_errors(self, form: Form, direction: Direction | None, rule: Rule, step: dict[str, Any], written: dict[str, Any], inputs: Any, values: dict[str, Any], keys: frozenset[str], taken: frozenset[str], tools: DirectiveTools, lesson_id: str) -> tuple[list[str], dict[str, Any]]:
         if form is Form.SAY:
             asks = await self._classifier.asks_why_the_rule_holds(step["say"], rule.statement, lesson_id)
-            return ([] if asks else ['the say item must ask the learner to explain, in their own words with a "because", why the Rule holds, and must not state the reason itself'], step)
+            return ([] if asks else ['the say item must ask the learner to say, in their own words with a "because", why the Rule holds or why what it explains happens, and must not state the reason itself'], step)
         if form is Form.APPLIES:
             return await self._applies_errors(rule, step, values, lesson_id), step
         repeated = sorted(keys & taken)

@@ -245,7 +245,7 @@ class Classifier:
         return _mean_yes(result.answers[name] for name in ASKS_THE_CHALLENGE_QUESTIONS) >= 0.5
 
     async def asks_why_the_rule_holds(self, say: str, rule: str, lesson_id: str) -> bool:
-        question = YesNo("Does the narration ask the learner to explain, in their own words, why this Rule holds, with a because, without stating the reason itself?")
+        question = YesNo("Does the narration ask the learner to answer in their own words with a because, so that a good answer states this Rule's idea and the reason for it? It may ask why the Rule holds, or why something happens when this Rule is the reason. Answer no when the narration itself states the reason, or asks for something other than a because answer, such as a number or a yes or no.")
         result = await self._gateway.classify(f"Rule: {rule}\nNarration: {say}", {"asks": question}, lesson_id=lesson_id)
         return _yes(result.answers["asks"])
 
