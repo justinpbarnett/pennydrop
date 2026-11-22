@@ -208,6 +208,8 @@ const LINE_WIDTH = 1000;
 const LINE_PAD = 60;
 const LINE_Y = 250;
 const TOKEN_LIFT = 24;
+const SPOT_ABOVE = 120;
+const SPOT_BELOW = 60;
 
 const lineX = (state: LineState, value: number) => LINE_PAD + ((value - state.from) * LINE_WIDTH) / (state.to - state.from);
 const hopHeight = (state: LineState, hop: Hop) => Math.min(150, 36 + 0.12 * Math.abs(lineX(state, hop.to) - lineX(state, hop.from)));
@@ -286,6 +288,9 @@ const line: Figure<LineState> = {
     }
     state.hops.forEach((_, index) => out.push(...hopDrawables(state, index, 1)));
     out.push(tokenDrawable({ x: lineX(state, state.token), y: LINE_Y - TOKEN_LIFT }));
+    for (let value = state.from; value <= state.to; value++) {
+      out.push(boxAt(`spot-${value}`, lineX(state, value), LINE_Y - SPOT_ABOVE / 2 + SPOT_BELOW / 2, spacing, SPOT_ABOVE + SPOT_BELOW, { fill: "ground", opacity: 0, z: 6, part: `${state.objectId}[${value}]` }));
+    }
     return out;
   },
 };
@@ -945,13 +950,16 @@ export const lab: LabDef<SpecFields, ShapesState> = {
   title: "Numbers and shapes",
   reading: "optional",
   catalog: {
-    summary: "Counting, number lines, fractions, area and right triangles, from a first count to Pythagoras. One object is one figure, chosen by \"figure\"; every number (counts, areas, side lengths) is computed here. In a Lesson with reading false, for a small child, every figure reads from pictures alone.",
+    summary: "Counting, number lines, fractions, area and right triangles, from a first count to Pythagoras. One object is one figure, chosen by \"figure\"; every number (counts, areas, side lengths) is computed here. In a Lesson with reading false, for a small child, every figure reads from pictures alone: to add or take away, the hopper stands on the first number and a click Challenge asks the child to tap the spot where the next hops will land, which the next Step hops to. Parts are named: a block pile[0], a spot on a line line[7], a side of a triangle tri[a].",
     spec: {
       figure: `one of ${FIGURE_NAMES.join(", ")}`,
       ...Object.fromEntries(Object.entries(FIGURES).map(([name, figure]) => [`figure "${name}"`, Object.entries(figure.spec).map(([field, doc]) => `${field}: ${doc}`).join("; ")])),
     },
     example: [
       '{"step":1,"say":"Here is a right triangle with sides three and four. Build the square on the short side, then count it.","scene":{"tri":{"lab":"shapes","figure":"triangle","a":3,"b":4}},"do":[{"cue":"Build the square","op":"square","on":["tri"],"side":"a"},{"cue":"count it","op":"fill","on":["tri"],"side":"a"}]}',
+      '{"step":2,"say":"Here are six blocks. Slide them into groups of two.","scene":{"tri":null,"pile":{"lab":"shapes","figure":"blocks","count":6}},"do":[{"cue":"groups of two","op":"group","on":["pile"],"size":2}]}',
+      '{"step":3,"say":"The hopper stands on three. If it hops four more, where will it land? Tap that spot.","scene":{"pile":null,"line":{"lab":"shapes","figure":"line","from":0,"to":10,"start":3}},"challenge":{"kind":"predict","type":"click","prompt":"Where will the hopper land?","answer":"line[7]"}}',
+      '{"step":4,"say":"Hop, hop, hop, hop. Three and four more make seven.","do":[{"cue":"Hop","op":"hop","on":["line"],"by":4,"each":1}]}',
     ],
   },
   ops,
