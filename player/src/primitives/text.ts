@@ -13,7 +13,33 @@ function sizeOf(state: TextState) {
   return { w: Math.max(state.size, ...lines.map((line) => textWidth(line, state.size, state.font))), h: lines.length * state.size * 1.35 };
 }
 
-const FORMAT_DECIMALS = (value: number) => (String(value).split(".")[1] ?? "").length;
+const NUMBER_IN_TEXT = /-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?/;
+
+interface CountedText {
+  before: string;
+  value: number;
+  decimals: number;
+  grouped: boolean;
+  after: string;
+}
+
+function countedText(state: TextState): CountedText {
+  const found = NUMBER_IN_TEXT.exec(state.text);
+  if (!found) fail(`op "count": the text "${state.text}" holds no number to count from; make the text a number first, such as "0" or "$10.00"`);
+  const number = found![0];
+  return {
+    before: state.text.slice(0, found!.index),
+    value: Number(number.replaceAll(",", "")),
+    decimals: number.split(".")[1]?.length ?? 0,
+    grouped: number.includes(","),
+    after: state.text.slice(found!.index + number.length),
+  };
+}
+
+function countedTo(counted: CountedText, value: number): string {
+  const shown = value.toLocaleString("en-US", { minimumFractionDigits: counted.decimals, maximumFractionDigits: counted.decimals, useGrouping: counted.grouped });
+  return counted.before + shown + counted.after;
+}
 
 function firstLine(after: TextState, shown: string) {
   return [{ id: "line-0", kind: "text" as const, x: sizeOf(after).w / 2, y: after.size * 0.675, text: shown, size: after.size, font: after.font, fill: after.role }];
@@ -36,14 +62,16 @@ export const primitive: LabDef<Record<string, unknown>, TextState> = {
       during: (_before, after, _op, progress) => firstLine(after, after.text.slice(0, Math.ceil(after.text.length * progress))),
     },
     count: {
-      doc: 'ticks a number text up or down: {"to": 12}',
+      doc: 'ticks the number in a text up or down and keeps what stands around it: {"to": 11} turns "$10.00" into "$11.00"',
       seconds: 1.0,
-      apply: (state, op) => ({ ...state, text: String(numberArg(op.args, "to", "count")) }),
+      apply(state, op) {
+        const to = numberArg(op.args, "to", "count");
+        const counted = countedText(state);
+        return { ...state, text: countedTo({ ...counted, decimals: Math.max(counted.decimals, String(to).split(".")[1]?.length ?? 0) }, to) };
+      },
       during(before, after, _op, progress) {
-        const from = Number(before.text);
-        const to = Number(after.text);
-        const decimals = Math.max(FORMAT_DECIMALS(from), FORMAT_DECIMALS(to));
-        return firstLine(after, Number.isNaN(from) ? after.text : lerp(from, to, progress).toFixed(decimals));
+        const [from, to] = [countedText(before), countedText(after)];
+        return firstLine(after, countedTo(to, lerp(from.value, to.value, progress)));
       },
     },
   },

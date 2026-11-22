@@ -1,7 +1,7 @@
 import type { FontRole } from "./lab";
 import metrics from "./font-metrics.json";
 import inks from "./font-ink.json";
-import { THEMES, type ThemeFont } from "./theme";
+import { shownText, THEMES, type ThemeFont } from "./theme";
 
 const advancesByFont = metrics as Record<string, Record<string, number>>;
 
@@ -40,7 +40,7 @@ function measure(text: string, size: number, font: ThemeFont): number {
 }
 
 export function textWidth(text: string, size: number, role: FontRole): number {
-  return Math.max(...Object.values(THEMES).map((theme) => measure(text, size, theme.fonts[role])));
+  return Math.max(...Object.values(THEMES).map((theme) => measure(shownText({ text, font: role }, theme)!, size, theme.fonts[role])));
 }
 
 export interface TextInk {

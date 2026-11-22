@@ -441,20 +441,26 @@ function levelDrawables(state: AddressState, level: number): Drawable[] {
   }
   const table = state.tables[hop.table]!;
   const frameWidth = hexWidth(pageBits(state));
-  const filled = hop.faulted && hop.target !== null;
-  const badge = hop.faulted ? { text: filled ? "filled" : "fault", role: (filled ? "ok" : "fault") as Role } : null;
+  const invalid = hop.target === null;
+  const badge = invalid ? { text: "fault", role: "fault" as Role } : hop.faulted ? { text: "filled", role: "ok" as Role } : null;
   const addressWidth = hexWidth(state.bits);
   const sub = level === 0 ? `PTBR = ${hex(table.base, addressWidth)}` : `${table.name} at ${hex(table.base, addressWidth)}`;
-  const out = [panelRect(state, `${id}-panel`, column, "fill", hop.faulted && !filled ? "fault" : "rule"), ...header(state, id, column, `${field.name} table`, sub, badge, "ink")];
+  const out = [panelRect(state, `${id}-panel`, column, "fill", invalid ? "fault" : "rule"), ...header(state, id, column, `${field.name} table`, sub, badge, "ink")];
+  const pathRole = walkedRowRole(state, level, hop);
   rowsOf(table, hop).forEach((index, row) => {
     const target = table.entries[index];
-    const selected = index === hop.index;
-    const role: Role | null = selected ? (hop.faulted ? (filled ? "ok" : "fault") : "compare") : null;
+    const role: Role | null = index === hop.index ? pathRole : null;
     const text = target === undefined ? "invalid" : typeof target === "string" ? `table ${target}` : `frame ${hex(target, frameWidth)}`;
     out.push(...rowCell(state, { id, column, row, role, left: String(index), right: text, rightRole: target === undefined ? "fault" : "ink" }));
   });
   out.push(...caption(state, id, column, `entry ${hex(hop.address, addressWidth)}`, `${hex(table.base, addressWidth)} + ${hop.index} × ${state.entryBytes}`, "ink"));
   return out;
+}
+
+function walkedRowRole(state: AddressState, level: number, hop: Hop): Role {
+  if (hop.target === null) return "fault";
+  if (!resultShown(state)) return hop.faulted ? "ok" : "compare";
+  return level === state.fields.length - 1 ? "ok" : "muted";
 }
 
 function selectedRowCenter(state: AddressState, level: number): { x: number; y: number; right: number } {
@@ -609,7 +615,7 @@ export const lab: LabDef<AddressSpec, AddressState> = {
   title: "Address translation",
   reading: "required",
   catalog: {
-    summary: "Turns a virtual address into a physical one with a multi level page table and an optional TLB. The Lab computes every field value, entry address and the physical address; Steps only say which stage to show. Object parts are not used: put the object alone in \"on\".",
+    summary: "Turns a virtual address into a physical one with a multi level page table and an optional TLB, and shows a page fault: the walk reaches an invalid entry, the OS loads the page into a free frame and fills the entry, and the walk goes on. The Lab computes every field value, entry address and the physical address; Steps only say which stage to show. Object parts are not used: put the object alone in \"on\".",
     spec: {
       bits: "address width in bits, such as 16",
       fields: 'page table index fields from the top level down, as {"name": bits}, such as {"L1": 4, "L2": 4}; the field names are the level names shown',

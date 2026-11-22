@@ -139,10 +139,10 @@ function drawBlocks(state: BlocksState, shown: number): Drawable[] {
     out.push(boxAt(`b${index}`, slot.x, slot.y, BLOCK * scale, BLOCK * scale, {
       fill: isLit ? "accent" : "fill2", stroke: isLit || scale > 1 ? "accent" : "edge", strokeWidth: 2, radius: 0.28, z: 2, part: `${state.objectId}[${index}]`,
     }));
-    if (isLit && state.reading) out.push(textDrawable(`n${index}`, String(index + 1), slot, { size: 30, fill: "ground", z: 3 }));
+    if (state.reading) out.push(textDrawable(`n${index}`, String(index + 1), slot, { size: 30, fill: "ground", z: 3, opacity: isLit ? 1 : 0 }));
   });
   for (const outline of layout.outlines) out.push(boxAt(outline.id, outline.x, outline.y, outline.w, outline.h, { fill: "none", stroke: outline.role, strokeWidth: 3, radius: 0.5, z: 1 }));
-  if (state.reading && lit > 0) out.push(textDrawable("total", String(lit), { x: layout.size.w / 2, y: 54 }, { size: 76, z: 3 }));
+  if (state.reading) out.push(textDrawable("total", String(lit), { x: layout.size.w / 2, y: 54 }, { size: 76, z: 3, opacity: lit > 0 ? 1 : 0 }));
   if (state.reading && state.groupSize !== null) out.push(textDrawable("caption", groupCaption(state), { x: layout.size.w / 2, y: layout.size.h - 40 }, { size: 40 }));
   return out;
 }

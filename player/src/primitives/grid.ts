@@ -1,4 +1,5 @@
 import { type Drawable, fail, type LabDef, positiveField, readsWords, type Role, roleField, stringArg } from "../lab";
+import { textWidth } from "../text-metrics";
 
 interface GridCell {
   value: string;
@@ -26,6 +27,13 @@ function updateCells(state: GridState, parts: string[], change: (cell: GridCell)
   const targets = parts.map((part) => cellAt(state, part));
   if (targets.length === 0) fail(`op needs cells in "on", such as ["${state.objectId}[0,1]"]`);
   return { ...state, cells: state.cells.map((row, r) => row.map((cell, c) => (targets.some(([tr, tc]) => tr === r && tc === c) ? change(cell) : cell))) };
+}
+
+const textSize = (state: GridState) => state.cell * 0.4;
+
+function columnWidths(state: GridState): number[] {
+  const size = textSize(state);
+  return state.cells[0]!.map((_, column) => Math.max(state.cell, ...(state.reading ? state.cells.map((row) => textWidth(row[column]!.value, size, "mark") + size) : [])));
 }
 
 export const primitive: LabDef<Record<string, unknown>, GridState> = {
@@ -67,14 +75,16 @@ export const primitive: LabDef<Record<string, unknown>, GridState> = {
       reading: readsWords(spec),
     };
   },
-  size: (state) => ({ w: state.cells[0]!.length * state.cell, h: state.cells.length * state.cell }),
+  size: (state) => ({ w: columnWidths(state).reduce((total, width) => total + width, 0), h: state.cells.length * state.cell }),
   draw(state) {
     const out: Drawable[] = [];
+    const widths = columnWidths(state);
+    const lefts = widths.map((_, column) => widths.slice(0, column).reduce((total, width) => total + width, 0));
     state.cells.forEach((row, r) => row.forEach((cell, c) => {
-      const x = (c + 0.5) * state.cell;
+      const x = lefts[c]! + widths[c]! / 2;
       const y = (r + 0.5) * state.cell;
-      out.push({ id: `cell-${r}-${c}`, kind: "rect", x, y, w: state.cell, h: state.cell, fill: cell.role ? "fill2" : "fill", stroke: cell.role ?? "rule", strokeWidth: cell.role ? 1.8 : 1, radius: 0.5, part: `${state.objectId}[${r},${c}]` });
-      if (state.reading) out.push({ id: `value-${r}-${c}`, kind: "text", x, y, text: cell.value, size: state.cell * 0.4, font: "mark", fill: "ink", z: 1 });
+      out.push({ id: `cell-${r}-${c}`, kind: "rect", x, y, w: widths[c]!, h: state.cell, fill: cell.role ? "fill2" : "fill", stroke: cell.role ?? "rule", strokeWidth: cell.role ? 1.8 : 1, radius: 0.5, part: `${state.objectId}[${r},${c}]` });
+      if (state.reading) out.push({ id: `value-${r}-${c}`, kind: "text", x, y, text: cell.value, size: textSize(state), font: "mark", fill: "ink", z: 1 });
     }));
     return out;
   },

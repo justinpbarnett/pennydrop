@@ -57,7 +57,6 @@ interface CardFrame {
   y: number;
   w: number;
   h: number;
-  compact: boolean;
   running: boolean;
 }
 
@@ -95,6 +94,11 @@ const COMPACT_SIZE = 52;
 const INCOMING_PITCH = 56;
 const FINISHED_FIRST_LEFT = SIDE_LEFT + 104;
 const FINISHED_PITCH = 60;
+
+const MOVING_LIFT = 10;
+const DISPATCH_SECONDS = 0.45;
+const MOVING_Z = 8;
+const MOVING_HALO = 8;
 
 const BAR_INSET = 6;
 const BAR_LABEL_SIZE = 22;
@@ -288,11 +292,11 @@ function laneTop(level: number): number {
 }
 
 function fullFrame(left: number, top: number, running = false): CardFrame {
-  return { x: left + CARD_WIDTH / 2, y: top + CARD_HEIGHT / 2, w: CARD_WIDTH, h: CARD_HEIGHT, compact: false, running };
+  return { x: left + CARD_WIDTH / 2, y: top + CARD_HEIGHT / 2, w: CARD_WIDTH, h: CARD_HEIGHT, running };
 }
 
 function compactFrame(left: number, centerY: number): CardFrame {
-  return { x: left + COMPACT_SIZE / 2, y: centerY, w: COMPACT_SIZE, h: COMPACT_SIZE, compact: true, running: false };
+  return { x: left + COMPACT_SIZE / 2, y: centerY, w: COMPACT_SIZE, h: COMPACT_SIZE, running: false };
 }
 
 function cardFrame(state: SchedulerState, id: string): CardFrame {
@@ -317,25 +321,22 @@ function lerpFrame(from: CardFrame, to: CardFrame, progress: number): CardFrame 
     y: lerp(from.y, to.y, progress),
     w: lerp(from.w, to.w, progress),
     h: lerp(from.h, to.h, progress),
-    compact: progress < 0.5 ? from.compact : to.compact,
-    running: to.running,
+    running: progress < 0.5 ? from.running : to.running,
   };
 }
 
-function cardDrawables(state: SchedulerState, id: string, frame: CardFrame, remaining: number): Drawable[] {
+function cardDrawables(state: SchedulerState, id: string, frame: CardFrame, remaining: number, z = frame.running ? 6 : 4): Drawable[] {
   const process = processOf(state, id);
   const part = `${state.objectId}[${id}]`;
   const room = frame.w - 16;
-  const card: Drawable = { id: `card-${id}`, kind: "rect", x: frame.x, y: frame.y, w: frame.w, h: frame.h, fill: frame.running ? "fill2" : "fill", stroke: process.color, strokeWidth: frame.running ? 4 : 2.5, radius: 1, z: frame.running ? 6 : 4, part };
-  const textZ = frame.running ? 7 : 5;
-  if (frame.compact) {
-    return [card, textDrawable(`card-${id}-name`, id, frame, { size: fitText(id, 24, room, "mark"), font: "mark", fill: process.color, z: textZ, part })];
-  }
+  const card: Drawable = { id: `card-${id}`, kind: "rect", x: frame.x, y: frame.y, w: frame.w, h: frame.h, fill: frame.running ? "fill2" : "fill", stroke: process.color, strokeWidth: frame.running ? 4 : 2.5, radius: 1, z, part };
+  const textZ = z + 1;
+  const full = clamp01((frame.h - COMPACT_SIZE) / (CARD_HEIGHT - COMPACT_SIZE));
   const left = `${formatTime(remaining)} left`;
   return [
     card,
-    textDrawable(`card-${id}-name`, id, { x: frame.x, y: frame.y - 18 }, { size: fitText(id, 34, room, "mark"), font: "mark", fill: process.color, z: textZ, part }),
-    textDrawable(`card-${id}-left`, left, { x: frame.x, y: frame.y + 23 }, { size: fitText(left, 22, room, "read"), fill: "muted", z: textZ, part }),
+    textDrawable(`card-${id}-name`, id, { x: frame.x, y: frame.y - 18 * full }, { size: fitText(id, lerp(24, 34, full), room, "mark"), font: "mark", fill: process.color, z: textZ, part }),
+    textDrawable(`card-${id}-left`, left, { x: frame.x, y: frame.y + 23 * full }, { size: fitText(left, 22, room, "read"), fill: "muted", opacity: clamp01(2 * full - 1), z: textZ, part }),
   ];
 }
 
@@ -357,6 +358,11 @@ function clockDrawables(state: SchedulerState, time: number): Drawable[] {
   return header;
 }
 
+function idleDrawable(state: SchedulerState, opacity: number): Drawable {
+  const { lanesBottom } = geometry(state.levels);
+  return textDrawable("cpu-idle", "idle", { x: SIDE_LEFT + SIDE_WIDTH / 2, y: (LANES_TOP + lanesBottom) / 2 }, { size: 28, fill: "muted", opacity, z: 1 });
+}
+
 function areaDrawables(state: SchedulerState): Drawable[] {
   const { lanesBottom, bandTop } = geometry(state.levels);
   const lanes = state.lanes.flatMap((_, level): Drawable[] => [
@@ -373,7 +379,7 @@ function areaDrawables(state: SchedulerState): Drawable[] {
     areaBox("finished-box", SIDE_LEFT, bandTop, SIDE_WIDTH, BAND_HEIGHT),
     areaLabel("finished-label", "Done", { x: SIDE_LEFT + AREA_LEFT_MARGIN, y: bandTop + BAND_HEIGHT / 2 }),
   ];
-  if (state.cpu === null) areas.push(textDrawable("cpu-idle", "idle", cpuCenter, { size: 28, fill: "muted", z: 1 }));
+  if (state.cpu === null) areas.push(idleDrawable(state, 1));
   if (state.incoming.length > 0) {
     const stagedCount = state.processes.filter((process) => process.arrive > 0).length;
     areas.push(textDrawable("incoming-label", "Not yet arrived", { x: WIDTH - COMPACT_SIZE - (stagedCount - 1) * INCOMING_PITCH - 16, y: HEADER_HEIGHT / 2 }, { size: 22, anchor: "end", fill: "muted", z: 1 }));
@@ -426,17 +432,32 @@ function runSeconds(op: LabOp, state: SchedulerState): number {
   return Math.min(3.4, 0.9 + 0.3 * span);
 }
 
-function clockAdvance(before: SchedulerState, after: SchedulerState, _op: LabOp, progress: number): Drawable[] {
-  const growth = clamp01(progress);
-  const grown = lerp(before.clock, after.clock, growth);
+function clockAdvance(before: SchedulerState, after: SchedulerState, op: LabOp, progress: number): Drawable[] {
   const slice = after.slices[after.slices.length - 1]!;
+  const id = slice.process;
+  const dispatched = id !== null && before.cpu !== id;
+  const moveShare = dispatched ? Math.min(0.5, DISPATCH_SECONDS / runSeconds(op, before)) : 0;
+  const growth = clamp01((progress - moveShare) / (1 - moveShare));
+  const grown = lerp(before.clock, after.clock, growth);
   const out = [...clockDrawables(after, grown), ...sliceDrawables(after, after.slices.length - 1, slice, grown)];
-  if (slice.process !== null) {
-    const id = slice.process;
-    const remaining = lerp(processOf(before, id).remaining, processOf(after, id).remaining, growth);
-    out.push(...cardDrawables(after, id, lerpFrame(cardFrame(before, id), cardFrame(after, id), progress), remaining));
-  }
-  return out;
+  if (id === null) return out;
+  const remaining = lerp(processOf(before, id).remaining, processOf(after, id).remaining, growth);
+  const moved = moveShare > 0 ? clamp01(progress / moveShare) : 1;
+  return [...out, ...(moved < 1 ? movingCard(before, after, id, moved, remaining) : cardDrawables(after, id, cardFrame(after, id), remaining))];
+}
+
+function movingCard(before: SchedulerState, after: SchedulerState, id: string, progress: number, remaining: number): Drawable[] {
+  const frame = lerpFrame(cardFrame(before, id), cardFrame(after, id), progress);
+  const lifted = { ...frame, y: frame.y - MOVING_LIFT * Math.sin(Math.PI * clamp01(progress)) };
+  const halo: Drawable = { id: `card-${id}-halo`, kind: "rect", x: lifted.x, y: lifted.y, w: lifted.w + 2 * MOVING_HALO, h: lifted.h + 2 * MOVING_HALO, fill: "fill", radius: 1, z: MOVING_Z - 1 };
+  return [halo, ...cardDrawables(after, id, lifted, remaining, MOVING_Z)];
+}
+
+function cardMove(before: SchedulerState, after: SchedulerState, op: LabOp, progress: number): Drawable[] {
+  const id = op.args.p;
+  if (typeof id !== "string") return [];
+  const leftCpu = before.cpu === id && after.cpu === null ? [idleDrawable(after, clamp01(2 * progress - 1))] : [];
+  return [...movingCard(before, after, id, progress, processOf(after, id).remaining), ...leftCpu];
 }
 
 export const lab: LabDef<SchedulerSpec, SchedulerState> = {
@@ -482,6 +503,7 @@ export const lab: LabDef<SchedulerSpec, SchedulerState> = {
       doc: '{"p": "P3", "level": 0}; a staged process (arrive > 0) joins the back of a ready queue; legal once the clock has reached its arrive time',
       seconds: 0.8,
       apply: arrive,
+      during: cardMove,
     },
     run: {
       doc: '{"p": "P1", "until": 4}; a ready process moves to the CPU and the Gantt bar grows from the clock to "until"; until must be later than the clock and no more than its burst left',
@@ -499,21 +521,25 @@ export const lab: LabDef<SchedulerSpec, SchedulerState> = {
       doc: '{"p": "P1", "level": 1}; the process on the CPU goes to the back of a ready queue; optional level demotes or promotes it, default its current level',
       seconds: 0.9,
       apply: preempt,
+      during: cardMove,
     },
     block: {
       doc: '{"p": "P2"}; the process on the CPU goes to the I/O area',
       seconds: 0.9,
       apply: block,
+      during: cardMove,
     },
     wake: {
       doc: '{"p": "P2", "level": 0}; an I/O process goes to the back of a ready queue once its io time has passed',
       seconds: 0.9,
       apply: wake,
+      during: cardMove,
     },
     finish: {
       doc: '{"p": "P1"}; the process on the CPU with no burst left moves to Done',
       seconds: 0.8,
       apply: finish,
+      during: cardMove,
     },
     boost: {
       doc: "no args; every unfinished process returns to queue 0, queue order kept",
