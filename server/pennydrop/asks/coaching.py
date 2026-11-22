@@ -13,6 +13,8 @@ COACHING = (
      'copy the cue letter for letter from this Step\'s "say" (a word or phrase that really is there), or add "{cue}" to the narration, and order the cues as they are spoken'),
     (re.compile(r"'say' still holds an unresolved placeholder in braces: '[^']*\{(?P<name>[\w.]+)\}"),
      'no directive has computed "{name}" by this Step, so write the narration without the braces and without that number; a trace gives only the comparisons, swaps and writes its run makes, and its placeholders work only in the Step that carries the trace or after it'),
+    (re.compile(r"do\.\d+\.op: Field required"),
+     'every "do" entry names its operation in "op", as in {{"op": "highlight", "on": ["arr"], "cue": "..."}}; a directive such as "trace" or "simulate" is a field of the Step itself, beside "say", and never an entry of "do"'),
     (re.compile(r"challenge\.number\.answer"),
      'a number Challenge\'s "answer" is a plain number such as 6; write the form "simulate.name" or "trace.comparisons" only when this Step has that directive, and never put words there'),
     (re.compile(r"trace directive: `?code`? is neither a library algorithm"),
