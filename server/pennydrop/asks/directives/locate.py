@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...gateway import GatewayError
-from ...pictures import PartsNotFound
+from ...pictures import PART_NAME, PartsNotFound
 from ._support import DirectiveError, DirectiveTools, parse_spec
 
-PART_NAME = re.compile(r"^[a-z][a-z' -]{0,22}$", re.I)
 MEDIA_PREFIX = "/media/"
 
 GUIDE = "\n".join([

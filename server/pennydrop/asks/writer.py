@@ -8,6 +8,7 @@ from typing import Any
 
 from ..courses import CourseContext
 from ..gateway import CallStats, Gateway
+from ..pictures import Picture
 from ..settings import Job
 from ..store import Profile
 from .catalog import Catalog
@@ -84,6 +85,23 @@ REPAIR_INSTRUCTIONS = "Repair one Step of a Lesson. Reply with the corrected Ste
 
 
 @dataclass(frozen=True)
+class MainPhoto:
+    query: str
+    found: Picture | None = None
+    missing: bool = False
+
+    def line(self) -> str:
+        if self.missing:
+            return f'No free photo of "{self.query}" could be found, so leave out "images" and "locate" for it, and draw it with shapes, or a figure from another Lab, in every Step that talks about it.'
+        if self.found is None:
+            return f'A photo search for "{self.query}" is already running: use the images directive with exactly that query for the Ask\'s main subject. You still choose freely for any other subject.'
+        found = f'The photo of "{self.query}" is found: use the images directive with exactly that query for the Ask\'s main subject. You still choose freely for any other subject.'
+        if not self.found.parts:
+            return found
+        return f'{found} The parts a child can see and tap on this photo are: {", ".join(self.found.parts)}. Put only parts from this list in "locate", and build the whole story on them, its promise, hinge and point included: promise only what these parts can answer, and never speak of a part this photo does not show.'
+
+
+@dataclass(frozen=True)
 class Brief:
     ask: str
     profile: Profile | None
@@ -91,7 +109,7 @@ class Brief:
     scene: Any = None
     watching_title: str | None = None
     course: CourseContext | None = None
-    photo_search: str | None = None
+    photo: MainPhoto | None = None
     outline: str | None = None
 
     def course_lines(self) -> list[str]:
@@ -112,8 +130,8 @@ class Brief:
         lines.extend(directive_briefs(self.plan.labs))
         if self.outline:
             lines.append(self.outline)
-        if self.photo_search:
-            lines.append(f"A photo search for \"{self.photo_search}\" is already running: use the images directive with exactly that query for the Ask's main subject. You still choose freely for any other subject.")
+        if self.photo:
+            lines.append(self.photo.line())
         if self.plan.follow_up:
             lines.append(f"This is a follow up to the Lesson '{self.watching_title}'. Step 1 continues from the Scene below, so reuse its objects instead of recreating them. When Step 1 brings in a new example, its \"scene\" replaces the objects that still show the old one, so the stage matches the narration.")
             lines.append(f"Current Scene (JSON): {json.dumps(self.scene)}")

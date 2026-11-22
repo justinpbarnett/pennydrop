@@ -7,10 +7,12 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+import httpx
+
 from ..courses import CourseContext
 from ..gateway import GatewayError
 from ..lessons import done_event
-from ..pictures import prefetch
+from ..pictures import Picture, PictureNotFound
 from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
 from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
@@ -26,10 +28,11 @@ from .stage import Redeclared, Stage, question_without_challenge, ran_something,
 from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, card_matches, event_plays, plot_views, shapes_plays, shown_pictures, stress_marks
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
-from .writer import Brief, Writer
+from .writer import Brief, MainPhoto, Writer
 
 LOG = logging.getLogger("pennydrop.asks")
 MAX_MENDS = 3
+MAIN_PHOTO_WAIT = 45.0
 MAX_REPAIR_TRIES = 2
 HONOR_CODE_ERROR = "the Step touches project code or an assignment spec; explain the concept on a toy example of your own instead"
 MISSING_HINGE = 'no Step so far asks the predict Challenge, and only the last Step comes after this one, so this Step is the hinge: add a "challenge" that the earlier Steps let the learner answer, make "say" ask that question in plain words without giving the answer, and keep the scene, because the next Step reveals it; the narration never names the story\'s parts, such as "hinge" or "reveal"'
@@ -165,7 +168,6 @@ class LessonRun:
         self._stage = Stage()
         self._told_point: str | None = None
         self._refused = False
-        self._warm_picture: asyncio.Task[None] | None = None
         self._point_check: asyncio.Task[str] | None = None
 
     @property
@@ -197,13 +199,13 @@ class LessonRun:
         self._planned_labs = set(plan.labs)
         self._request_missing_lab(plan)
         photo_search = plan.photo_subject if "picture" in plan.labs else None
-        if photo_search:
-            self._warm_picture = asyncio.create_task(prefetch(kit.directive_tools.images, photo_search, not self._is_kid, self._record.id))
+        photo = asyncio.ensure_future(kit.directive_tools.images.find(photo_search, not self._is_kid, self._record.id)) if photo_search else None
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
         outline = (await kid_outline(plan.algorithm, kit.directive_tools.tracer) if self._is_kid else await run_outline(plan.algorithm, kit.directive_tools.tracer, plan.shows_code)) if plan.algorithm else None
         self._stage = Stage(start_scene, outline.runs if outline else Runs(), kid=self._is_kid, charts_quantities=plan.charts_quantities)
         self._told_point = outline.point if outline else None
-        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, photo_search, outline.brief if outline else None)
+        main_photo = await self._main_photo(photo_search, photo) if photo_search and photo else None
+        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, main_photo, outline.brief if outline else None)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()
         ready: asyncio.Queue[ReadyStep | None] = asyncio.Queue()
         async with asyncio.TaskGroup() as group:
@@ -211,6 +213,16 @@ class LessonRun:
             group.create_task(self._settle(brief, start_scene, pending, ready))
             group.create_task(self._publish(ready))
         await self._finish()
+
+    async def _main_photo(self, query: str, search: asyncio.Future[Picture]) -> MainPhoto:
+        search.add_done_callback(lambda done: done.cancelled() or done.exception())
+        try:
+            return MainPhoto(query, found=await asyncio.wait_for(asyncio.shield(search), MAIN_PHOTO_WAIT))
+        except PictureNotFound:
+            return MainPhoto(query, missing=True)
+        except (TimeoutError, GatewayError, httpx.HTTPError) as error:
+            LOG.warning("lesson %s writes before its photo of %r is found: %r", self._record.id, query, error)
+            return MainPhoto(query)
 
     async def _read(self, brief: Brief, plan: Plan, start_scene: Any, pending: asyncio.Queue[PendingStep | None]) -> None:
         number = 0

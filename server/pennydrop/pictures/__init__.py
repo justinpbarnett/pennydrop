@@ -16,12 +16,13 @@ from ..settings import Job
 from .dimensions import ImageShape, image_shape
 from .fetcher import PoliteFetcher
 from .index import JsonIndex
-from .locator import LocatedParts, PartLocator, PartsNotFound
+from .locator import PART_NAME, LocatedParts, PartLocator, PartsNotFound
 from .sources import SHARP_WIDTH, Candidate, looks_like_a_photo, preview_url, search_all
 
 MIN_WIDTH = 900
 MAX_BYTES = 14_000_000
 SHORTLIST = 6
+MOST_PARTS = 6
 OTHER_NAMES_PROMPT = 'Give the two other common English names people use for "{query}" when they look for photos of it, such as "steam locomotive" for "steam train". Answer with only a JSON list of two strings.'
 FILE_PREFIX_LENGTH = 16
 MIN_ASPECT, MAX_ASPECT = 0.5, 2.2
@@ -33,10 +34,11 @@ LONGEST_SUBJECT_WORDS = 3
 CHOOSE_SYSTEM = "You choose the best photo for a children's lesson. You answer with one JSON object and nothing else."
 CHOOSE_PROMPT = """These {count} photos, numbered from 1 in the order shown, are candidates for a lesson that shows: {query}.
 Their widths in pixels: {widths}.
-Choose the one photo that shows {query} most clearly: one sharp, real COLOUR photo of the whole subject, large in the frame, with an uncluttered background, not a drawing, diagram, toy, model, crowd, collage or close-up of a detail. A colour photo always beats a black and white, sepia, scanned or archival one, even when the old one is sharper. Reject photos with a scanned plate or film border, and photos where the subject is small in the frame or the scene is cluttered. The {query} itself must be what the photo is about and must fill most of the frame: reject a photo of a person holding it or standing near it, and a photo where it is small or only a background object. Prefer the photo where the {query} covers the most of the frame, is whole and in focus, and shows the parts a child would name (such as head, legs, wings or wheels) clearly and unhidden, with nothing in front of it or taking more room than it does. Choosing none is better than choosing a photo of something else. When two are about equally clear, take the wider one.
-Reply {{"best": number}}, or {{"best": null}} when none of them shows {query} clearly as the main subject."""
+Choose the one photo that shows {query} most clearly: one sharp, real COLOUR photo of the whole subject, large in the frame, with an uncluttered background, not a drawing, diagram, toy, model, crowd, collage or close-up of a detail. A colour photo always beats a black and white, sepia, scanned or archival one, even when the old one is sharper. Reject photos with a scanned plate or film border, and photos where the subject is small in the frame or the scene is cluttered. The {query} itself must be what the photo is about and must fill most of the frame: reject a photo of a person holding it or standing near it, and a photo where it is small or only a background object. Prefer the photo where the {query} covers the most of the frame, is whole and in focus, and shows the parts a child would name (such as head, legs, wings or wheels) clearly and unhidden, with nothing in front of it or taking more room than it does. Prefer a typical grown {query} in the usual pose a child pictures, such as a giraffe standing tall, over a baby, an odd pose, an action such as drinking or eating, or a costume. Choosing none is better than choosing a photo of something else. When two are about equally clear, take the wider one.
+Then name the parts of the {query} a young child would name that are plainly in view and big enough to tap on the photo you chose, {most} at most, each in one or two plain words, such as "eyes", "beak" or "wing". Name only what this photo shows, never a part the {query} has that is hidden, cut off or out of the frame. Name only a part that sits in one place you could draw one tight box around, never things scattered over the photo, such as apples all over a tree, spots or stars.
+Reply {{"best": number, "parts": ["...", "..."]}}, or {{"best": null, "parts": []}} when none of them shows {query} clearly as the main subject."""
 
-__all__ = ["Credit", "LocatedParts", "PartLocator", "PartsNotFound", "Picture", "PictureFinder", "PictureNotFound", "prefetch", "subject_phrases"]
+__all__ = ["PART_NAME", "Credit", "LocatedParts", "PartLocator", "PartsNotFound", "Picture", "PictureFinder", "PictureNotFound", "subject_phrases"]
 
 
 class PictureNotFound(LookupError):
@@ -57,6 +59,7 @@ class Picture:
     w: int
     h: int
     credit: Credit
+    parts: tuple[str, ...]
 
     @property
     def src(self) -> str:
@@ -77,6 +80,12 @@ class Downloaded:
     data: bytes
     shape: ImageShape
     candidate: Candidate
+
+
+@dataclass(frozen=True)
+class Chosen:
+    preview: Downloaded
+    parts: tuple[str, ...]
 
 
 class PictureFinder:
@@ -162,15 +171,15 @@ class PictureFinder:
             if sharp:
                 raise httpx.TransportError("no preview could be fetched")
             raise PictureNotFound(query)
-        best = await self._choose(query, previews, lesson_id)
-        full = await self._download(best.candidate)
+        chosen = await self._choose(query, previews, lesson_id)
+        full = await self._download(chosen.preview.candidate)
         if full is None:
             raise PictureNotFound(query)
-        return self._remember(key, query, lesson_id, full)
+        return self._remember(key, query, lesson_id, full, chosen.parts)
 
-    def _remember(self, key: str, query: str, lesson_id: str | None, full: Downloaded) -> Picture:
-        picture = self._save(full)
-        self._index.put(key, {"file": picture.file, "w": picture.w, "h": picture.h, "credit": asdict(picture.credit)})
+    def _remember(self, key: str, query: str, lesson_id: str | None, full: Downloaded, parts: tuple[str, ...]) -> Picture:
+        picture = self._save(full, parts)
+        self._index.put(key, {"file": picture.file, "w": picture.w, "h": picture.h, "credit": asdict(picture.credit), "parts": list(parts)})
         if self._on_found:
             self._on_found(picture.file, query, lesson_id)
         return picture
@@ -180,14 +189,15 @@ class PictureFinder:
             completion = await self._gateway.complete(Job.VISION_CHOOSE, OTHER_NAMES_PROMPT.format(query=query), lesson_id=lesson_id, effort="low")
             names = json.loads(completion.text[completion.text.find("["):completion.text.rfind("]") + 1])
             found = await asyncio.gather(*(search_all(name, attribution_ok) for name in names[:2] if isinstance(name, str)))
-        except (GatewayError, json.JSONDecodeError, httpx.HTTPError):
+        except (GatewayError, json.JSONDecodeError, httpx.HTTPError, TimeoutError):
             return []
         return [candidate for batch in found for candidate in batch if looks_like_a_photo(candidate)]
 
     def _remembered(self, key: str) -> Picture | None:
         entry = self._index.get(key)
-        if entry and (self._media_dir / entry["file"]).is_file():
-            return Picture(entry["file"], entry["w"], entry["h"], Credit(**{**entry["credit"], "title": clean_title(entry["credit"]["title"], entry["credit"]["creator"])}))
+        if entry and isinstance(entry.get("parts"), list) and (self._media_dir / entry["file"]).is_file():
+            credit = Credit(**{**entry["credit"], "title": clean_title(entry["credit"]["title"], entry["credit"]["creator"])})
+            return Picture(entry["file"], entry["w"], entry["h"], credit, tuple(entry["parts"]))
         return None
 
     async def _preview(self, candidate: Candidate) -> Downloaded | None:
@@ -205,26 +215,29 @@ class PictureFinder:
             return None
         return Downloaded(data, shape, candidate)
 
-    async def _choose(self, query: str, options: list[Downloaded], lesson_id: str | None) -> Downloaded:
+    async def _choose(self, query: str, options: list[Downloaded], lesson_id: str | None) -> Chosen:
         images = tuple(Image(f"image/{'jpeg' if option.shape.extension == 'jpg' else option.shape.extension}", option.data) for option in options)
-        prompt = CHOOSE_PROMPT.format(count=len(options), query=query, widths=", ".join(str(option.candidate.width) for option in options))
+        prompt = CHOOSE_PROMPT.format(count=len(options), query=query, widths=", ".join(str(option.candidate.width) for option in options), most=MOST_PARTS)
         completion = await self._gateway.complete(Job.VISION_CHOOSE, prompt, system=CHOOSE_SYSTEM, images=images, lesson_id=lesson_id, effort="low")
         try:
-            best = json.loads(completion.text[completion.text.find("{"):completion.text.rfind("}") + 1])["best"]
-        except (json.JSONDecodeError, KeyError):
-            best = None
+            answer = json.loads(completion.text[completion.text.find("{"):completion.text.rfind("}") + 1])
+        except json.JSONDecodeError:
+            answer = {}
+        best = answer.get("best") if isinstance(answer, dict) else None
         if not isinstance(best, int) or not 1 <= best <= len(options):
             raise PictureNotFound(query)
-        return options[best - 1]
+        named = answer.get("parts") if isinstance(answer.get("parts"), list) else []
+        parts = (" ".join(part.lower().split()) for part in named if isinstance(part, str))
+        return Chosen(options[best - 1], tuple(dict.fromkeys(part for part in parts if PART_NAME.match(part)))[:MOST_PARTS])
 
-    def _save(self, chosen: Downloaded) -> Picture:
+    def _save(self, chosen: Downloaded, parts: tuple[str, ...]) -> Picture:
         file = f"{hashlib.sha256(chosen.data).hexdigest()[:FILE_PREFIX_LENGTH]}.{chosen.shape.extension}"
         self._media_dir.mkdir(parents=True, exist_ok=True)
         (self._media_dir / file).write_bytes(chosen.data)
         candidate = chosen.candidate
         creator = clean_creator(candidate.creator)
         credit = Credit(clean_title(candidate.title, creator)[:120], creator, candidate.license, candidate.source)
-        return Picture(file, chosen.shape.width, chosen.shape.height, credit)
+        return Picture(file, chosen.shape.width, chosen.shape.height, credit, parts)
 
 
 def _key(query: str, attribution_ok: bool) -> str:
@@ -285,8 +298,3 @@ def subject_phrases(ask: str) -> list[str]:
             runs[-1].append(word)
     phrases = [" ".join(run[start:start + size]) for run in runs for size in range(min(len(run), LONGEST_SUBJECT_WORDS), 0, -1) for start in range(len(run) - size + 1)]
     return list(dict.fromkeys(phrases))
-
-
-async def prefetch(finder: PictureFinder, subject: str, attribution_ok: bool, lesson_id: str) -> None:
-    with contextlib.suppress(PictureNotFound, httpx.HTTPError, GatewayError):
-        await finder.find(subject, attribution_ok, lesson_id)
