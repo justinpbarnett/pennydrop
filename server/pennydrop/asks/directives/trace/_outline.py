@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from ....tracer import ALGORITHMS, Tracer
@@ -10,13 +11,22 @@ from . import TARGETS, TraceSpec, _run, _with_search_target, outline_lab
 
 MAX_LISTED = 6
 CODE_LINE_ROOM = 12
-OUTLINES: dict[str, str] = {}
+CODE_OBJECT_WARNING = " Show no `code` object beside it: a code object adds a line operation for every step of the run, and a turn of this run would then pass the 40 operation limit of a Step."
+_OUTLINES: dict[str, str] = {}
+
+
+@dataclass(frozen=True)
+class Turn:
+    operations: list[dict[str, Any]]
+    run: TracedRun
+    end: int
+    values: list[Any]
 
 
 async def run_outline(algorithm: str, tracer: Tracer) -> str:
-    if algorithm not in OUTLINES:
-        OUTLINES[algorithm] = await _outline(algorithm, tracer)
-    return OUTLINES[algorithm]
+    if algorithm not in _OUTLINES:
+        _OUTLINES[algorithm] = await _outline(algorithm, tracer)
+    return _OUTLINES[algorithm]
 
 
 async def _outline(algorithm: str, tracer: Tracer) -> str:
@@ -24,22 +34,39 @@ async def _outline(algorithm: str, tracer: Tracer) -> str:
     spec = _with_search_target(TraceSpec(code=algorithm, input=example))
     run = await _run(spec, tracer)
     lab = outline_lab(algorithm)
+    turns = _turns(run, lab, example)
+    told = [f'- "until": {number} adds: {TURN_TEXT[lab](turn)}' for number, turn in enumerate(turns, 1)]
+    return _brief(spec, run, lab, turns, told)
+
+
+def _turns(run: TracedRun, lab: str, example: Any) -> list[Turn]:
     target = TARGETS[lab]
     by_event = target.operations_by_event(run, "stage") if lab != "code" else []
-    turns = target.turns(run)
-    bounds = [0, *turns[1:], len(run.trace.events)] if turns else [0, len(run.trace.events)]
-    turn_operations = [
-        [operation for position, found in by_event if start <= position < end or (position < 0 and start == 0) for operation in found]
+    event_count = len(run.trace.events)
+    stops = target.turns(run)
+    bounds = [0, *stops[1:], event_count] if stops else [0, event_count]
+    values = list(_array_of(example)) if lab == "array" else []
+    return [
+        Turn([operation for position, found in by_event if _falls_in(position, start, end) for operation in found], run, end, values)
         for start, end in zip(bounds, bounds[1:])
     ]
-    values = list(_array_of(example)) if lab == "array" else []
-    told = [
-        f'- "until": {number} adds: {TURN_TEXT[lab](operations, values) if lab == "array" else TURN_TEXT[lab](operations, run, end)}'
-        for number, (operations, end) in enumerate(zip(turn_operations, bounds[1:]), 1)
-    ]
+
+
+def _falls_in(position: int, start: int, end: int) -> bool:
+    return start <= position < end or (_before_first_event(position) and start == 0)
+
+
+def _before_first_event(position: int) -> bool:
+    return position < 0
+
+
+def _brief(spec: TraceSpec, run: TracedRun, lab: str, turns: list[Turn], told: list[str]) -> str:
+    algorithm = spec.code
+    example = ALGORITHMS[algorithm].example
     shown = json.dumps({"code": algorithm, "input": example})
     stage = STAGES[lab].format(values=json.dumps(_array_of(example)), source=algorithm)
-    alone = " Show no `code` object beside it: a code object adds a line operation for every step of the run, and a turn of this run would then pass the 40 operation limit of a Step." if any(len(operations) > CODE_LINE_ROOM for operations in turn_operations) else ""
+    crowded = any(len(turn.operations) > CODE_LINE_ROOM for turn in turns)
+    alone = CODE_OBJECT_WARNING if crowded else ""
     return "\n".join([
         f"Real run to teach: the Ask is about {ALGORITHMS[algorithm].summary}. The server already ran it on a fixed example, and it has {len(told)} turns. Carry exactly `\"trace\": {shown}` in every Step that moves the run, on {stage}, and write none of its operations by hand.{alone} Use exactly this input and never values of your own, so that each Step narrates only the turns it plays and every number matches the stage. Step 1 carries the trace with \"until\": 0, each later Step plays more turns with a later \"until\" taken from the list below, and the Step that plays the end leaves \"until\" out.",
         *told,
@@ -62,7 +89,8 @@ def _index(on: str) -> int:
     return int(re.search(r"\[(\d+)\]", on).group(1))
 
 
-def _array_turn(operations: list[dict[str, Any]], values: list[Any]) -> str:
+def _array_turn(turn: Turn) -> str:
+    operations, values = turn.operations, turn.values
     before = list(values)
     held = len({operation["on"][1] for operation in operations if operation["op"] == "compare"}) == 1
     probes: list[str] = []
@@ -73,7 +101,8 @@ def _array_turn(operations: list[dict[str, Any]], values: list[Any]) -> str:
         kind = operation["op"]
         if kind == "pointer" and operation["name"] == "probe":
             probe = f"checks {values[_index(operation['on'][0])]} at index {_index(operation['on'][0])}"
-            probes.append(probe) if probe not in probes else None
+            if probe not in probes:
+                probes.append(probe)
         elif kind == "compare":
             first, second = (_index(on) for on in operation["on"])
             compares.append((values[first], before[second] if held else values[second]))
@@ -118,10 +147,10 @@ def _listed(items: list[Any]) -> str:
 GRAPH_VERBS = {"push": "pushes", "pop": "pops", "visit": "visits"}
 
 
-def _graph_turn(operations: list[dict[str, Any]], run: TracedRun, end: int) -> str:
+def _graph_turn(turn: Turn) -> str:
     sentences: list[str] = []
     grouped: list[tuple[str, list[str]]] = []
-    for operation in operations:
+    for operation in turn.operations:
         kind = operation["op"]
         if kind == "dist":
             sentences.append(f"sets the distance of {operation['node']} to {operation['value']}")
@@ -137,7 +166,8 @@ def _graph_turn(operations: list[dict[str, Any]], run: TracedRun, end: int) -> s
     return ", then ".join(sentences)
 
 
-def _code_turn(operations: list[dict[str, Any]], run: TracedRun, end: int) -> str:
+def _code_turn(turn: Turn) -> str:
+    run, end = turn.run, turn.end
     after = next((event for event in run.trace.events[end:] if event.type == "line"), None) if end < len(run.trace.events) else None
     event = after or next(event for event in reversed(run.trace.events) if event.type == "line")
     scalars = {name: value for name, value in event.locals.items() if isinstance(value, int | float | str)}
@@ -149,8 +179,19 @@ TURN_TEXT = {"array": _array_turn, "graph": _graph_turn, "code": _code_turn}
 
 def _ending(spec: TraceSpec, run: TracedRun) -> str:
     counters = {name: getattr(run.trace.counters, name) for name in ("comparisons", "swaps", "writes")}
-    totals = ", ".join(f"{count} {name}" for name, count in counters.items() if count and (name != "writes" or not counters["swaps"]))
-    searched = f" It searches for {spec.input['target']}, the last value." if isinstance(spec.input, dict) and "target" in spec.input and spec.code == "binary_search" else ""
+    totals = [f"{count} {name}" for name, count in counters.items() if count and (name != "writes" or not counters["swaps"])]
+    has_target = isinstance(spec.input, dict) and "target" in spec.input
+    searched = ""
+    if has_target and spec.code == "binary_search":
+        searched = f" It searches for {spec.input['target']}, the last value."
+    returned = ""
     result = run.trace.result
-    returned = f" It returns {json.dumps(result)}" + (f", the index of {spec.input['target']}." if isinstance(result, int) and isinstance(spec.input, dict) and "target" in spec.input else ".") if result is not None else ""
-    return f"The whole run makes {totals}." + searched + returned if totals else f"The run ends.{searched}{returned}"
+    if result is not None:
+        returned = f" It returns {json.dumps(result)}"
+        if isinstance(result, int) and has_target:
+            returned += f", the index of {spec.input['target']}."
+        else:
+            returned += "."
+    if not totals:
+        return f"The run ends.{searched}{returned}"
+    return f"The whole run makes {', '.join(totals)}.{searched}{returned}"

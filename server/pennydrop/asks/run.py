@@ -16,8 +16,7 @@ from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
-from .directives.trace._outline import run_outline
-from .directives import DirectiveError, DirectiveTools, as_promise, computed_facts, directive_briefs, expand_directives, fill_values, staged_directives, with_sources
+from .directives import DirectiveError, DirectiveTools, as_promise, computed_facts, directive_briefs, expand_directives, fill_values, run_outline, staged_directives, with_sources
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import mended, mended_by_verdict, mended_cues, with_one_figure_on_stage

@@ -4,6 +4,7 @@ import inspect
 import sys
 from typing import Any
 
+from .trace._outline import run_outline
 from ._support import PLACEHOLDER, DirectiveError, DirectiveTools, discover, fill_values, plain_text, unclear_values
 
 DIRECTIVES = discover(sys.modules[__name__])
@@ -103,4 +104,4 @@ def directive_guides() -> str:
     return "\n\n".join(directive.GUIDE for directive in DIRECTIVES.values())
 
 
-__all__ = ["DIRECTIVES", "DirectiveError", "DirectiveTools", "directive_briefs", "directive_guides", "directives_for_labs", "expand_directives"]
+__all__ = ["DIRECTIVES", "DirectiveError", "DirectiveTools", "directive_briefs", "directive_guides", "directives_for_labs", "expand_directives", "run_outline"]
