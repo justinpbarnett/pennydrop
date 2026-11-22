@@ -63,14 +63,16 @@ PLANNED_HINGE = '; the story asks its hinge right after "until": {until} of the 
 OFF_THE_HINGE = 'this Step\'s predict Challenge is not the one the story asks at its hinge, which comes right after "until": {until} of the run on "{on}"; take the Challenge out of this Step, and ask it in the Step that plays that run to "until": {until}, which is {question}'
 RUN_LEFT_UNFINISHED = 'the {run} stopped part way at "until": {until}, and this is the last Step, so the learner never sees how it ends; carry that run\'s trace directive here with no "until", so this Step plays the rest of the run to its end, and let the narration tell what the finished run shows'
 STILL_OPENING = "this Step plays nothing on the stage and asks nothing"
-STILL_STAGE = STILL_OPENING + ', so the learner hears new words over a still picture; add to "do" the operations that show what "say" tells, such as the next part of the run, the next line of a plot or a highlight on what the narration names, and keep the narration'
+EMPHASIS_OPENING = "this Step only outlines or pulses whole objects on a stage it leaves unchanged, which singles out nothing"
+EMPHASIS_OPERATIONS = ("highlight", "pulse")
+STILL_STAGE = ', so the learner hears new words over a still picture; add to "do" the operations that show what "say" tells, such as the next part of the run, the next line of a plot or a highlight on the one part the narration names, such as arr[2], and keep the narration'
 CHALLENGE_READ_OFF = 'challenge: it asks about {x} {at}, but the {plot} plot already draws every line through {x} {at}, so the learner reads the answer off the plot instead of predicting it; ask about where the lines end, at {x} {end}, while one line is still drawn only part way, and let the next Step graph the rest and mark the end'
 END_TOLD_EARLY = 'say: the narration gives {value}, where the {line} line ends, but the {plot} plot has not drawn that line to its end yet, so the narration tells the result before the stage shows it; leave that number out of "say" here and tell it in the Step that graphs the {line} line to its end and marks it'
 STILL_SIDE_RUN = "; the contrast run is not played yet, so carry its trace in this Step exactly as the brief gives it, and play it here"
 STILL_STOPPED_RUN = '; the story plays the {run} next, and it is stopped at "until": {until}, so carry its trace in this Step with the next stop the brief gives after {until}, or with no "until" when no stop is left, and narrate the turns it plays'
 ASKED_AT_THE_CLOSE = 'challenge: this is the last Step, which closes the story on the point, and a Challenge here comes after the reveal, with nothing left to show its answer; leave "challenge" out of this Step and make "say" state the point'
-STILL_RUN = STILL_OPENING + ': its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
-STILL_SIMULATION = STILL_OPENING + ', so the learner hears new words over a still picture; the run on stage plays only through its "simulate" directive, never through "do", so carry the simulation of the Step before, {simulation}, with the next stop after its "until", or with no "until" to play the rest of the run, and keep "say" telling only the part this Step plays'
+STILL_RUN = ': its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
+STILL_SIMULATION = ', so the learner hears new words over a still picture; the run on stage plays only through its "simulate" directive, never through "do", so carry the simulation of the Step before, {simulation}, with the next stop after its "until", or with no "until" to play the rest of the run, and keep "say" telling only the part this Step plays'
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
 ANSWERS_CUT_QUESTION = 'say: the Step before could not keep its Challenge, so the learner was never asked "{asked}", yet this narration announces its answer as if they had been; tell this beat as a plain statement over the stage, with no words that answer a question, and keep every other field as it is'
 STRESS_OFF_STAGE = 'say: the narration singles out a different syllable from the one this Step\'s stress marks, "{marked}" ("syllable": {index}) of "{word}", the word on stage; make "syllable" the index of the syllable the narration means, or rewrite "say" to name the syllable the stage marks, and when the narration means a syllable of another word, put that word on stage first; keep every other field as it is'
@@ -512,20 +514,21 @@ class LessonRun:
         return []
 
     async def _still_stage(self, step: dict[str, Any], written: dict[str, Any], number: int, followed: asyncio.Future[bool]) -> str | None:
-        if number == 1 or step.get("do") or step.get("scene") or "challenge" in step:
+        if number == 1 or (step.get("do") and not _only_emphasis(step)) or step.get("scene") or "challenge" in step:
             return None
         if not await followed:
             return None
+        opening = EMPHASIS_OPENING if step.get("do") else STILL_OPENING
         staged = next(iter(staged_directives(written)), None)
         if staged:
-            return STILL_RUN.format(directive=staged)
+            return opening + STILL_RUN.format(directive=staged)
         if running := self._stage.unfinished_simulation():
-            return STILL_SIMULATION.format(simulation=json.dumps(running))
+            return opening + STILL_SIMULATION.format(simulation=json.dumps(running))
         if (next_run := self._stage.run_to_play_next()) is None:
-            return STILL_STAGE
+            return opening + STILL_STAGE
         if next_run.until is None:
-            return STILL_STAGE + STILL_SIDE_RUN
-        return STILL_STAGE + STILL_STOPPED_RUN.format(run=next_run.name, until=next_run.until)
+            return opening + STILL_STAGE + STILL_SIDE_RUN
+        return opening + STILL_STAGE + STILL_STOPPED_RUN.format(run=next_run.name, until=next_run.until)
 
     async def _narration_off_stage(self, step: dict[str, Any], arrays: list[ArrayPlay], figures: list[FigurePlay], events: list[EventPlay]) -> str | None:
         say = step.get("say")
@@ -889,6 +892,10 @@ def _named(names: list[str]) -> str:
 
 async def _asked_at_the_close(step: dict[str, Any], number: int, followed: asyncio.Future[bool]) -> bool:
     return number > 1 and "challenge" in step and not await followed
+
+
+def _only_emphasis(step: dict[str, Any]) -> bool:
+    return all(isinstance(operation, dict) and operation.get("op") in EMPHASIS_OPERATIONS and all("[" not in str(target) for target in operation.get("on") or []) for operation in step.get("do") or [])
 
 
 def _plays_something(step: dict[str, Any], written: dict[str, Any] | Malformed) -> bool:
