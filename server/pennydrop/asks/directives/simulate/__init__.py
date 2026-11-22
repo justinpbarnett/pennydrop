@@ -27,7 +27,7 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     object_id = spec.on or _object_of_lab(raw["lab"], scene, tools.staged) or simulation.object_id
     expanded = {
         **step,
-        "scene": {**scene, object_id: {**scene.get(object_id, {}), **simulation.scene}, **simulation.objects},
+        "scene": {**scene, object_id: {**(scene.get(object_id) or {}), **simulation.scene}, **simulation.objects},
         "do": [*step.get("do", []), *limit_operations("simulate", [{"on": [object_id], **operation} for operation in simulation.operations])],
     }
     return expanded, {f"simulate.{name}": value for name, value in simulation.values.items()}
