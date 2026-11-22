@@ -45,18 +45,18 @@ TREE_EXAMPLE = {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [None, "I"], "A"
 
 PROMISES = {
     "bubble_sort": "Why does sorting a long list by swapping neighbors take so many passes?",
-    "selection_sort": "Why does picking the smallest card again and again get slow for a big hand?",
-    "insertion_sort": "Why does sorting a hand of cards one card at a time slow down as the hand grows?",
+    "selection_sort": "Why does picking the smallest card again and again get slow?",
+    "insertion_sort": "Why does sorting cards one at a time slow down for big hands?",
     "merge_sort": "How do you sort a huge pile of papers by sorting two small piles?",
     "quick_sort": "How does picking one card split a deck so a sort finishes fast?",
-    "partition": "How does one pivot card sort a whole deck into small and big in a single pass?",
-    "binary_search": "How can you find one name in a phone book of a million names in about twenty looks?",
-    "linear_search": "How many names do you read to find the last one in a phone book?",
+    "partition": "How does one pivot card split a deck into small and big?",
+    "binary_search": "How can twenty looks find one name among a million?",
+    "linear_search": "How many names do you read to reach the last one listed?",
     "breadth_first_search": "How does a search find the nearest friend in a network of friends first?",
     "depth_first_search": "How does a search explore a maze without getting lost in it?",
     "dijkstra": "How does a map app find the cheapest route out of every possible road?",
     "tree_preorder": "How do you read every folder in a file tree, parents before children?",
-    "tree_inorder": "How do you read a tree of names so they come out in alphabetical order?",
+    "tree_inorder": "How do you read a tree of names in alphabetical order?",
     "tree_postorder": "How do you delete a folder only after everything inside it is gone?",
 }
 

@@ -329,7 +329,7 @@ class LessonRun:
         if number > 1 and "challenge" not in step and isinstance(step.get("say"), str) and step["say"].rstrip().endswith("?"):
             advice.append(OPEN_QUESTION)
         if number == 1 and isinstance(step.get("say"), str) and len(step["say"].split()) > PROMISE_WORDS:
-            advice.append(f"the promise must be one question of at most {PROMISE_WORDS} words, and this one has {len(step['say'].split())}; cut it down and keep its concrete example")
+            advice.append(f"the promise must be one question sentence of at most {PROMISE_WORDS} words, and this one runs longer; cut any setup sentence and keep the concrete example inside the question")
         return Checked(errors, step, verdict.scene, advice, values, [] if claims_agree else facts)
 
     async def _missing_hinge(self, step: dict[str, Any], number: int, last_after: asyncio.Future[dict[str, Any] | Malformed | None]) -> str | None:
