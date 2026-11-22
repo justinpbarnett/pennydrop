@@ -68,6 +68,7 @@ NEW_TOPIC = "new_topic"
 PICTURE_LAB = "picture"
 NO_SUBJECT = "none"
 NO_ALGORITHM = "none"
+KID_ALGORITHMS = ("bubble_sort", "binary_search", "linear_search")
 
 
 class Tier(StrEnum):
@@ -95,6 +96,8 @@ class Plan:
     graded_assignment: bool
     photo_subject: str | None
     algorithm: str | None = None
+    shows_code: bool = False
+    charts_quantities: bool = False
 
 
 class Classifier:
@@ -114,6 +117,7 @@ class Classifier:
             "graded_assignment": YesNo("Does the person want code or answers for a graded course assignment, rather than to understand a concept?"),
         }
         is_kid = profile is not None and profile.kind is ProfileKind.KID
+        labs = tuple(lab for lab in labs if lab.wordless or not is_kid)
         for lab in labs:
             question = f"Would the {lab.title} Lab help show this Ask as an animation? The {lab.title} Lab is: {lab.summary}"
             if lab.id in LAB_LIMITS:
@@ -132,13 +136,17 @@ class Classifier:
                 "Which words name the one real, physical thing a photo for this Ask should show, as plainly as a child would name it?",
                 {phrase: f'a photo of "{phrase}"' for phrase in phrases} | {NO_SUBJECT: "no real thing a photo could show"},
             )
-        if not is_kid and any(lab.id in TARGETS for lab in labs):
+        if any(lab.id in TARGETS for lab in labs):
             questions["algorithm"] = Choice(
                 "Which one of these algorithms does the Ask ask about, how it works or why it behaves as it does? Answer none when the Ask is about anything else, such as a data structure, an operating system idea or a network.",
-                {name: algorithm.summary for name, algorithm in ALGORITHMS.items()} | {NO_ALGORITHM: "none of these algorithms"},
+                {name: algorithm.summary for name, algorithm in ALGORITHMS.items() if not is_kid or name in KID_ALGORITHMS} | {NO_ALGORITHM: "none of these algorithms"},
             )
+        if not is_kid and any(lab.id in TARGETS for lab in labs):
+            questions["shows_code"] = YesNo("Does the person ask to see the program's code itself, such as its source lines or how it runs line by line, rather than only what it does to its data?")
+        if any(lab.id == "plot" for lab in labs):
+            questions["plots_a_function"] = YesNo("Is the Ask about the shape, slope or area of one basic function such as ax, ax² or sin x, rather than about how the Ask's own quantities change, such as money over years or the steps two algorithms take as the input grows?")
         if is_kid:
-            questions["young_child_ok"] = YesNo("Is this question fine for a young child to learn about?")
+            questions["young_child_ok"] = YesNo("Is this question fine for a young child to learn about: free of frightening, violent, sexual or other adult content? A subject that is only hard, such as code, sorting, math or how machines work, is fine.")
         result = await self._gateway.classify(_state(ask, profile, viewing), questions, lesson_id=lesson_id)
         answers = result.answers
         depth = answers["depth"]
@@ -156,6 +164,8 @@ class Classifier:
             graded_assignment=_yes(answers["graded_assignment"]),
             photo_subject=subject.choice if isinstance(subject, ChoiceAnswer) and subject.choice in phrases else None,
             algorithm=algorithm,
+            shows_code=algorithm is not None and "code" in fitting_labs and _yes(answers["shows_code"]),
+            charts_quantities="plot" in fitting_labs and not _yes(answers["plots_a_function"]),
         )
 
     async def fine_for_young_child(self, say: str, lesson_id: str) -> bool:

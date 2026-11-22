@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ....spoken import comparable_script
 from ....tracer import ALGORITHMS, TraceError, Tracer
 from . import _stages as stages
 from . import code
@@ -91,6 +92,10 @@ def _with_library_source(spec: Any) -> Any:
     source = spec.get("source") if isinstance(spec, dict) and spec.get("lab") == "code" else None
     if isinstance(source, str) and source.strip() and source not in ALGORITHMS and len(source.split()) == 1:
         raise DirectiveError(f'trace directive: the code object\'s source "{source}" is neither code nor a library algorithm; write the real code, or one of {", ".join(ALGORITHMS)}')
+    return library_filled(spec)
+
+
+def library_filled(spec: Any) -> Any:
     if isinstance(spec, dict) and spec.get("lab") == "code" and spec.get("source") in ALGORITHMS:
         algorithm = ALGORITHMS[spec["source"]]
         return {"language": "python", **spec, "vars": _variables_of(algorithm.source, algorithm.entry), "source": shown_source(algorithm.source)}
@@ -109,7 +114,7 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     kept = {name: obj for name, obj in tools.staged.items() if name not in (step.get("scene") or {})}
     spec = _with_shown_source(_with_search_target(_aligned(parse_spec(TraceSpec, raw, "trace"))), {**kept, **written})
     _require_the_array_shown(spec, {**kept, **written})
-    step = _with_traced_object(step, {**kept, **written}, spec)
+    step = _with_traced_object(step, {**kept, **written}, spec, tools.young_child)
     written = {name: obj for name, obj in (step.get("scene") or {}).items() if isinstance(obj, dict)}
     object_id = _traced_object(written, kept, spec)
     pool = {**tools.staged, **written}
@@ -142,8 +147,26 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     elif code_id:
         expanded = _with_code_following(expanded, played, code_id, by_event, run, window)
     _require_within_a_step(expanded.get("do", [])[played:], bool(turns))
-    _require_one_middle_check(spec, expanded.get("do", [])[played:], pool[object_id])
+    _require_the_next_turn_predicted(step, object_id, by_event, turns, window, len(run.trace.events))
+    _require_one_middle_check(spec, expanded.get("do", [])[played:], pool[object_id], step.get("say"))
     return _settled(expanded, spec, run, window, object_id)
+
+
+def _require_the_next_turn_predicted(step: dict[str, Any], object_id: str, by_event: list[tuple[int, list[dict[str, Any]]]], turns: list[int], window: Window, events: int) -> None:
+    challenge = step.get("challenge")
+    answer = challenge.get("answer") if isinstance(challenge, dict) and challenge.get("kind") == "predict" else None
+    if not isinstance(answer, str):
+        return
+    nodes = {str(operation["node"]) for _, operations in by_event for operation in operations if "node" in operation}
+    named = re.fullmatch(rf"{re.escape(object_id)}\[([^\]]+)\]", answer)
+    node = named.group(1) if named else answer if answer in nodes else None
+    if node is None:
+        return
+    following = Window(window.end, next((turn for turn in turns if turn > window.end), events), finished=False)
+    taken = list(dict.fromkeys(str(operation["node"]) for operation in following.of(by_event) if "node" in operation))
+    if taken and node not in taken:
+        written = f"{object_id}[{taken[0]}]" if named else taken[0]
+        raise DirectiveError(f'challenge: its answer {answer} names {node}, but the turn the run plays right after this Step\'s stop works on {" and ".join(taken)}, so the reveal would contradict the stage; make the answer one of those, such as "{written}", and ask about that turn, or stop this Step at the "until" just before the turn that works on {node}')
 
 
 def _held_for_prediction(step: dict[str, Any], until: int | None, turns: list[int]) -> int | None:
@@ -195,7 +218,7 @@ def _require_within_a_step(operations: list[dict[str, Any]], staged: bool) -> No
 
 
 def _following_code(pool: dict[str, Any], data_id: str) -> str | None:
-    if pool[data_id].get("lab") == "code":
+    if pool[data_id].get("lab") == "code" or data_id == CONTRAST_RUN:
         return None
     return next((name for name, obj in pool.items() if isinstance(obj, dict) and obj.get("lab") == "code" and name != data_id), None)
 
@@ -206,15 +229,21 @@ def _require_totals_unsaid(step: dict[str, Any], until: int | None, object_id: s
         raise DirectiveError(f'trace directive: {{{said[0]}}} is a total of the whole run, and this Step stops it after turn {until}, so the stage does not show it yet; leave the number out of the narration here, and say it in the Step that plays the run to its end, which carries the trace without "until". A predict Challenge here may still name it as its "answer"')
 
 
-def _require_one_middle_check(spec: TraceSpec, operations: list[dict[str, Any]], traced: dict[str, Any]) -> None:
+def _require_one_middle_check(spec: TraceSpec, operations: list[dict[str, Any]], traced: dict[str, Any], say: Any) -> None:
     if spec.code != "binary_search":
         return
     probed = [int(found[1]) for probe, counted in zip(operations, operations[1:]) if probe.get("name") == PROBE_POINTER and counted.get("op") == "counter" and (found := CELL_INDEX.search(str(probe.get("on")))) is not None]
-    if len(probed) < 2:
-        return
     values = traced.get("values") if isinstance(traced.get("values"), list) else []
-    middles = ", ".join(str(values[index]) for index in probed if index < len(values))
-    raise DirectiveError(f'trace directive: this Step plays {len(probed)} middle checks of binary_search ({middles}), and the learner follows the search one halving at a time; give this Step an "until" one turn later than the Step before ("until": 1 in the Step that starts the search), narrate only that check and the half it keeps, and play each later check in its own Step with the same trace')
+    middles = [str(values[index]) for index in probed if index < len(values)]
+    if len(probed) < 2 or (spec.until is None and _tells_in_order(middles, say)):
+        return
+    listed = ", then ".join(middles)
+    raise DirectiveError(f'trace directive: this Step plays {len(probed)} middle checks of binary_search ({listed}), and the learner follows the search one halving at a time; give this Step an "until" one turn later than the Step before ("until": 1 in the Step that starts the search), narrate only that check and the half it keeps, and play each later check in its own Step with the same trace. Only the Step that plays the search to its end, with no "until", may play several checks, and then "say" names each middle it checks in order: {listed}')
+
+
+def _tells_in_order(values: list[str], say: Any) -> bool:
+    remaining = iter(comparable_script(say) if isinstance(say, str) else [])
+    return all(value in remaining for value in values)
 
 
 def _require_a_search_worth_watching(spec: TraceSpec, run: TracedRun) -> None:
@@ -245,7 +274,7 @@ def _require_the_array_shown(spec: TraceSpec, pool: dict[str, Any]) -> None:
     if any(TARGETS["array"].holds_input(obj, spec.input) for obj in arrays.values()):
         return
     name, shown = next(iter(arrays.items()))
-    raise DirectiveError(f"trace directive: the array '{name}' on stage holds {shown['values']}, but the trace runs {spec.code} on {values}, so the picture and the counts would tell different stories; set the trace input to {shown['values']} so the run plays on '{name}', or set '{name}' to {values} in this Step's scene")
+    raise DirectiveError(f"trace directive: the array '{name}' on stage holds {shown['values']}, but the trace runs {spec.code} on {values}, so the picture and the counts would tell different stories; to play this run beside '{name}', add a second array object whose values are {values} to this Step's scene and name its id in the trace's \"on\", or, to play '{name}' itself, set the trace input to {shown['values']}")
 
 
 def _with_code_following(step: dict[str, Any], played: int, code_id: str, data_operations: Any, run: TracedRun, window: Window) -> dict[str, Any]:
@@ -254,7 +283,7 @@ def _with_code_following(step: dict[str, Any], played: int, code_id: str, data_o
     return full if len(full["do"]) - played <= MAX_STEP_OPERATIONS else code.follow(bare, code_id, run, data_operations, window, lines_only=True)
 
 
-def _with_traced_object(step: dict[str, Any], pool: dict[str, Any], spec: TraceSpec) -> dict[str, Any]:
+def _with_traced_object(step: dict[str, Any], pool: dict[str, Any], spec: TraceSpec, young_child: bool) -> dict[str, Any]:
     if any(obj.get("lab") in TARGETS for obj in pool.values()):
         return step
     if spec.code in ALGORITHMS:
@@ -262,6 +291,8 @@ def _with_traced_object(step: dict[str, Any], pool: dict[str, Any], spec: TraceS
         graph_plays = spec.code in getattr(TARGETS["graph"], "LIBRARY", ())
         added = {"traced": {"lab": "array", "values": values}} if values and not graph_plays else {}
     else:
+        if young_child:
+            raise DirectiveError(f"trace directive: this run shows as code, and a child who cannot read cannot follow code; trace a library algorithm instead, one of {', '.join(sorted(ALGORITHMS))}, whose array a child sees as bars trading places, or tell the idea with shapes")
         added = {"traced": {"lab": "code", "language": "python", "source": spec.code, "vars": []}}
     return {**step, "scene": {**(step.get("scene") or {}), **added}} if added else step
 
@@ -312,7 +343,7 @@ async def _run(spec: TraceSpec, tracer: Tracer) -> TracedRun:
     if trace.truncated:
         raise DirectiveError("trace directive: the traced code ran too long to play; trace a smaller input")
     known = ALGORITHMS.get(spec.code)
-    return TracedRun(trace, spec.input, source, *(((known.pointers, known.window, known.placed)) if known else ()))
+    return TracedRun(trace, spec.input, source, *(((known.pointers, known.window, known.placed, known.settles)) if known else ()))
 
 
 def _entry_point(source: str) -> str:

@@ -147,6 +147,13 @@ class TracedList(list):
         recorder.record_set(position, snapshot(raw), origin)
 
 
+def in_order(items):
+    try:
+        return sorted(items)
+    except TypeError:
+        return sorted(items, key=lambda item: (type(item).__name__, repr(item)))
+
+
 def snapshot(value, depth=0):
     value = unwrap(value)
     if value is None or isinstance(value, (bool, int)):
@@ -155,7 +162,9 @@ def snapshot(value, depth=0):
         return value if value == value and abs(value) != float("inf") else str(value)
     if isinstance(value, str):
         return value[:MAX_TEXT]
-    if depth < 3 and isinstance(value, (list, tuple, set, frozenset)):
+    if depth < 3 and isinstance(value, (set, frozenset)):
+        return [snapshot(item, depth + 1) for item in in_order(value)[:MAX_LIST_ITEMS]]
+    if depth < 3 and isinstance(value, (list, tuple)):
         return [snapshot(item, depth + 1) for item in list(value)[:MAX_LIST_ITEMS]]
     if depth < 3 and isinstance(value, dict):
         return {str(key)[:MAX_TEXT]: snapshot(item, depth + 1) for key, item in list(value.items())[:MAX_LIST_ITEMS]}

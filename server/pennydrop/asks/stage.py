@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
 from .directives import directives_for_labs
 from .directives._support import operation_targets, trace_key, with_nested_trace_lifted
 from .directives.simulate import contradictions, filled_from
-from .directives.trace import TRACE_TOTALS
+from .directives.trace import CONTRAST_RUN, MAIN_RUN, TRACE_TOTALS
+from .directives.trace.array import holds_input
 from .played_hops import PlayedHops
 from .played_setups import PlayedSetups
 
@@ -39,6 +41,8 @@ def _holds_nothing(spec: dict[str, Any]) -> bool:
 
 
 FRONTIER_OPERATIONS = ("push", "pop", "relax")
+LOOKS = ("highlight", "clear")
+RUN_OBJECTS = (MAIN_RUN, CONTRAST_RUN)
 
 
 ASKS_TO_PREDICT = re.compile(r"(?:^|[.!?]\s+|\b(?:can you|try to|pause and|stop and|take a (?:moment|second) to|go ahead and|now)\s+|,\s*)(?:predict|guess)\b|\bmake a (?:prediction|guess)\b|\bwhat (?:do|would|will) you (?:predict|guess)\b|\byour (?:prediction|guess)\b", re.IGNORECASE)
@@ -65,8 +69,13 @@ def _how_to_fill(lab: str) -> str:
 
 
 class Stage:
-    def __init__(self, snapshot: Any = None, side_runs: frozenset[str] = frozenset(), kid: bool = False):
+    def __init__(self, snapshot: Any = None, side_runs: frozenset[str] = frozenset(), main_first: bool = False, kid: bool = False, kept_on_stage: frozenset[str] = frozenset(), hinge: tuple[str, int] | None = None, charts_quantities: bool = False):
         self.side_runs = side_runs
+        self.kid = kid
+        self.charts_quantities = charts_quantities
+        self.kept_on_stage = kept_on_stage
+        self.hinge = hinge
+        self.main_first = main_first
         self.specs: dict[str, dict[str, Any]] = {}
         self.labs: dict[str, str] = {}
         self.traces: set[str] = set()
@@ -75,6 +84,7 @@ class Stage:
         self.last_trace_on: dict[str, dict[str, Any]] = {}
         self.trace_untils: dict[str, int | None] = {}
         self.trace_counters: dict[str, set[str]] = {}
+        self.running: dict[str, str] = {}
         self.shown_totals: dict[str, dict[str, Any]] = {}
         self.in_flight: set[str] = set()
         self.lost_runs = False
@@ -117,6 +127,11 @@ class Stage:
         if totals := trace_totals(values):
             self.shown_totals[key] = totals
         for name, spec in (settled.get("scene") or {}).items():
+            if isinstance(spec, dict) and spec.get("lab") == "array" and holds_input(spec, raw.get("input")):
+                if "until" in raw:
+                    self.running[name] = str(raw.get("code"))
+                else:
+                    self.running.pop(name, None)
             counters = spec.get("counters") if isinstance(spec, dict) else None
             if counters:
                 self.trace_counters[name] = {str(counter) for counter in counters}
@@ -138,6 +153,30 @@ class Stage:
             return True
         return not (trace_totals(values) or (isinstance(raw, dict) and "until" not in raw))
 
+    def main_stop_before_side_run(self, written: Any) -> int | None:
+        key = trace_key(self.filled_trace(written.get("trace")) if isinstance(written, dict) else None)
+        main = self.traces - self.side_runs
+        if not self.main_first or key not in self.side_runs or key in self.traces or not main or main & (self.finished_traces | self.shown_totals.keys()):
+            return None
+        return max((self.trace_untils.get(run) or 0 for run in main), default=0)
+
+    def side_stop_before_main_run(self, written: Any) -> int | None:
+        key = trace_key(self.filled_trace(written.get("trace")) if isinstance(written, dict) else None)
+        started = self.side_runs & self.traces
+        if self.main_first or key is None or key in self.side_runs or not started or started & (self.finished_traces | self.shown_totals.keys()):
+            return None
+        return max(self.trace_untils.get(run) or 0 for run in started)
+
+    def asks_off_the_hinge(self, written: Any) -> int | None:
+        challenge = written.get("challenge") if isinstance(written, dict) else None
+        if self.hinge is None or not isinstance(challenge, dict) or challenge.get("kind") != "predict":
+            return None
+        key, stop = self.hinge
+        trace = self.filled_trace(written.get("trace"))
+        if trace_key(trace) != key or key in self.finished_traces or (self.trace_untils.get(key) or 0) >= stop:
+            return None
+        return stop if trace.get("until") != stop else None
+
     def side_run_unplayed(self) -> bool:
         return bool(self.side_runs - self.traces)
 
@@ -158,7 +197,39 @@ class Stage:
         return next((raw for lab, raw in self.simulations.items() if raw.get("until") is not None and lab in self.labs.values()), None)
 
     def errors_in_written(self, written: Any) -> list[str]:
-        return self._graph_played_by_hand(written) + self._counters_owned_by_trace(written) + self._declared_again(written)
+        return self._graph_played_by_hand(written) + self._run_played_by_hand(written) + self._run_taken_off(written) + self._counters_owned_by_trace(written) + self._run_pointed_by_hand(written) + self._declared_again(written) + self._function_plotted(written) + self._left_blank(written) + self._code_for_child(written)
+
+    def _code_for_child(self, written: Any) -> list[str]:
+        scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
+        return [
+            f'scene: {name} is a code Lab, and a child who cannot read cannot follow code, even when the Ask says code; write no code object, and show the run as bars instead: '
+            'carry the trace directive with a library algorithm and no "on", such as "trace": {"code": "insertion_sort", "input": [5, 2, 4, 1, 3]}, which puts the array on stage as bars as tall as their values, and narrate what the bars do'
+            for name, spec in scene.items()
+            if self.kid and isinstance(spec, dict) and spec.get("lab") == "code"
+        ]
+
+    def _left_blank(self, written: Any) -> list[str]:
+        scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
+        operations = written.get("do") if isinstance(written, dict) and isinstance(written.get("do"), list) else []
+        written_on = {name for operation in operations if isinstance(operation, dict) and operation.get("op") == "write" for name in (operation.get("on") or [])}
+        return [
+            f'scene: {name} is a text with no words, which holds a blank space on the stage; give it the words it shows, or write them in this Step with {{"op": "write", "on": ["{name}"], "text": "<the words>"}}, or leave it out until a Step has words for it'
+            for name, spec in scene.items()
+            if isinstance(spec, dict) and spec.get("kind") == "text" and not str(spec.get("text") or "").strip() and name not in written_on
+        ]
+
+    def _function_plotted(self, written: Any) -> list[str]:
+        scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
+        return [
+            f'scene: {name} is a function plot, which graphs only ax, ax² or sin x between −2 and 2, but this Ask is about its own quantities, so no function plot can show them; '
+            f'carry the curves directive instead, such as "curves": {{"on": "{name}", "x": "<x axis>", "y": "<y axis>", "over": [<first x>, <last x>], "lines": {{"<line name>": "<formula in x>"}}}}, with one formula for each quantity the Ask names, write no plot object in "scene", and draw a line with graph and "curve"'
+            for name, spec in scene.items()
+            if self.charts_quantities and isinstance(spec, dict) and spec.get("lab") == "plot" and "curves" not in spec
+        ]
+
+    def _run_taken_off(self, written: Any) -> list[str]:
+        scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
+        return [f'scene: {name} is set to null, which takes the {name} run off the stage, but the two runs stay side by side from Step 1 to the last Step, since seeing both is the proof; keep {name} on stage and leave it out of this Step\'s scene' for name in sorted(self.kept_on_stage) if name in scene and scene[name] is None]
 
     def _declared_again(self, written: Any) -> list[str]:
         scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
@@ -185,6 +256,41 @@ class Stage:
         })
         carry = 'Step 1 only asks the question, so remove those operations and carry the "trace" with "until": 0, which draws the graph and plays none of the walk' if written.get("step") == 1 else 'carry a "trace" in this Step, with an "until" that stops after the nodes this Step\'s narration names, and write none of those operations'
         return [f'{name}: a graph search written by hand with push, pop, relax or visit over a frontier goes wrong as soon as one neighbor is missed; when a library algorithm fits (breadth_first_search, depth_first_search, dijkstra), {carry}; for a tree you build or walk by hand, leave out "frontier" and use visit only to point at the node being compared' for name in by_hand]
+
+    def _run_played_by_hand(self, written: Any) -> list[str]:
+        if not self.side_runs or not isinstance(written, dict):
+            return []
+        trace = self.filled_trace(written.get("trace"))
+        key = trace_key(trace)
+        traced = None if key is None else CONTRAST_RUN if key in self.side_runs else MAIN_RUN
+        on = trace.get("on") if isinstance(trace, dict) else None
+        named = on if isinstance(on, list) else [on]
+        elsewhere = [] if traced is None or traced in named else [f'trace: "on" names {json.dumps(on)}, but this trace is the {traced} run, which plays only on the object with the id "{traced}"; set "on" to "{traced}", and keep each run on its own object so the two stay side by side']
+        played = sorted({
+            name
+            for operation in written.get("do", [])
+            if isinstance(operation, dict) and operation.get("op") not in LOOKS
+            for name in operation_targets(operation)
+            if name in RUN_OBJECTS and name != traced
+        })
+        return elsewhere + [f'{name}: this Step plays the {name} run with "do" entries of its own, but that run plays only through the trace the brief gives for it, so the stage moves as the real code does and its counter ends at the real total; carry that trace exactly in this Step, with an "until" at the stop this Step reaches, write none of the run\'s operations, and narrate only the turns it plays' for name in played]
+
+    def _run_pointed_by_hand(self, written: Any) -> list[str]:
+        if not isinstance(written, dict) or "trace" in written:
+            return []
+        pointed = sorted({
+            name
+            for operation in written.get("do") or []
+            if isinstance(operation, dict) and operation.get("op") in ("pointer", "window")
+            for name in operation_targets(operation)
+            if name in self.running or (self.kid and self.labs.get(name) == "array")
+        })
+        return [
+            f'{name}: its {self.running[name]} run is still playing, and its pointers and window come only from that run, so one written by hand puts the stage out of step with the code; to show the next part of the run, carry the same trace with a later "until", and to point at a value, highlight it'
+            if name in self.running
+            else f'{name}: a child sees a search as bars, and its pointer and window come only from a traced search, so trace binary_search or linear_search on these bars with "until" to play one look at a time, and to point at a bar, highlight it'
+            for name in pointed
+        ]
 
     def _counters_owned_by_trace(self, written: Any) -> list[str]:
         operations = written.get("do") if isinstance(written, dict) and "trace" not in written else None
@@ -250,7 +356,7 @@ class Stage:
                 self.specs[name] = {**self.specs[name], "parts": operation.get("parts", [])}
 
     def errors_in(self, step: dict[str, Any], written: Any, values: dict[str, Any]) -> list[str]:
-        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + question_without_challenge(step) + self._total_already_shown(step, written, values) + self.unran_values(step, ran_something(written)) + contradictions(step, self.labs, self.played) + self.setups.errors_in(step) + self.hops.errors_in(step)
+        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + self._empty_stage(step) + question_without_challenge(step) + self._total_already_shown(step, written, values) + self.unran_values(step, ran_something(written)) + contradictions(step, self.labs, self.played) + self.setups.errors_in(step) + self.hops.errors_in(step)
 
     def _total_already_shown(self, step: dict[str, Any], written: Any, values: dict[str, Any]) -> list[str]:
         challenge = step.get("challenge")
@@ -262,6 +368,13 @@ class Stage:
         if not named:
             return []
         return [f'step {step.get("step")} challenge: its answer {answer} is {{{named[0]}}}, and by the time the Challenge waits the stage has played the run to its end and shows that total, so the learner reads it off instead of predicting it; ask this predict Challenge in a Step before the end of the run, one that repeats the trace with an "until", and let the next Step, which carries the trace without "until", play the end and reveal the total']
+
+    def _empty_stage(self, step: dict[str, Any]) -> list[str]:
+        scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+        shown = {name for name in {*self.labs, *self.specs} if name not in scene} | {name for name, spec in scene.items() if isinstance(spec, dict)}
+        if shown:
+            return []
+        return [f'step {step.get("step")} scene: the stage is empty while this Step speaks, so the learner looks at a blank screen; put on stage the figure the story is about, such as the run\'s object with its trace at "until": 0, which draws it and plays nothing']
 
     def _empty_figures(self, step: dict[str, Any]) -> list[str]:
         scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}

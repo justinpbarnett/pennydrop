@@ -75,10 +75,11 @@ def window(until: int | None, turns: list[int], by_event: OperationsByEvent, pla
 
 def _last_shown(by_event: OperationsByEvent, played: list[dict[str, Any]]) -> int | None:
     flat = [(position, _comparable(operation)) for position, operations in by_event for operation in operations]
-    shown = [_comparable(operation) for operation in played]
-    if not shown or len(shown) > len(flat) or [found for _, found in flat[: len(shown)]] != shown:
-        return None
-    return flat[len(shown) - 1][0]
+    matched = 0
+    for operation in played:
+        if matched < len(flat) and flat[matched][1] == _comparable(operation):
+            matched += 1
+    return flat[matched - 1][0] if matched else None
 
 
 def _comparable(operation: dict[str, Any]) -> str:

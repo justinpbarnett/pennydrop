@@ -57,6 +57,9 @@ def follow(step: dict[str, Any], object_id: str, run: TracedRun, data_operations
             elif event.type == "line":
                 last_line = event
             elif event.type == "return":
+                if shown and not lines_only and last_line is not None:
+                    operations.extend(_stepped_to(last_line, frames[-1] if frames else {}, on, run))
+                last_line = None
                 if frames:
                     frames.pop()
                 if shown and not lines_only:
@@ -81,6 +84,12 @@ def follow(step: dict[str, Any], object_id: str, run: TracedRun, data_operations
     if final_position >= 0 and not marker_depth:
         operations.extend(_caught_up(run, window.end, frames[-1] if frames else {}, on))
     return {**step, "do": [*step.get("do", []), *operations]}
+
+
+def _stepped_to(line: Any, known: dict[str, Any], on: list[str], run: TracedRun) -> list[dict[str, Any]]:
+    changed = {name: value for name, value in line.locals.items() if name not in known or known[name] != value}
+    known.update(changed)
+    return [*({"op": "set", "on": on, "name": name, "value": plain_repr(value)} for name, value in changed.items()), {"op": "line", "on": on, "n": line.line - _stripped_lines(run.source)}]
 
 
 def _caught_up(run: TracedRun, end: int, known: dict[str, Any], on: list[str]) -> list[dict[str, Any]]:

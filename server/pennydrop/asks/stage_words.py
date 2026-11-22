@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ..spoken import comparable_script
+
 ARRAY_LAB = "array"
 ARRAY_DEF = "lab:array"
 PLOT_LAB = "plot"
@@ -36,7 +38,7 @@ class ArrayPlay:
 
     def told(self) -> str:
         change = f"stays {list(self.before)}" if self.before == self.after else f"goes from {list(self.before)} to {list(self.after)}"
-        return f"the {self.name} array {change}: {'; '.join(self.moves)}"
+        return f"the {self.name} array {change}: {'; '.join(self.moves)}" if self.moves else f"the {self.name} array {change}, and no value in it moves"
 
     def shown(self) -> str:
         return f"the {self.name} array shows {list(self.after)}"
@@ -150,6 +152,7 @@ class PlotView:
     unfinished: tuple[str, ...]
     graphed: tuple[str, ...]
     ends: dict[str, float]
+    last_x: float
 
     def end_told_early(self, say: str) -> tuple[str, float] | None:
         said = [float(found.replace(",", "")) for found in NUMBER.findall(say)]
@@ -158,6 +161,15 @@ class PlotView:
             if any(abs(number - end) <= max(0.5, abs(end) * SAME_NUMBER_SHARE) for number in said):
                 return line, end
         return None
+
+    def read_off_at(self, asked: str) -> float | None:
+        if not self.lines or len(self.lines) < len(self.ends):
+            return None
+        first, reach = max(line.start[0] for line in self.lines), min(line.end[0] for line in self.lines)
+        tokens = comparable_script(asked)
+        pointers = {"at", *comparable_script(self.x)}
+        named = [float(token) for index, token in enumerate(tokens) if token.isdigit() and pointers & set(tokens[max(0, index - 2) : index])]
+        return next((x for x in named if first < x <= reach), None)
 
     def shown(self) -> str:
         drawn = "; ".join(f"the {line.name} line from {_number(line.start[1])} at {self.x} {_number(line.start[0])} to {_number(line.end[1])} at {self.x} {_number(line.end[0])}" for line in self.lines)
@@ -188,7 +200,7 @@ class _Plot:
     def view(self, name: str, graphed: tuple[str, ...]) -> PlotView:
         drawn = tuple(DrawnLine(line, tuple(points[0]), (reach, _value_at(points, reach))) for line, points in self.lines.items() if (reach := self.drawn_to.get(line)) is not None)
         unfinished = tuple(line for line, points in self.lines.items() if self.drawn_to.get(line, -float("inf")) < points[-1][0])
-        return PlotView(name, self.x, drawn, unfinished, graphed, {line: points[-1][1] for line, points in self.lines.items()})
+        return PlotView(name, self.x, drawn, unfinished, graphed, {line: points[-1][1] for line, points in self.lines.items()}, max(points[-1][0] for points in self.lines.values()))
 
 
 def array_plays(scene_before: Any, step: dict[str, Any]) -> list[ArrayPlay]:

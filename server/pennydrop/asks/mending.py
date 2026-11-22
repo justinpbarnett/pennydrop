@@ -7,6 +7,7 @@ from typing import Any
 from ..tracer import ALGORITHMS
 from .directives._support import operation_targets
 from .directives.simulate import filled_from, with_scene_figure_as_simulation
+from .directives.trace import library_filled
 from .directives.trace.code import shown_source
 from .played_hops import says_number
 from .stage import FRONTIER_OPERATIONS, TRACE_TOTAL_PREFIX, Stage, answer_given_away
@@ -49,11 +50,24 @@ def _with_promise_alone(step: dict[str, Any]) -> dict[str, Any]:
     return {**step, "say": question}
 
 
+def with_shortest_bar_last(step: dict[str, Any]) -> dict[str, Any]:
+    trace = step.get("trace")
+    values = trace.get("input") if isinstance(trace, dict) and trace.get("code") == "bubble_sort" else None
+    if not isinstance(values, list) or not values or not all(isinstance(value, int | float) for value in values) or values[-1] == min(values):
+        return step
+    shortest = values.index(min(values))
+    moved = [*values[:shortest], *values[shortest + 1 :], values[shortest]]
+    scene = step.get("scene")
+    if isinstance(scene, dict):
+        step = {**step, "scene": {name: {**spec, "values": moved} if isinstance(spec, dict) and spec.get("values") == values else spec for name, spec in scene.items()}}
+    return {**step, "trace": {**trace, "input": moved}}
+
+
 def with_one_figure_on_stage(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
     if not any(isinstance(spec, dict) and isinstance(spec.get("lab"), str) and name not in stage.labs for name, spec in scene.items()):
         return step
-    leaving = {name: None for name in stage.on_stage() if name not in scene}
+    leaving = {name: None for name in stage.specs if name not in scene}
     return {**step, "scene": {**leaving, **scene}} if leaving else step
 
 
@@ -67,6 +81,15 @@ def mended_cues(step: dict[str, Any]) -> dict[str, Any]:
     exact = [_with_exact_cue(operation, words, spoken) for operation in operations]
     spoken_forms = [_spoken_form(word) for word in words]
     return {**step, "do": _without_cues_heard_too_early(_in_spoken_order(exact, spoken_forms), spoken_forms)}
+
+
+def retold(step: dict[str, Any], say: str) -> dict[str, Any]:
+    told = mended_cues({**step, "say": say})
+    operations = told.get("do")
+    if not isinstance(operations, list):
+        return told
+    spoken = [_spoken_form(word) for word in say.split()]
+    return {**told, "do": [operation if resolved else {key: value for key, value in operation.items() if key != "cue"} for operation, resolved in zip(operations, _cues_resolved(operations, spoken), strict=True)]}
 
 
 def _spoken_form(word: str) -> str:
@@ -142,10 +165,14 @@ def _without_unchanged_restates(step: dict[str, Any], stage: Stage) -> dict[str,
     if not isinstance(scene, dict):
         return step
     worked_on = {name for operation in step.get("do", []) if isinstance(operation, dict) for name in operation.get("on", []) if isinstance(name, str)}
-    kept = {name: spec for name, spec in scene.items() if not (isinstance(spec, dict) and (_part_of(spec, stage.specs.get(name)) or stage.specs.get(name) == spec and name not in worked_on))}
+    kept = {name: spec for name, spec in scene.items() if not _restates(library_filled(spec), stage.specs.get(name), name in worked_on)}
     if len(kept) == len(scene):
         return step
     return {key: value for key, value in {**step, "scene": kept}.items() if key != "scene" or kept}
+
+
+def _restates(spec: Any, staged: Any, worked_on: bool) -> bool:
+    return isinstance(spec, dict) and (_part_of(spec, staged) or staged == spec and not worked_on)
 
 
 def _part_of(spec: dict[str, Any], staged: Any) -> bool:

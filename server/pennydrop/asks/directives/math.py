@@ -46,7 +46,12 @@ def evaluate(expression: str) -> int | float:
 def evaluate_over(expression: str, variable: str, points: list[int | float], directive: str) -> list[int | float]:
     symbol = sympy.Symbol(variable)
     parsed = _parsed(expression, directive, {variable: symbol})
-    return [_number(parsed.subs(symbol, sympy.nsimplify(point)), expression, directive) for point in points]
+    return [_number(_value_at(parsed, symbol, sympy.nsimplify(point)), expression, directive) for point in points]
+
+
+def _value_at(parsed: sympy.Expr, symbol: sympy.Symbol, point: sympy.Expr) -> sympy.Expr:
+    value = parsed.subs(symbol, point)
+    return value if value.is_real else sympy.limit(parsed, symbol, point)
 
 
 def _parsed(expression: str, directive: str, variables: dict[str, sympy.Symbol] | None = None) -> sympy.Expr:

@@ -28,6 +28,7 @@ class Algorithm:
     window: tuple[str, str] | None = None
     placed: str | None = None
     contrast: Contrast | None = None
+    settles: str | None = None
     promise: str | None = None
 
 
@@ -69,7 +70,7 @@ def bubble_sort(a):
             if a[j] > a[j + 1]:
                 a[j], a[j + 1] = a[j + 1], a[j]
     return a
-''', "a list of numbers", 'bubble sort, which swaps neighbors that are out of order, pass after pass', [5, 2, 4, 1, 3], contrast=Contrast("bubble_sort", [5, 4, 3, 2, 1], BREAK, "a list in reverse order, the worst case: every neighbor pair is out of order, so every compare also swaps")),
+''', "a list of numbers", 'bubble sort, which swaps neighbors that are out of order, so each pass carries the largest value left to the end', [5, 2, 4, 1, 3], settles="end", contrast=Contrast("bubble_sort", [5, 4, 3, 2, 1], BREAK, "a list in reverse order, the worst case: every neighbor pair is out of order, so every compare also swaps")),
     Algorithm("selection_sort", "selection_sort", '''
 def selection_sort(a):
     n = len(a)
@@ -81,7 +82,7 @@ def selection_sort(a):
         if smallest != i:
             a[i], a[smallest] = a[smallest], a[i]
     return a
-''', "a list of numbers", 'selection sort, which picks the smallest remaining value and swaps it into place', [5, 2, 4, 1, 3], contrast=Contrast("selection_sort", [1, 2, 3, 4, 5], BREAK, "a list already in order: selection sort still compares every value with every later one and moves nothing, because it cannot tell the work is done")),
+''', "a list of numbers", 'selection sort, which picks the smallest remaining value and swaps it into place', [5, 2, 4, 1, 3], settles="start", contrast=Contrast("selection_sort", [1, 2, 3, 4, 5], BREAK, "a list already in order: selection sort still compares every value with every later one and moves nothing, because it cannot tell the work is done")),
     Algorithm("insertion_sort", "insertion_sort", '''
 def insertion_sort(a):
     for i in range(1, len(a)):

@@ -25,12 +25,19 @@ def apply(step: dict[str, Any], object_id: str, run: TracedRun, window: Window) 
         raise DirectiveError(f"trace directive: array '{object_id}' must have values equal to the traced list {values}, found {array.get('values')}")
     if array.get("pointers"):
         moved = f"slides its own pointers, {' and '.join(run.pointers)}," if run.pointers else "moves no pointers"
-        raise DirectiveError(f"trace directive: the traced array '{object_id}' sets pointers, and the run {moved} so a pointer you set would stand still; leave \"pointers\" out of the array")
+        raise DirectiveError(f"trace directive: the traced array '{object_id}' sets pointers, and the run {moved} so a pointer you set would stand still; leave \"pointers\" out of the array, and when an earlier Step brought '{object_id}' on stage with pointers, bring it on stage again in this Step's \"scene\" with the same values and no \"pointers\"")
+    by_event = operations_by_event(run, object_id)
     return {
         **step,
-        "scene": {**step["scene"], object_id: _with_counters(array, [name for name in COUNTED_EVENTS if getattr(run.trace.counters, name)])},
-        "do": [*step.get("do", []), *window.of(operations_by_event(run, object_id))],
+        "scene": {**step["scene"], object_id: _with_room(_with_counters(array, [name for name in COUNTED_EVENTS if getattr(run.trace.counters, name)]), by_event)},
+        "do": [*step.get("do", []), *window.of(by_event)],
     }
+
+
+def _with_room(array: dict[str, Any], by_event: list[tuple[int, list[dict[str, Any]]]]) -> dict[str, Any]:
+    drawn = {operation["op"] for _, operations in by_event for operation in operations}
+    room = [band for band, op in (("pointers", "pointer"), ("window", "window")) if op in drawn]
+    return {**array, "room": room} if room else array
 
 
 def turns(run: TracedRun) -> list[int]:
@@ -63,6 +70,7 @@ def operations_by_event(run: TracedRun, array_id: str) -> list[tuple[int, list[d
     framed: tuple[int, int] | None = None
     settled: set[int] = set()
     found: list[tuple[int, list[dict[str, Any]]]] = []
+    settling = _settling(run, len(values))
     last_line = None
     for position, event in enumerate(run.trace.events):
         operations: list[dict[str, Any]] = []
@@ -74,6 +82,9 @@ def operations_by_event(run: TracedRun, array_id: str) -> list[tuple[int, list[d
             if frame and frame != framed:
                 framed = frame
                 operations.append({"op": "window", "on": [cell(frame[0]), cell(frame[1])]})
+            if (slot := settling.get(position)) is not None and slot not in settled:
+                settled.add(slot)
+                operations.append({"op": "sorted", "on": [cell(slot)]})
             looped_back = last_line is not None and last_line.stack == event.stack and last_line.line > event.line
             _add(found, position - 1 if looped_back else position, operations)
             last_line = event
@@ -98,8 +109,15 @@ def operations_by_event(run: TracedRun, array_id: str) -> list[tuple[int, list[d
             else:
                 operations.append(_writes(array_id, 1))
         _add(found, position, operations)
-    _add(found, len(run.trace.events) - 1, _closing(found, run, array_id, framed is not None))
+    _add(found, len(run.trace.events) - 1, _closing(found, run, array_id, framed is not None, values))
     return found
+
+
+def _settling(run: TracedRun, size: int) -> dict[int, int]:
+    if run.settles is None:
+        return {}
+    ends = loop_turns(run)[1:]
+    return {position: size - turn if run.settles == "end" else turn - 1 for turn, position in enumerate(ends, start=1)}
 
 
 def _writes(array_id: str, amount: int) -> dict[str, Any]:
@@ -125,10 +143,10 @@ def _compare_operations(event: Any, array_id: str) -> list[dict[str, Any]]:
     return [probe, {"op": "counter", "on": [array_id], "name": "comparisons", "add": 1}] if event.counted else [probe]
 
 
-def _closing(found: list[tuple[int, list[dict[str, Any]]]], run: TracedRun, array_id: str, framed: bool) -> list[dict[str, Any]]:
-    moved = any(operation["op"] in ("compare", "swap") for _, operations in found for operation in operations)
+def _closing(found: list[tuple[int, list[dict[str, Any]]]], run: TracedRun, array_id: str, framed: bool, values: list) -> list[dict[str, Any]]:
+    moved = any(operation["op"] in ("compare", "swap", "set") for _, operations in found for operation in operations)
     closing = [{"op": "clear", "on": [array_id]}] if moved else []
-    if run.placed:
+    if run.placed or (moved and all(left <= right for left, right in zip(values, values[1:], strict=False))):
         closing += [*([{"op": "clear", "on": [array_id], "what": "window"}] if framed else []), {"op": "sorted", "on": [array_id]}]
     return closing
 

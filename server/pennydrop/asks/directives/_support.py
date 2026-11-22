@@ -44,6 +44,7 @@ class TracedRun:
     pointers: tuple[str, ...] = ()
     window: tuple[str, str] | None = None
     placed: str | None = None
+    settles: str | None = None
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,8 @@ def parse_spec(model: type[BaseModel], raw: Any, directive: str, read_before: tu
 
 
 SHOWN_DECIMALS = 6
+SPOKEN_FIGURES = 3
+SPOKEN_WHOLE_FROM = 100
 LONG_FRACTION = re.compile(rf"\d+\.\d{{{SHOWN_DECIMALS + 1},}}")
 
 
@@ -116,6 +119,14 @@ def plain_text(value: Any) -> str:
     if isinstance(value, list):
         return "[" + ", ".join(plain_text(item) if isinstance(item, float) else repr(item) for item in value) + "]"
     return str(value)
+
+
+def spoken_text(value: Any) -> str:
+    if isinstance(value, float) and abs(value) >= SPOKEN_WHOLE_FROM:
+        return str(round(value))
+    if isinstance(value, float):
+        return plain_text(float(f"{value:.{SPOKEN_FIGURES}g}"))
+    return plain_text(value)
 
 
 def plain_repr(value: Any) -> str:
@@ -131,8 +142,10 @@ def plain_output(text: str) -> str:
 
 
 def fill_values(step: dict[str, Any], values: dict[str, int | float | str]) -> dict[str, Any]:
-    shown = {"{" + name + "}": plain_text(value) for name, value in {**_bare_names(values), **values}.items()}
-    filled = _each_text(step, lambda text: _filled(text, shown))
+    named = {**_bare_names(values), **values}
+    shown = {"{" + name + "}": plain_text(value) for name, value in named.items()}
+    spoken = {"{" + name + "}": spoken_text(value) for name, value in named.items()}
+    filled = {key: _each_text(item, lambda text, key=key: _filled(text, spoken if key == "say" else shown)) for key, item in step.items()}
     challenge = filled.get("challenge")
     if isinstance(challenge, dict) and isinstance(challenge.get("answer"), str) and challenge["answer"] in values:
         filled["challenge"] = {**challenge, "answer": values[challenge["answer"]]}

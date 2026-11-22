@@ -18,6 +18,7 @@ class LabEntry:
     title: str
     summary: str
     ops: dict[str, str]
+    wordless: bool
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,7 @@ class Catalog:
             signature = self._lab_files_signature()
             if self._snapshot is None or signature != self._signature:
                 labs_json, markdown = await asyncio.gather(self._run_tool(), self._run_tool("--md"))
-                labs = tuple(LabEntry(lab["id"], lab["title"], lab["summary"], lab["ops"]) for lab in json.loads(labs_json)["labs"])
+                labs = tuple(LabEntry(lab["id"], lab["title"], lab["summary"], lab["ops"], lab["wordless"]) for lab in json.loads(labs_json)["labs"])
                 self._snapshot = CatalogSnapshot(labs, markdown.decode().strip())
                 self._signature = signature
             return self._snapshot
