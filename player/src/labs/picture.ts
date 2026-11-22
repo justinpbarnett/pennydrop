@@ -612,7 +612,7 @@ const ops: Record<string, OpDef<PictureState>> = {
     during,
   },
   found: {
-    doc: '{"on": ["pic"], "parts": [{"name": "beak", "box": {"x": 0.42, "y": 0.3, "w": 0.1, "h": 0.2}}]}; gives a picture that is already shown its located parts, without changing what is on screen. Used when the parts were not known at the Step that showed the picture',
+    doc: '{"on": ["pic"], "parts": [{"name": "beak", "box": {"x": 0.42, "y": 0.3, "w": 0.1, "h": 0.2}}]}; gives a picture that is already shown its located parts, without changing what is on screen. The server writes it from the locate directive once the parts are found in the photo; a Lesson never writes it',
     seconds: 0.2,
     apply(state, op) {
       requireShown(state, op);

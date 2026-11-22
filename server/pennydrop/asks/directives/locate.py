@@ -72,7 +72,7 @@ def _points_at(step: dict[str, Any], object_id: str) -> bool:
 
 async def finish(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
     scene = step.get("scene") or {}
-    operations = list(step.get("do", []))
+    operations = [operation for operation in step.get("do", []) if not _guessed_parts(operation, scene, tools)]
     for object_id in dict.fromkeys(target.split("[")[0] for operation in operations for target in operation.get("on", []) if "[" in target):
         staged = tools.pictures.get(object_id)
         if object_id in scene or not staged or staged.get("lab") != "picture" or staged.get("parts"):
@@ -95,6 +95,14 @@ async def finish(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
         if object_id not in scene and staged.get("lab") == "picture" and staged.get("parts"):
             operations = _without_parts({"do": operations}, object_id, {str(part["name"]).lower() for part in staged["parts"]})["do"]
     return {**step, "do": operations}
+
+
+def _guessed_parts(operation: Any, scene: dict[str, Any], tools: DirectiveTools) -> bool:
+    if not isinstance(operation, dict) or operation.get("op") != "found" or not operation.get("on"):
+        return False
+    object_id = operation["on"][0]
+    picture = scene.get(object_id) if isinstance(scene.get(object_id), dict) else tools.pictures.get(object_id)
+    return isinstance(picture, dict) and picture.get("lab") == "picture"
 
 
 def _check_names(names: list[str]) -> None:
