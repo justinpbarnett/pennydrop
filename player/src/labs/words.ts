@@ -401,20 +401,18 @@ function meaningMiddle(state: WordsState): number {
   return MEANING_TOP + meaningHeight(state) / 2;
 }
 
-function sharedVerdictInset(state: WordsState): number {
-  const width = meaningWidth(state.meanings.length);
-  const widest = Math.max(...state.meanings.map((_, index) => labelWidth(state, index)));
-  return Math.max(MEANING_PADDING, width - MEANING_PADDING - VERDICT_ROOM - widest);
+function verdictGroupWidth(state: WordsState, index: number): number {
+  return VERDICT_ROOM + labelWidth(state, index);
 }
 
 function labelCenterX(state: WordsState, index: number, settle: number): number {
   const rect = meaningRect(state, index);
-  const beside = (sharedVerdictInset(state) + VERDICT_ROOM + rect.w - MEANING_PADDING) / 2;
-  return rect.x + lerp(rect.w / 2, beside, settle);
+  return rect.x + rect.w / 2 + (settle * VERDICT_ROOM) / 2;
 }
 
 function verdictLeft(state: WordsState, index: number): number {
-  return meaningRect(state, index).x + sharedVerdictInset(state);
+  const rect = meaningRect(state, index);
+  return rect.x + (rect.w - verdictGroupWidth(state, index)) / 2;
 }
 
 function meaningDot(center: Point, index: number): Drawable {
@@ -588,7 +586,7 @@ export const lab: LabDef<WordsSpec, WordsState> = {
       apply: (state, op) => ({ ...state, stressed: syllableArg(state, op) }),
     },
     match: {
-      doc: '{"meaning": 0}; index from 0 of a meaning card; an arrow runs from the word to that card, and both outlines turn ok with a check mark if it is the answer, or fault with a cross if not; a later match moves the arrow, and a wrong card keeps its cross',
+      doc: '{"meaning": 0}; index from 0 of a meaning card; an arrow runs from the word to that card, and both outlines turn ok with a check mark if it is the answer, or fault with a cross if not, drawn beside the label with the pair centered in the card; a later match moves the arrow, and a wrong card keeps its cross',
       seconds: 0.9,
       apply: matchApply,
       during: matchFrame,
