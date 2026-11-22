@@ -93,7 +93,7 @@ def _course_payload(services: Services, progress: CourseProgress) -> dict[str, A
 def create_app(services: Services) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        services.store.fail_unfinished_lessons()
+        services.store.fail_orphaned_lessons()
         warming = [asyncio.create_task(asyncio.to_thread(services.speaker.warm)), asyncio.create_task(services.transcriber.warm())]
         yield
         await services.transcriber.close()
@@ -101,6 +101,7 @@ def create_app(services: Services) -> FastAPI:
             task.cancel()
         await asyncio.gather(*warming, return_exceptions=True)
         await services.asks.close()
+        services.store.fail_orphaned_lessons()
 
     app = FastAPI(title="Pennydrop", lifespan=lifespan)
     app.add_middleware(GZipMiddleware, minimum_size=1024)

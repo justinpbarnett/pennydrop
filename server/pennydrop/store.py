@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -265,6 +266,9 @@ SCHEMA = [
         unique (rule_a, rule_b)
     );
     """,
+    """
+    alter table lessons add column writer integer;
+    """,
 ]
 
 
@@ -408,19 +412,19 @@ class Store:
         self._connection.execute(
             """
             insert into lessons (id, ask, title, labs, source, status, first_step_seconds, done_seconds, cost_usd, created_at,
-                header, transcription_seconds, timings, error, repairs, profile_id, topic_id)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                header, transcription_seconds, timings, error, repairs, profile_id, topic_id, writer)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(id) do update set ask = excluded.ask, title = excluded.title, labs = excluded.labs,
                 status = excluded.status, first_step_seconds = excluded.first_step_seconds,
                 done_seconds = excluded.done_seconds, cost_usd = excluded.cost_usd,
                 header = excluded.header, transcription_seconds = excluded.transcription_seconds,
                 timings = excluded.timings, error = excluded.error, repairs = excluded.repairs, profile_id = excluded.profile_id,
-                topic_id = excluded.topic_id
+                topic_id = excluded.topic_id, writer = excluded.writer
             """,
             (
                 lesson.id, lesson.ask, lesson.title, json.dumps(lesson.labs), lesson.source.value, lesson.status,
                 lesson.first_step_seconds, lesson.done_seconds, lesson.cost_usd, _iso(_now()),
-                json.dumps(lesson.header), lesson.transcription_seconds, json.dumps(lesson.timings), lesson.error, json.dumps(lesson.repairs), lesson.profile_id, lesson.topic_id,
+                json.dumps(lesson.header), lesson.transcription_seconds, json.dumps(lesson.timings), lesson.error, json.dumps(lesson.repairs), lesson.profile_id, lesson.topic_id, os.getpid(),
             ),
         )
 
@@ -443,8 +447,10 @@ class Store:
         row = self._connection.execute("select * from lessons where id = ?", (lesson_id,)).fetchone()
         return _lesson_from(row) if row else None
 
-    def fail_unfinished_lessons(self) -> None:
-        self._connection.execute("update lessons set status = 'failed', error = 'the server stopped while this Lesson was being written' where status = 'writing'")
+    def fail_orphaned_lessons(self) -> None:
+        writing = self._connection.execute("select id, writer from lessons where status = 'writing'").fetchall()
+        orphaned = [(row["id"],) for row in writing if not _another_live_process(row["writer"])]
+        self._connection.executemany("update lessons set status = 'failed', error = 'the server stopped while this Lesson was being written' where id = ?", orphaned)
 
     def steps(self, lesson_id: str) -> list[dict[str, Any]]:
         rows = self._connection.execute("select json, voice_json from steps where lesson_id = ? order by n", (lesson_id,))
@@ -788,6 +794,18 @@ def _uses_lab(value: Any, lab_id: str) -> bool:
     if isinstance(value, list):
         return any(_uses_lab(item, lab_id) for item in value)
     return False
+
+
+def _another_live_process(pid: int | None) -> bool:
+    if pid is None or pid == os.getpid():
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _lesson_from(row: sqlite3.Row) -> LessonRecord:
