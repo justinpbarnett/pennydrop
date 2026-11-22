@@ -6,6 +6,7 @@ from typing import Any
 
 SHAPES_LAB = "shapes"
 LINE_FIGURE = "line"
+BLOCKS_FIGURE = "blocks"
 HOP = "hop"
 SPOT = re.compile(r"^(?P<line>[\w-]+)\[(?P<spot>-?\d+)\]$")
 
@@ -37,11 +38,13 @@ class PlayedHops:
     def __init__(self, warm_up_only_one: bool = False) -> None:
         self._warm_up_only_one = warm_up_only_one
         self._hoppers: dict[str, Hopper] = {}
+        self._piles: set[str] = set()
         self._asked: AskedLanding | None = None
 
     def remember(self, step: dict[str, Any]) -> None:
         revealed = self._asked
         self._hoppers = self._play(step)
+        self._piles = self._piles_after(step)
         if revealed and revealed.line in self._hoppers:
             settled = self._hoppers[revealed.line]
             self._hoppers[revealed.line] = Hopper(settled.at, settled.at, (), asked=True)
@@ -50,7 +53,24 @@ class PlayedHops:
             self._hoppers[self._asked.line] = replace(self._hoppers[self._asked.line], asked=True)
 
     def errors_in(self, step: dict[str, Any]) -> list[str]:
-        return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step)
+        return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step) + self._block_tapped(step)
+
+    def _block_tapped(self, step: dict[str, Any]) -> list[str]:
+        challenge = step.get("challenge")
+        found = SPOT.match(str(challenge.get("answer"))) if self._warm_up_only_one and isinstance(challenge, dict) else None
+        if not found or found["line"] not in self._piles_after(step):
+            return []
+        pile = found["line"]
+        return [f'step {step.get("step")} challenge: a child cannot answer a sum by tapping one block of {pile}, so ask on a number line instead: in this Step\'s "scene" set {pile} to null and bring in {{"lab": "{SHAPES_LAB}", "figure": "{LINE_FIGURE}", "from": 0, "to": 10, "start": <the first number of the sum>}}, ask where the hopper lands after the asked hops, make that spot the answer, such as line[7], and let the next Step hop there']
+
+    def _piles_after(self, step: dict[str, Any]) -> set[str]:
+        piles = set(self._piles)
+        for name, spec in (step.get("scene") or {}).items():
+            if isinstance(spec, dict) and spec.get("lab") == SHAPES_LAB and spec.get("figure") == BLOCKS_FIGURE:
+                piles.add(name)
+            else:
+                piles.discard(name)
+        return piles
 
     def _warm_up_errors(self, step: dict[str, Any]) -> list[str]:
         if not self._warm_up_only_one:
