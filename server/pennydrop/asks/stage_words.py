@@ -330,9 +330,23 @@ def event_plays(scene_before: Any, step: dict[str, Any], op_docs: dict[str, dict
 
 
 @dataclass(frozen=True)
-class CardMatch:
+class Cards:
     meanings: tuple[str, ...]
+    answer: int
+
+
+@dataclass(frozen=True)
+class CardMatch:
+    cards: Cards
     marked: int
+
+    @property
+    def meanings(self) -> tuple[str, ...]:
+        return self.cards.meanings
+
+    @property
+    def right(self) -> bool:
+        return self.marked == self.cards.answer
 
 
 def card_matches(scene_before: Any, step: dict[str, Any]) -> list[CardMatch]:
@@ -345,7 +359,7 @@ def card_matches(scene_before: Any, step: dict[str, Any]) -> list[CardMatch]:
             continue
         index = operation.get("meaning")
         names = {found[0] for target in operation["on"] if (found := OBJECT_NAME.match(str(target)))}
-        matches += [CardMatch(cards[name], index) for name in names if name in cards and isinstance(index, int) and 0 <= index < len(cards[name])]
+        matches += [CardMatch(cards[name], index) for name in names if name in cards and isinstance(index, int) and 0 <= index < len(cards[name].meanings)]
     return matches
 
 
@@ -378,16 +392,20 @@ def shown_pictures(scene: Any) -> dict[str, bool]:
     }
 
 
-def _cards_on_stage(objects: Any) -> dict[str, tuple[str, ...]]:
+def _cards_on_stage(objects: Any) -> dict[str, Cards]:
     return {
-        thing["id"]: tuple(" ".join(map(str, lines)) if isinstance(lines, list) else str(lines) for lines in state["meanings"])
+        thing["id"]: Cards(tuple(" ".join(map(str, lines)) if isinstance(lines, list) else str(lines) for lines in state["meanings"]), state["answer"])
         for thing in objects or []
-        if isinstance(thing, dict) and thing.get("defKey") == WORDS_DEF and isinstance(state := thing.get("state"), dict) and isinstance(state.get("meanings"), list)
+        if isinstance(thing, dict) and thing.get("defKey") == WORDS_DEF and isinstance(state := thing.get("state"), dict) and isinstance(state.get("meanings"), list) and isinstance(state.get("answer"), int)
     }
 
 
-def _cards_brought_in(scene: dict[str, Any]) -> dict[str, tuple[str, ...]]:
-    return {name: tuple(map(str, spec["meanings"])) for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") == WORDS_LAB and isinstance(spec.get("meanings"), list)}
+def _cards_brought_in(scene: dict[str, Any]) -> dict[str, Cards]:
+    return {
+        name: Cards(tuple(map(str, spec["meanings"])), spec["answer"])
+        for name, spec in scene.items()
+        if isinstance(spec, dict) and spec.get("lab") == WORDS_LAB and isinstance(spec.get("meanings"), list) and isinstance(spec.get("answer"), int)
+    }
 
 
 def _words_on_stage(objects: Any) -> dict[str, tuple[str, ...]]:

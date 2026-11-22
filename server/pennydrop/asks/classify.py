@@ -191,6 +191,12 @@ class Classifier:
             lesson_id,
         )
 
+    async def card_mark_denied(self, say: str, meaning: str, right: bool, lesson_id: str) -> bool:
+        mark, opposite = ("a check mark", "is not what the word means, or that this match is wrong") if right else ("a cross", "is what the word means, or that this match is right or checks out")
+        question = YesNo(f'The stage puts {mark} on the card "{meaning}" in this Step. Read only the narration: does it say the opposite of that mark, that "{meaning}" {opposite}?')
+        result = await self._gateway.classify(say, {"denied": question}, lesson_id=lesson_id)
+        return _yes(result.answers["denied"])
+
     async def stress_off_stage(self, say: str, syllables: tuple[str, ...], marked: int, lesson_id: str) -> bool:
         word, mark, listed = "-".join(syllables), syllables[marked], ", ".join(f'"{syllable}"' for syllable in dict.fromkeys(syllables))
         questions = {

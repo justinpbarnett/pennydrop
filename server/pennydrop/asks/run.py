@@ -41,6 +41,7 @@ CLOSED_WITHOUT_PICTURE = 'this is the last Step, and it takes {pictures} off the
 CLOSED_ZOOMED_IN = 'this is the last Step, and it says the point while {pictures} stays zoomed in on one part, so the learner never sees the whole picture again; add an "unzoom" op on {pictures} at the start of "do", cued on the first words of "say", and keep every other field as it is'
 REVEAL_OFF_ANSWER = 'say: the Challenge just before asked "{asked}", and its answer is "{answer}"; this Step is its reveal, so start "say" by naming "{answer}" as the answer and show why, and keep every other field as it is'
 CARD_OFF_STAGE = 'say: the narration points at the meaning card "{named}", while this Step\'s match runs the arrow to the card "{marked}" ("meaning": {index}); make "meaning" the index of the card the narration means, or rewrite "say" to tell the card the arrow reaches, and keep every other field as it is'
+CARD_MARK_DENIED = 'say: this Step\'s match puts {mark} on the meaning card "{marked}", because the scene\'s "answer" is the card "{answer}", while the narration tells "{marked}" as {told}; rewrite "say" so it agrees with the {mark}, or drop this match op, and keep every other field as it is'
 ANSWER_ON_STAGE = 'challenge: a Challenge waits after its Step plays, and by then the stage shows {shown}, so the learner reads the answer off it instead of predicting; ask what a later Step plays that the stage does not show yet: stop this Step\'s run at an earlier "until", or graph the line that settles the answer in the next Step, so the answer is still to come'
 STORY_OFF_LAB = 'the stage holds no Lab figure after this Step, only primitives such as text, shapes or hand-drawn axes, but the Lesson plans the {labs} Lab, where the story is shown rather than told; bring that Lab on stage in this Step, with its directive when it has one, and show on it what "say" tells'
 RUN_ENDS_BEFORE_HINGE = 'this Step plays the run to its end before the Lesson has asked its predict Challenge, and once the run ends the stage shows every result, so nothing is left to predict; give this Step\'s trace an "until" that stops before the turn that settles the answer, so a later Step can ask the Challenge over the unfinished run and the Step after it can play the end'
@@ -518,14 +519,22 @@ class LessonRun:
         say = step.get("say")
         if not isinstance(say, str):
             return None
+        classifier = self._kit.classifier
         for match in card_matches(scene, step):
+            marked = match.meanings[match.marked]
             try:
-                named = await self._kit.classifier.card_named(say, match.meanings, self._record.id)
+                named, denied = await asyncio.gather(
+                    classifier.card_named(say, match.meanings, self._record.id),
+                    classifier.card_mark_denied(say, marked, match.right, self._record.id),
+                )
             except GatewayError as error:
                 LOG.warning("lesson %s card match could not be checked against its narration: %s", self._record.id, error)
                 return None
             if named is not None and named != match.marked:
-                return CARD_OFF_STAGE.format(named=match.meanings[named], marked=match.meanings[match.marked], index=match.marked)
+                return CARD_OFF_STAGE.format(named=match.meanings[named], marked=marked, index=match.marked)
+            if denied:
+                mark, told = ("a check mark", "not the word's meaning") if match.right else ("a cross", "the word's meaning")
+                return CARD_MARK_DENIED.format(mark=mark, marked=marked, answer=match.meanings[match.cards.answer], told=told)
         return None
 
     async def _stress_off_stage(self, step: dict[str, Any], scene: Any) -> str | None:
