@@ -167,25 +167,22 @@ class Gateway:
         tasks = {0: spawn(0)}
         latest = 0
         winner: int | None = None
-        hedged = False
         lost: list[int] = []
         stats: CallStats | None = None
         try:
             while True:
-                hedge_due = request.hedge_after - (time.monotonic() - starts[0]) if winner is None and not hedged else None
+                hedge_due = request.hedge_after - (time.monotonic() - starts[latest]) if winner is None and latest + 1 < MAX_HEDGED_ATTEMPTS else None
                 try:
                     index, item = await asyncio.wait_for(queue.get(), None if hedge_due is None else max(hedge_due, 0))
                 except TimeoutError:
-                    latest = 1
-                    tasks[1] = spawn(1)
-                    hedged = True
+                    latest += 1
+                    tasks[latest] = spawn(latest)
                     continue
                 if isinstance(item, Thinking):
                     if index == latest and winner is None and latest + 1 < MAX_HEDGED_ATTEMPTS:
                         LOG.warning("hedge: %s attempt %d began thinking %.1fs in, so attempt %d starts now", route, index + 1, time.monotonic() - starts[index], index + 2)
                         latest += 1
                         tasks[latest] = spawn(latest)
-                        hedged = True
                     continue
                 if winner is None and isinstance(item, str):
                     winner = index
