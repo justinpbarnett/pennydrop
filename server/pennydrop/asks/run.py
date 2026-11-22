@@ -17,6 +17,7 @@ from ..practice import Rule
 from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
 from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
+from .challenge_words import answer_told, asks_another_question, predicted
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
 from .directives import DirectiveError, DirectiveTools, as_promise, carries_directive, computed_facts, directive_briefs, expand_directives, fill_values, kid_outline, run_outline, staged_directives, with_sources
@@ -60,7 +61,6 @@ MAIN_RUN_TOO_SOON = 'this Step plays the main run while the contrast run is stop
 PLANNED_HINGE = '; the story asks its hinge right after "until": {until} of the run on "{on}", so carry that run\'s trace in this Step with "until": {until}, which leaves the rest of the run to the last Step, and ask {question}'
 OFF_THE_HINGE = 'this Step\'s predict Challenge is not the one the story asks at its hinge, which comes right after "until": {until} of the run on "{on}"; take the Challenge out of this Step, and ask it in the Step that plays that run to "until": {until}, which is {question}'
 RUN_LEFT_UNFINISHED = 'the {run} stopped part way at "until": {until}, and this is the last Step, so the learner never sees how it ends; carry that run\'s trace directive here with no "until", so this Step plays the rest of the run to its end, and let the narration tell what the finished run shows'
-ANSWER_TOLD = 'challenge: the narration so far, this Step\'s "say" included, already tells the answer to this Challenge, so the learner remembers it instead of predicting; take the answer out of this Step\'s "say", and when an earlier Step told it, ask about the next thing the run or story does that no Step has said or played yet, and let the next Step show it'
 STILL_OPENING = "this Step plays nothing on the stage and asks nothing"
 STILL_STAGE = STILL_OPENING + ', so the learner hears new words over a still picture; add to "do" the operations that show what "say" tells, such as the next part of the run, the next line of a plot or a highlight on what the narration names, and keep the narration'
 CHALLENGE_READ_OFF = 'challenge: it asks about {x} {at}, but the {plot} plot already draws every line through {x} {at}, so the learner reads the answer off the plot instead of predicting it; ask about where the lines end, at {x} {end}, while one line is still drawn only part way, and let the next Step graph the rest and mark the end'
@@ -75,8 +75,6 @@ ANSWERS_CUT_QUESTION = 'say: the Step before could not keep its Challenge, so th
 STRESS_OFF_STAGE = 'say: the narration singles out a different syllable from the one this Step\'s stress marks, "{marked}" ("syllable": {index}) of "{word}", the word on stage; make "syllable" the index of the syllable the narration means, or rewrite "say" to name the syllable the stage marks, and when the narration means a syllable of another word, put that word on stage first; keep every other field as it is'
 DECLARED_AGAIN = 'scene: {name} is declared again in the state it had before {moves} were played on it, so it would show a state the story has moved past and the narration would contradict the stage; keep {name} on stage and continue it with "do", or give a spec that shows its state now, such as the change those operations made, because a spec sets the object to exactly what it describes'
 RECALLS_LEFT_OUT = 'say: the narration recalls something as already met that only a Step the Lesson left out told, so the learner never heard it; the left-out narration was {left_out}; rewrite "say" so it recalls only what earlier Steps told, or tells that fact afresh, and keep every other field as it is'
-ASKS_ANOTHER_QUESTION = 'challenge: this Step\'s "say" asks a different question from its Challenge, so the learner hears one question and is asked to answer another; make "say" ask the Challenge prompt\'s own question, for the same form of answer, and keep the Challenge as it is'
-ANSWER_FORMS = {"number": "The learner answers with a number.", "choice": "The learner picks one of: {choices}.", "click": "The learner answers by tapping a thing on the stage.", "order": "The learner puts these in order: {choices}.", "match": "The learner matches pairs."}
 CHALLENGE_FLAW = re.compile(r"^(step \d+ )?challenge:")
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
 QUOTED = re.compile(r'"[^"]*"')
@@ -426,8 +424,8 @@ class LessonRun:
             self._answers_cut_question(step, pending.number),
             self._recalls_left_out(step),
             self._answer_on_stage(step, written, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines] + [play.told() for play in events]),
-            self._answer_told(step),
-            self._asks_the_challenge(step),
+            answer_told(self._kit.classifier, step, self._told, self._stage.cell_place(step), self._record.id),
+            asks_another_question(self._kit.classifier, step, self._record.id),
             self._story_off_lab(step, number),
             _end_told_early(step, plots),
             _challenge_read_off(step, plots),
@@ -624,7 +622,7 @@ class LessonRun:
         return RECALLS_LEFT_OUT.format(left_out=" and ".join(json.dumps(line) for line in self._left_out)) if recalls else None
 
     async def _answer_on_stage(self, step: dict[str, Any], written: dict[str, Any], views: list[str]) -> str | None:
-        asked = _predicted(step, self._stage.cell_place(step))
+        asked = predicted(step, self._stage.cell_place(step))
         if not views or asked is None or self._stage.asks_the_planned_hinge(written):
             return None
         shown = "; and ".join(views)
@@ -634,30 +632,6 @@ class LessonRun:
             LOG.warning("lesson %s Challenge could not be checked against its stage: %s", self._record.id, error)
             return None
         return ANSWER_ON_STAGE.format(shown=shown) if readable else None
-
-    async def _asks_the_challenge(self, step: dict[str, Any]) -> str | None:
-        challenge, say = step.get("challenge"), step.get("say")
-        if not isinstance(challenge, dict) or not isinstance(say, str) or not isinstance(challenge.get("prompt"), str):
-            return None
-        choices = ", ".join(map(str, challenge.get("choices") or []))
-        form = ANSWER_FORMS.get(str(challenge.get("type")), "").format(choices=choices)
-        try:
-            same = await self._kit.classifier.asks_the_challenge(say, f'{challenge["prompt"]} {form}'.strip(), self._record.id)
-        except GatewayError as error:
-            LOG.warning("lesson %s Challenge could not be checked against its narration: %s", self._record.id, error)
-            return None
-        return None if same else ASKS_ANOTHER_QUESTION
-
-    async def _answer_told(self, step: dict[str, Any]) -> str | None:
-        asked = _predicted(step, self._stage.cell_place(step))
-        if asked is None:
-            return None
-        try:
-            told = await self._kit.classifier.answer_told(" ".join([*self._told, str(step.get("say", ""))]), asked, self._record.id)
-        except GatewayError as error:
-            LOG.warning("lesson %s Challenge could not be checked against the narration: %s", self._record.id, error)
-            return None
-        return ANSWER_TOLD if told else None
 
     async def _restates_point(self, step: dict[str, Any], number: int, followed: asyncio.Future[bool]) -> bool:
         point = self._record.header.get("point")
@@ -963,12 +937,3 @@ def _said_number(value: float) -> str:
 def _prompt_of(challenge: Any) -> str:
     prompt = challenge.get("prompt") if isinstance(challenge, dict) else None
     return prompt if isinstance(prompt, str) else ""
-
-
-def _predicted(step: dict[str, Any], place: str | None) -> str | None:
-    challenge = step.get("challenge")
-    if not isinstance(challenge, dict) or challenge.get("kind") != "predict" or "answer" not in challenge:
-        return None
-    choices = f' Choices: {", ".join(map(str, challenge["choices"]))}.' if isinstance(challenge.get("choices"), list) else ""
-    placed = f" ({place})" if place else ""
-    return f'{challenge.get("prompt")}{choices} Answer: {challenge["answer"]}{placed}'

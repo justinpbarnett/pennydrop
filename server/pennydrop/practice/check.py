@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 from dataclasses import dataclass, replace
 from typing import Any
 
+from ..asks.challenge_words import answer_told, asks_another_question
 from ..asks.classify import Classifier
 from ..asks.coaching import coached
 from ..asks.directives import DIRECTIVES, DirectiveError, DirectiveTools, carries_directive, computed_facts, expand_directives
 from ..asks.directives.trace import totals_for
 from ..asks.mending import mended, mended_cues, validated_and_mended
-from ..asks.stage import Stage
+from ..asks.stage import Stage, answer_given_away
 from ..asks.validator import Validator
 from . import Direction, Form, Practice, Rule
 
@@ -110,6 +112,8 @@ class PracticeChecker:
             return ItemCheck([coached(error) for error in verdict.errors], None, standing)
         keys = case_keys(mended_body) | case_keys(step)
         errors, step = await self._form_errors(form, direction, rule, step, mended_body, written.get("inputs"), values, keys, standing.cases | earlier, tools, lesson_id)
+        if not errors and form is Form.FRESH:
+            errors = await self._giveaway_errors(step, stage.cell_place(step), lesson_id)
         facts = computed_facts(values)
         if not errors and facts and form is not Form.APPLIES and not await self._classifier.claims_agree(step["say"], facts, lesson_id):
             errors = [f'the narration claims something the computed values contradict: {"; ".join(facts)}; rewrite the claim, or leave the numbers out of "say" and ask instead']
@@ -132,6 +136,10 @@ class PracticeChecker:
         if direction is Direction.BACK:
             return await self._back_errors(step, written, inputs, tools)
         return [], step
+
+    async def _giveaway_errors(self, step: dict[str, Any], place: str | None, lesson_id: str) -> list[str]:
+        found = await asyncio.gather(answer_told(self._classifier, step, [], place, lesson_id), asks_another_question(self._classifier, step, lesson_id))
+        return answer_given_away(step) + [error for error in found if error]
 
     async def _applies_errors(self, rule: Rule, step: dict[str, Any], values: dict[str, Any], lesson_id: str) -> list[str]:
         case = "\n".join([f"Case: {step['say']}", f"Case on the stage: {json.dumps(step.get('scene') or {})[:600]}", *(f"Fact: {fact}" for fact in computed_facts(values))])
