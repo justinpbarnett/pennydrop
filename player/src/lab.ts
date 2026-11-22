@@ -123,6 +123,7 @@ export interface LabDef<Spec = Record<string, unknown>, State = unknown> {
   prepare?(): Promise<void>;
   init(spec: Spec, objectId: string): State;
   size(state: State): Size;
+  axis?(state: State): number;
   draw(state: State, ctx: LabCtx): Drawable[];
   unfilled?(state: State): boolean;
 }

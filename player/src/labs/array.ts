@@ -514,6 +514,8 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
     return { w: width, h: height };
   },
 
+  axis: cellCenterY,
+
   draw(state) {
     const y = cellCenterY(state);
     const { top, cell: cellSize } = metrics(state);

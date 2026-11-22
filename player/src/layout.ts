@@ -19,7 +19,11 @@ export interface Box extends Rect {
 
 export type Layout = ReadonlyMap<string, Box>;
 
-interface Member extends Rect {
+interface Measured extends Size {
+  axis: number;
+}
+
+interface Member extends Rect, Measured {
   id: string;
 }
 
@@ -27,6 +31,7 @@ interface Node {
   key: string;
   w: number;
   h: number;
+  axis: number;
   members: Member[];
   relation: Relation | undefined;
 }
@@ -36,6 +41,7 @@ interface Cluster {
   nodes: { node: Node; x: number; y: number }[];
   w: number;
   h: number;
+  axis: number;
 }
 
 type Joined = (a: string, b: string) => boolean;
@@ -51,14 +57,14 @@ function joinedBy(scene: SceneState): Joined {
   return (a, b) => pairs.has(`${a}\n${b}`);
 }
 
-function arrange(kind: GroupKind, at: Relation, sizes: Size[], ids: string[], joined: Joined): Rect[] {
+function arrange(kind: GroupKind, at: Relation, sizes: Measured[], ids: string[], joined: Joined): Rect[] {
   const linked = ids.some((id) => ids.some((other) => joined(id, other)));
   const gap = Math.max(kind === "timeline" ? GROUP_GAP * 2 : GROUP_GAP, linked ? EDGE_SPAN : 0);
   if (kind === "row" || kind === "timeline") {
     let x = 0;
-    const height = Math.max(...sizes.map((size) => size.h));
+    const axis = Math.max(...sizes.map((size) => size.axis));
     return sizes.map((size) => {
-      const rect = { x, y: (height - size.h) / 2, ...size };
+      const rect = { x, y: axis - size.axis, w: size.w, h: size.h };
       x += size.w + gap;
       return rect;
     });
@@ -111,13 +117,13 @@ function arrange(kind: GroupKind, at: Relation, sizes: Size[], ids: string[], jo
 }
 
 function buildNodes(scene: SceneState, reaches: ReadonlyMap<string, Reach>, joined: Joined): Node[] {
-  const sizes = new Map<string, Size>();
+  const sizes = new Map<string, Measured>();
   for (const object of scene.objects) {
     const def = definitionOf(object);
     if (def.overlay) continue;
     const size = def.size(object.state);
     const reach = reaches.get(object.id) ?? NO_REACH;
-    sizes.set(object.id, { w: size.w + reach.left + reach.right, h: size.h + reach.top + reach.bottom });
+    sizes.set(object.id, { w: size.w + reach.left + reach.right, h: size.h + reach.top + reach.bottom, axis: reach.top + (def.axis?.(object.state) ?? size.h / 2) });
   }
   const claimed = new Set<string>();
   const nodes: Node[] = [];
@@ -130,11 +136,13 @@ function buildNodes(scene: SceneState, reaches: ReadonlyMap<string, Reach>, join
     const rects = arrange(group.kind, object.at!, ids.map((id) => sizes.get(id)!), ids, joined);
     const minX = Math.min(...rects.map((rect) => rect.x));
     const minY = Math.min(...rects.map((rect) => rect.y));
-    const members = rects.map((rect, index) => ({ ...rect, id: ids[index]!, x: rect.x - minX, y: rect.y - minY }));
+    const members = rects.map((rect, index) => ({ ...rect, id: ids[index]!, x: rect.x - minX, y: rect.y - minY, axis: sizes.get(ids[index]!)!.axis }));
+    const h = Math.max(...members.map((member) => member.y + member.h));
     nodes.push({
       key: object.id,
       w: Math.max(...members.map((member) => member.x + member.w)),
-      h: Math.max(...members.map((member) => member.y + member.h)),
+      h,
+      axis: group.kind === "row" || group.kind === "timeline" ? members[0]!.y + members[0]!.axis : h / 2,
       members,
       relation: undefined,
     });
@@ -194,13 +202,15 @@ function buildClusters(nodes: Node[], joined: Joined): Cluster[] {
       nodes: placed,
       w: Math.max(...placed.map((entry) => entry.x + entry.node.w)),
       h: Math.max(...placed.map((entry) => entry.y + entry.node.h)),
+      axis: placed.find((entry) => entry.node === root)!.y + root.axis,
     };
   });
 }
 
 const flowOf = (clusters: Cluster[]) => clusters.filter((cluster) => regionOf(cluster.root.relation) === "flow");
 const rowWidth = (row: Cluster[]) => row.reduce((sum, cluster) => sum + cluster.w, 0) + FLOW_GAP * (row.length - 1);
-const rowHeight = (row: Cluster[]) => Math.max(...row.map((cluster) => cluster.h));
+const rowAxis = (row: Cluster[]) => Math.max(...row.map((cluster) => cluster.axis));
+const rowHeight = (row: Cluster[]) => rowAxis(row) + Math.max(...row.map((cluster) => cluster.h - cluster.axis));
 
 function rowsOf(flow: Cluster[], breaks: number): Cluster[][] {
   const rows: Cluster[][] = [];
@@ -222,49 +232,52 @@ function placeClusters(clusters: Cluster[], breaks: number): Map<string, Rect> {
   const rights = inRegion("right");
   const edgeHeight = (edge: Cluster[]) => edge.reduce((sum, cluster) => sum + cluster.h + FLOW_GAP, 0);
   const flowHeight = rows.reduce((sum, row) => sum + rowHeight(row), 0) + FLOW_GAP * Math.max(0, rows.length - 1);
-  const bandHeight = Math.max(flowHeight, ...[...lefts, ...rights, ...centers].map((cluster) => cluster.h));
-  const stackHeight = edgeHeight(tops) + bandHeight + edgeHeight(bottoms);
-  const squeezed = stackHeight > STAGE.h - 2 * MARGIN;
-  const stackTop = squeezed ? (STAGE.h - stackHeight) / 2 : MARGIN;
+  const flow = { h: flowHeight, axis: rows.length === 1 ? rowAxis(rows[0]!) : flowHeight / 2 };
+  const lined = [...lefts, ...centers, ...rights, ...(rows.length > 0 ? [flow] : [])];
+  const banded = lined.length > 0;
+  const bandAxis = Math.max(0, ...lined.map((item) => item.axis));
+  const bandHeight = banded ? bandAxis + Math.max(...lined.map((item) => item.h - item.axis)) : 0;
+  const stackHeight = edgeHeight(tops) + bandHeight + edgeHeight(bottoms) - (banded ? 0 : FLOW_GAP);
+  const centered = !banded || stackHeight > STAGE.h - 2 * MARGIN;
+  const stackTop = centered ? (STAGE.h - stackHeight) / 2 : MARGIN;
 
   let topEdge = stackTop;
   for (const cluster of tops) {
     origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: topEdge });
     topEdge += cluster.h + FLOW_GAP;
   }
-  let bottomEdge = squeezed ? stackTop + stackHeight : STAGE.h - MARGIN;
+  let bottomEdge = centered ? stackTop + stackHeight : STAGE.h - MARGIN;
   for (const cluster of bottoms) {
     bottomEdge -= cluster.h;
     origins.set(cluster, { x: (STAGE.w - cluster.w) / 2, y: bottomEdge });
     bottomEdge -= FLOW_GAP;
   }
-  const areaTop = topEdge;
-  const areaBottom = bottomEdge;
-  const centeredY = (cluster: Cluster) => areaTop + (areaBottom - areaTop - cluster.h) / 2;
+  const bandTop = topEdge + (bottomEdge - topEdge - bandHeight) / 2;
+  const linedY = (item: { axis: number }) => bandTop + bandAxis - item.axis;
 
   const flowWidth = rows.length > 0 ? Math.max(...rows.map(rowWidth)) : 0;
   const bandParts = [...lefts.map((cluster) => cluster.w), ...centers.map((cluster) => cluster.w), ...(rows.length > 0 ? [flowWidth] : []), ...rights.map((cluster) => cluster.w)];
   const bandWidth = bandParts.reduce((sum, width) => sum + width, 0) + FLOW_GAP * (bandParts.length - 1);
   let x = (STAGE.w - bandWidth) / 2;
   for (const cluster of [...lefts, ...centers]) {
-    origins.set(cluster, { x, y: centeredY(cluster) });
+    origins.set(cluster, { x, y: linedY(cluster) });
     x += cluster.w + FLOW_GAP;
   }
   if (rows.length > 0) {
-    let y = areaTop + (areaBottom - areaTop - flowHeight) / 2;
+    let y = linedY(flow);
     for (const row of rows) {
-      const height = rowHeight(row);
+      const axis = rowAxis(row);
       let rowX = x + (flowWidth - rowWidth(row)) / 2;
       for (const cluster of row) {
-        origins.set(cluster, { x: rowX, y: y + (height - cluster.h) / 2 });
+        origins.set(cluster, { x: rowX, y: y + axis - cluster.axis });
         rowX += cluster.w + FLOW_GAP;
       }
-      y += height + FLOW_GAP;
+      y += rowHeight(row) + FLOW_GAP;
     }
     x += flowWidth + FLOW_GAP;
   }
   for (const cluster of rights) {
-    origins.set(cluster, { x, y: centeredY(cluster) });
+    origins.set(cluster, { x, y: linedY(cluster) });
     x += cluster.w + FLOW_GAP;
   }
 
