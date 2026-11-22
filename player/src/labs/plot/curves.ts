@@ -176,7 +176,8 @@ function axesOf(lines: Line[]): Axes {
   const low = Math.min(0, ...ys);
   const high = Math.max(0, ...ys);
   const yStep = niceStep(high > low ? high - low : 1, 5);
-  return { x0, x1, y0: Math.floor(low / yStep) * yStep, y1: Math.max(Math.ceil(high / yStep) * yStep, Math.floor(low / yStep) * yStep + yStep), xStep: niceStep(x1 - x0, 6), yStep };
+  const xStep = Math.max(niceStep(x1 - x0, 6), xs.every(Number.isInteger) ? 1 : 0);
+  return { x0, x1, y0: Math.floor(low / yStep) * yStep, y1: Math.max(Math.ceil(high / yStep) * yStep, Math.floor(low / yStep) * yStep + yStep), xStep, yStep };
 }
 
 function niceStep(span: number, count: number): number {

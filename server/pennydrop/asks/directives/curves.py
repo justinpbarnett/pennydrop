@@ -94,6 +94,17 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     return {**step, "scene": {**scene, spec.on: plot}}, values
 
 
+def hidden_plots(step: dict[str, Any]) -> dict[str, list[str]]:
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    graphed = {name for operation in step.get("do") or [] if isinstance(operation, dict) and operation.get("op") == "graph" for name in operation.get("on") or []}
+    return {name: list(spec["curves"]) for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") == "plot" and isinstance(spec.get("curves"), dict) and name not in graphed}
+
+
+def with_every_line_graphed(step: dict[str, Any]) -> dict[str, Any]:
+    drawn = [{"op": "graph", "on": [name], "curve": line} for name, lines in hidden_plots(step).items() for line in lines]
+    return {**step, "do": [*drawn, *(step.get("do") or [])]} if drawn else step
+
+
 def graphed_half_way(step: dict[str, Any], plot: str, line: str, points: list[list[float]] | None) -> dict[str, Any] | None:
     operations = step.get("do") if isinstance(step.get("do"), list) else []
     drawn = [index for index, operation in enumerate(operations) if isinstance(operation, dict) and operation.get("op") == "graph" and operation.get("curve") == line and plot in (operation.get("on") or [])]

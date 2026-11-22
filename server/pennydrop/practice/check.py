@@ -10,6 +10,7 @@ from ..asks.challenge_words import answer_told, asks_another_question
 from ..asks.classify import Classifier
 from ..asks.coaching import coached
 from ..asks.directives import DIRECTIVES, DirectiveError, DirectiveTools, carries_directive, computed_facts, expand_directives
+from ..asks.directives.curves import hidden_plots, with_every_line_graphed
 from ..asks.directives.trace import totals_for
 from ..asks.mending import mended, mended_cues, validated_and_mended
 from ..asks.stage import Stage, answer_given_away
@@ -106,6 +107,9 @@ class PracticeChecker:
             expanded, values = await expand_directives(mended_body, tools, standing.remembered)
         except DirectiveError as error:
             return ItemCheck([coached(str(error))], None, standing)
+        if form is Form.FRESH and (hidden := hidden_plots(expanded)):
+            return ItemCheck([f'the fresh case brings the plot {next(iter(hidden))} on stage but graphs none of its lines, so the learner sees empty axes; graph the lines the case stands on, and hold back with "to" only the part the learner predicts'], None, standing)
+        expanded = with_every_line_graphed(expanded)
         step, verdict = await validated_and_mended(self._validator, {**mended_cues(expanded), "step": standing.first_step}, standing.scene, standing.reading, stage)
         if verdict.errors:
             return ItemCheck([coached(error) for error in verdict.errors], None, standing)
