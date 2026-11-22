@@ -1,6 +1,6 @@
 import { buildChallenge, type ChallengeView } from "../challenge-ui";
 import { h } from "../dom";
-import type { Step } from "../format";
+import { type Step, playedSteps } from "../format";
 import { Playback } from "../playback";
 import { StageRenderer } from "../render";
 import { postPracticeAnswer, type RuleReview } from "../source";
@@ -40,11 +40,24 @@ export function buildReviewView(profile: number, themeId: ThemeId): ReviewView {
     playback = next;
     next.subscribe(redraw);
     next.setTheme(theme);
-    next.loadSource({ id: `review-${rule.rule_id}`, lesson: { title: rule.rule }, steps: [item], done: true });
+    next.loadSource({ id: `review-${rule.rule_id}`, lesson: { title: rule.rule }, steps: playedSteps(item), done: true });
     await next.settled();
     const span = next.timeline.steps[0];
     if (span) next.seek(span.end);
     redraw();
+  }
+
+  function playReveal(): void {
+    const current = playback;
+    const reveal = current?.timeline.steps[1];
+    if (!current || !reveal) return;
+    current.seek(reveal.start);
+    current.play();
+    const advance = (now: number) => {
+      current.tick(now);
+      if (current === playback && current.state === "playing") requestAnimationFrame(advance);
+    };
+    requestAnimationFrame(advance);
   }
 
   function showCase(rule: RuleReview, item: Step): void {
@@ -59,6 +72,10 @@ export function buildReviewView(profile: number, themeId: ThemeId): ReviewView {
           outcome.textContent = `${reply.review.held ? "Held - all three Forms passed. " : reply.correct ? "Passed. " : "Not yet. "}Next is ${nextForm(reply.review)}, ${comesBack(reply.review.due)}.`;
           outcome.className = `comes-back ${reply.correct ? "right" : "wrong"}`;
           revealed.replaceChildren(h("strong", {}, "The Rule: "), reply.review.rule, ` (holds when ${reply.review.condition})`);
+          if (item.reveal && !stage.hidden) {
+            panel.insertBefore(h("p", { class: "case-say" }, item.reveal.say), outcome);
+            playReveal();
+          }
           return reply;
         } catch (failure) {
           outcome.textContent = (failure as Error).message;

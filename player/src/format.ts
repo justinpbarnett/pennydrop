@@ -45,6 +45,12 @@ export interface Step {
   form?: Form;
   direction?: "forward" | "back";
   case_id?: number;
+  reveal?: { say: string; do?: StepOp[]; scene?: Record<string, ObjectSpec | null>; voice?: Voice };
+}
+
+export function playedSteps(item: Step): Step[] {
+  const { reveal, ...asked } = item;
+  return reveal ? [asked, { ...reveal, step: item.step, form: item.form }] : [asked];
 }
 
 export interface Practice {

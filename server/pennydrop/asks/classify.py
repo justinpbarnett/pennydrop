@@ -60,6 +60,17 @@ FIGURE_NUMBERS_QUESTIONS = {
     "number": YesNo("Does the narration say the hopper stands on, hops to or lands on a number that is not where the stage puts it in this Step, or say the pile holds a number of blocks it does not hold? Numbers the narration only asks about, or says will come later, do not count."),
     "count": YesNo("Does the narration count out or name more or fewer hops, or more or fewer blocks, than the stage plays in this Step? A sum the narration only restates, such as two plus five is seven, does not count."),
 }
+RULE_QUESTIONS = {
+    "general": YesNo("Does the Rule state a pattern that holds for many cases beyond the Lesson's own example, such as any sorted list or any right triangle, rather than retelling what happened in the example?"),
+    "condition": YesNo("Is the condition a property of the input or setup that some cases have and others lack, so that the Rule's claim fails for a case without it? Answer no when the condition only repeats the Rule's own claim or subject, describes how the process works, or holds for every case."),
+}
+NEAR_MISS_QUESTIONS = {
+    "new": YesNo("Is the near miss a case the Lesson's Steps never showed, rather than a replay of a case they already ran?"),
+    "one_change": YesNo("Does the near miss keep the setup of the Lesson's worked example, where the Rule holds, and change only the detail the condition is about, rather than also changing other details or swapping in a whole new setup?"),
+}
+FRESH_QUESTIONS = {
+    "from_the_rule": YesNo("Does working out the fresh case's answer take applying the Rule to the case shown, so a learner who understood the Rule can reach it? Answer no when the answer turns on something the Rule does not cover, such as another idea or a part the Rule never mentions, or when the learner only has to recall what a Step already showed."),
+}
 OPTION_PREFIX = "option_"
 NONE_NAMED = "none"
 NAMED_CONFIDENCE = 0.6
@@ -253,6 +264,21 @@ class Classifier:
         question = YesNo(f'The Rule holds only when: {condition}. Does the case below break that condition, so the Rule does not apply to it?')
         result = await self._gateway.classify(case, {"breaks": question}, lesson_id=lesson_id)
         return _yes(result.answers["breaks"])
+
+    async def rule_faults(self, rule: str, condition: str, told: str, lesson_id: str) -> list[str]:
+        return await self._faults(f"The Lesson's Steps:\n{told}\nRule: {rule}\nCondition: {condition}", RULE_QUESTIONS, lesson_id)
+
+    async def near_miss_faults(self, case: str, condition: str, told: str, lesson_id: str) -> list[str]:
+        return await self._faults(f"The Lesson's Steps:\n{told}\nThe Rule's condition: {condition}\nThe near miss:\n{case}", NEAR_MISS_QUESTIONS, lesson_id)
+
+    async def fresh_faults(self, case: str, rule: str, slots: Iterable[str], told: str, lesson_id: str) -> list[str]:
+        named = tuple(slots)
+        one_slot = {"one_slot": YesNo(f"The Rule's slots are the details a fresh case may change: {'; '.join(named)}. Does the fresh case change exactly one of them from the Lesson's worked example and keep the rest as the example had them?")} if named else {}
+        return await self._faults(f"The Lesson's Steps:\n{told}\nRule: {rule}\nThe fresh case:\n{case}", {**FRESH_QUESTIONS, **one_slot}, lesson_id)
+
+    async def _faults(self, text: str, questions: dict[str, Question], lesson_id: str) -> list[str]:
+        result = await self._gateway.classify(text, questions, lesson_id=lesson_id)
+        return [name for name in questions if not _yes(result.answers[name])]
 
     async def claims_agree(self, claimed: str, facts: list[str], lesson_id: str) -> bool:
         text = "\n".join([*(f"Fact: {fact}" for fact in facts), f"Step: {claimed}"])

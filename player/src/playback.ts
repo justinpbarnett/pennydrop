@@ -1,4 +1,4 @@
-import type { Challenge, Form, LessonHeader, LessonSource, Practice, Step } from "./format";
+import { type Challenge, type Form, type LessonHeader, type LessonSource, type Practice, type Step, playedSteps } from "./format";
 import { prepareStepAssets } from "./assets";
 import { type Frame, renderFrame } from "./frame";
 import { THEMES, type Theme, type ThemeId } from "./theme";
@@ -88,7 +88,7 @@ export class Playback {
 
   addPractice(practice: Practice): void {
     this.practice = { rule: practice.rule, condition: practice.condition };
-    practice.items.forEach((item) => this.addStep(item));
+    practice.items.flatMap(playedSteps).forEach((step) => this.addStep(step));
   }
 
   finishLesson(): void {

@@ -13,7 +13,7 @@ from ..lessons import LessonLibrary
 from ..store import Profile, ProfileKind
 from ..tts import Speaker, TtsError
 from . import Direction, Form, Practice, PracticeError, Rule
-from .check import ItemCheck, PracticeChecker, Standing, case_keys
+from .check import ItemCheck, PracticeChecker, Seen, Standing, case_keys
 
 LOG = logging.getLogger(__name__)
 
@@ -45,15 +45,19 @@ class PracticeAuthor:
         told = lesson_text(header, steps)
         written = first if first is not None else await self._writer.practice_line(brief, told, lesson_id)
         failure = ""
+        playable: Practice | None = None
         for redo in range(MAX_REDOS + 1):
             errors = await self._errors(written, standing, steps, lesson_id)
             if not errors.reasons:
                 return Authored(errors.practice, "second call" if first is None else f"redone: {failure}" if failure else "passed")
             failure = failure or _why(errors.reasons)
+            playable = errors.practice or playable
             LOG.warning("lesson %s practice line failed check %s: %s", lesson_id, redo + 1, " | ".join(errors.reasons))
             if redo == MAX_REDOS:
                 break
             written = await self._writer.practice_line(brief, told, lesson_id, written, errors.reasons)
+        if playable is not None:
+            return Authored(playable, f"kept with faults: {_why(errors.reasons)}")
         return Authored(None, f"missed: {failure}")
 
     async def voiced(self, practice: Practice) -> Practice:
@@ -62,19 +66,23 @@ class PracticeAuthor:
     async def case(self, rule: Rule, form: Form, direction: Direction | None, lesson_id: str, seen: list[dict[str, Any]], profile: Profile | None) -> dict[str, Any]:
         standing = Standing.empty(profile is None or profile.kind is not ProfileKind.KID)
         lesson = lesson_text({}, [])
-        taken = frozenset().union(*(case_keys(item) for item in seen))
+        earlier = Seen.cases(seen)
         errors: list[str] = []
+        playable: dict[str, Any] | None = None
         for running in _directions_to_try(direction, standing.reading):
             errors = []
             for _ in range(BACK_TRIES if running is Direction.BACK else MAX_REDOS + 1):
                 written = await self._writer.case(rule, form, running, lesson, seen, profile, errors, lesson_id)
                 if isinstance(written, dict) and written.get("back") is False and running is Direction.BACK:
                     break
-                checked = await self._checked_case(written, rule, form, running, standing, taken, lesson_id)
-                if checked.item is not None:
+                checked = await self._checked_case(written, rule, form, running, standing, earlier, lesson_id)
+                if checked.item is not None and not checked.errors:
                     return await self._voiced(checked.item)
+                playable = checked.item or playable
                 errors = checked.errors
                 LOG.warning("lesson %s %s case failed its check: %s", lesson_id, form.value, " | ".join(errors))
+        if playable is not None:
+            return await self._voiced(playable)
         raise PracticeError(f"no {form.value} case for the Rule passed its check: {_why(errors)}")
 
     async def for_lesson(self, lesson_id: str) -> Practice:
@@ -106,19 +114,25 @@ class PracticeAuthor:
         checked = await self._checker.line(written, standing, steps, lesson_id)
         return LineErrors(checked.errors, checked.practice)
 
-    async def _checked_case(self, written: ParsedLine, rule: Rule, form: Form, direction: Direction | None, standing: Standing, taken: frozenset[str], lesson_id: str) -> ItemCheck:
+    async def _checked_case(self, written: ParsedLine, rule: Rule, form: Form, direction: Direction | None, standing: Standing, earlier: Seen, lesson_id: str) -> ItemCheck:
         if not isinstance(written, dict):
             return ItemCheck([f"{written.reason}: {written.text[:300]}"], None, standing)
         item = {**written, "form": form.value, **({"direction": direction.value} if direction else {})}
-        return await self._checker.item(item, rule, standing, taken, lesson_id)
+        return await self._checker.item(item, rule, standing, earlier, lesson_id)
 
     async def _voiced(self, item: dict[str, Any]) -> dict[str, Any]:
+        voiced = await self._with_voice(item)
+        if "reveal" not in item:
+            return voiced
+        return {**voiced, "reveal": await self._with_voice(item["reveal"])}
+
+    async def _with_voice(self, spoken: dict[str, Any]) -> dict[str, Any]:
         try:
-            voice = await self._speaker.voice(item["say"])
+            voice = await self._speaker.voice(spoken["say"])
         except TtsError as error:
             LOG.warning("practice item has no voice: %s", error)
-            return item
-        return {**item, "voice": voice.for_player()}
+            return spoken
+        return {**spoken, "voice": voice.for_player()}
 
 
 @dataclass(frozen=True)
