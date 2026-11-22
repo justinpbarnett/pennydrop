@@ -3,7 +3,7 @@ import { clamp01, LabError } from "./lab";
 import { type Narration, narrate, resolveCues } from "./narration";
 import { planStep, type PlannedOp } from "./plan";
 import { EMPTY_SCENE, type SceneState } from "./scene";
-import { buildStage } from "./stage";
+import { arrivedObjects, buildStage, reshapedDrawables } from "./stage";
 import type { Touch } from "./verbs";
 
 export type Ease = (progress: number) => number;
@@ -12,6 +12,7 @@ export interface Segment {
   start: number;
   lead: number;
   exits: boolean;
+  relayout: boolean;
   baseDuration: number;
   trueSeconds: number;
   cutAt: number;
@@ -23,6 +24,7 @@ export interface Segment {
 
 export interface SegmentProgress {
   exit: number;
+  shift: number;
   move: number;
   eased: number;
   elapsed: number;
@@ -55,24 +57,40 @@ const SAME_TIME = 1e-6;
 
 export function segmentProgress(segment: Segment, time: number, motionScale: number, ease: Ease): SegmentProgress {
   const elapsed = time - segment.start;
-  const moveSpan = segment.baseDuration * motionScale * (segment.exits ? 1 - EXIT_SHARE : 1);
+  const clearsFirst = segment.exits || segment.relayout;
+  const moveSpan = segment.baseDuration * motionScale * (clearsFirst ? 1 - EXIT_SHARE : 1);
   const moveEnd = Math.min(segment.start + moveSpan, segment.cutAt);
-  if (time >= Math.max(moveEnd, segment.start + segment.trueSeconds)) return { exit: 1, move: 1, eased: 1, elapsed, done: true };
+  if (time >= Math.max(moveEnd, segment.start + segment.trueSeconds)) return { exit: 1, shift: 1, move: 1, eased: 1, elapsed, done: true };
   const exit = segment.lead > 0 ? clamp01((elapsed + segment.lead) / segment.lead) : Number(elapsed >= 0);
-  const span = moveEnd - segment.start;
-  const move = elapsed < 0 ? 0 : span < SAME_TIME ? 1 : clamp01(elapsed / span);
-  return { exit, move, eased: move >= 1 ? 1 : ease(move), elapsed, done: false };
+  const shiftStart = segment.start - segment.lead;
+  const shiftEnd = segment.relayout ? Math.min(shiftStart + EXIT_SHARE * segment.baseDuration, moveEnd) : segment.start;
+  const arrivalStart = Math.max(segment.start, shiftEnd);
+  const span = moveEnd - arrivalStart;
+  const move = time < arrivalStart ? 0 : span < SAME_TIME ? 1 : clamp01((time - arrivalStart) / span);
+  const eased = move >= 1 ? 1 : ease(move);
+  const shift = segment.relayout ? ease(clamp01((time - shiftStart) / Math.max(shiftEnd - shiftStart, SAME_TIME))) : eased;
+  return { exit, shift, move, eased, elapsed, done: false };
 }
 
 export function trueProgress(progress: SegmentProgress, seconds: number): number {
   return clamp01(progress.elapsed / seconds);
 }
 
-function vanishes(before: SceneState, after: SceneState, replaced: string[]): boolean {
-  if (replaced.length > 0) return true;
-  if (before === after) return false;
-  const kept = new Set(buildStage(after).objects.flatMap((object) => object.drawables.map((drawable) => drawable.id)));
-  return buildStage(before).objects.some((object) => object.drawables.some((drawable) => !kept.has(drawable.id)));
+interface Clearing {
+  exits: boolean;
+  relayout: boolean;
+}
+
+const NO_CLEARING: Clearing = { exits: false, relayout: false };
+
+function clearingOf(before: SceneState, after: SceneState, replaced: string[]): Clearing {
+  if (before === after) return { exits: replaced.length > 0, relayout: false };
+  const [from, to] = [buildStage(before), buildStage(after)];
+  const kept = new Set(to.objects.flatMap((object) => object.drawables.map((drawable) => drawable.id)));
+  return {
+    exits: replaced.length > 0 || from.objects.some((object) => object.drawables.some((drawable) => !kept.has(drawable.id))),
+    relayout: arrivedObjects(from, to).size > 0 && reshapedDrawables(from, to),
+  };
 }
 
 interface OpEvent {
@@ -168,14 +186,14 @@ export class Timeline {
       const replaced = isSceneGroup ? plan.replaced : [];
       const baseDuration = Math.max(isSceneGroup ? SCENE_CHANGE_SECONDS : 0, ...group.ops.map((planned) => planned.duration));
       const trueSeconds = Math.max(0, ...group.ops.filter((planned) => planned.trueTime).map((planned) => planned.duration));
-      const exits = this.exitsOf(before, after, replaced, errors, step);
+      const { exits, relayout } = this.clearingOf(before, after, replaced, errors, step);
       const previous = this.segments.at(-1);
       const previousStart = previous?.start ?? 0;
-      const naturalLead = exits ? EXIT_SHARE * baseDuration : 0;
+      const naturalLead = exits || relayout ? EXIT_SHARE * baseDuration : 0;
       const time = Math.max(group.time, this.trueEnd + naturalLead, previousStart);
       const lead = Math.min(naturalLead, time - previousStart);
       if (previous) previous.cutAt = time - lead;
-      this.segments.push({ start: time, lead, exits, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches: sharedStart(group.ops.flatMap((planned) => planned.touches)), replaced });
+      this.segments.push({ start: time, lead, exits, relayout, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches: sharedStart(group.ops.flatMap((planned) => planned.touches)), replaced });
       cursor = after;
       if (trueSeconds > 0) this.trueEnd = Math.max(this.trueEnd, time + trueSeconds);
       lastSegmentEnd = Math.max(lastSegmentEnd, time + Math.max(baseDuration, trueSeconds));
@@ -195,14 +213,14 @@ export class Timeline {
     return span;
   }
 
-  private exitsOf(before: SceneState, after: SceneState, replaced: string[], errors: string[], step: Step): boolean {
-    if (errors.length > 0) return false;
+  private clearingOf(before: SceneState, after: SceneState, replaced: string[], errors: string[], step: Step): Clearing {
+    if (errors.length > 0) return NO_CLEARING;
     try {
-      return vanishes(before, after, replaced);
+      return clearingOf(before, after, replaced);
     } catch (error) {
       if (!(error instanceof LabError)) throw error;
       errors.push(`step ${step.step} draw: ${error.message}`);
-      return false;
+      return NO_CLEARING;
     }
   }
 
@@ -233,6 +251,6 @@ export class Timeline {
   }
 
   private still(scene: SceneState): Located {
-    return { before: scene, after: scene, progress: { exit: 1, move: 1, eased: 1, elapsed: 0, done: true }, touches: [], replaced: [], exits: false };
+    return { before: scene, after: scene, progress: { exit: 1, shift: 1, move: 1, eased: 1, elapsed: 0, done: true }, touches: [], replaced: [], exits: false };
   }
 }

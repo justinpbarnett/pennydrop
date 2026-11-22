@@ -112,3 +112,34 @@ export function buildStage(scene: SceneState, layout: LayoutOf = layoutScene, th
   stages.set(scene, stage);
   return stage;
 }
+
+const BOX_MOVE_THRESHOLD = 0.5;
+
+export function movedObjects(before: Stage, after: Stage): Set<string> {
+  const earlier = new Map(before.objects.map((object) => [object.id, object.box]));
+  return new Set(
+    after.objects
+      .filter((object) => {
+        const was = earlier.get(object.id);
+        return was !== undefined && (["x", "y", "w", "h", "scale"] as const).some((key) => Math.abs(was[key] - object.box[key]) > BOX_MOVE_THRESHOLD);
+      })
+      .map((object) => object.id),
+  );
+}
+
+export function arrivedObjects(before: Stage, after: Stage): Set<string> {
+  const earlier = new Set(before.objects.map((object) => object.id));
+  return new Set(after.objects.filter((object) => !earlier.has(object.id)).map((object) => object.id));
+}
+
+const GEOMETRY_KEYS = ["x", "y", "x2", "y2", "w", "h", "r"] as const;
+
+export function reshapedDrawables(before: Stage, after: Stage): boolean {
+  const earlier = new Map(before.objects.flatMap((object) => object.drawables.map((drawable) => [drawable.id, drawable] as const)));
+  return after.objects.some((object) =>
+    object.drawables.some((drawable) => {
+      const was = earlier.get(drawable.id);
+      return was !== undefined && (GEOMETRY_KEYS.some((key) => Math.abs((was[key] ?? 0) - (drawable[key] ?? 0)) > BOX_MOVE_THRESHOLD) || (was.points ?? []).some((value, index) => Math.abs(value - (drawable.points?.[index] ?? value)) > BOX_MOVE_THRESHOLD));
+    }),
+  );
+}

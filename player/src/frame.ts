@@ -1,6 +1,6 @@
 import { gsap } from "gsap";
 import { definitionOf, type SceneState } from "./scene";
-import { type Camera, buildStage, HOME_CAMERA, type PlacedObject, placeDrawables, type Stage } from "./stage";
+import { type Camera, buildStage, HOME_CAMERA, arrivedObjects, movedObjects, type PlacedObject, placeDrawables, type Stage } from "./stage";
 import { clamp01, type Drawable, type DrawableKind, duringLabOp, lerp, lerpRect, type Paint, type Rect } from "./lab";
 import { parseHex, type Rgba, shownText, type Theme } from "./theme";
 import { type SegmentProgress, type Timeline, trueProgress } from "./timeline";
@@ -189,14 +189,13 @@ function lerpBox(before: Box | undefined, after: Box | undefined, progress: numb
   return { ...lerpRect(from, to, progress), scale: lerp(from.scale, to.scale, progress) };
 }
 
-function boxChanges(before: Stage, after: Stage, objectId: string): boolean {
-  const from = boxOf(before, objectId);
-  const to = boxOf(after, objectId);
-  return from !== undefined && to !== undefined && (["x", "y", "w", "h", "scale"] as const).some((key) => Math.abs(from[key] - to[key]) > 0.5);
-}
-
 function boxOf(stage: Stage, objectId: string): Box | undefined {
   return stage.objects.find((object: PlacedObject) => object.id === objectId)?.box;
+}
+
+function arriving(item: Painted, eased: number): Painted {
+  const progress = clamp01(eased);
+  return { ...item, y: item.y + ENTER_RISE * (1 - progress), opacity: item.opacity * progress };
 }
 
 function applyTouches(
@@ -206,8 +205,10 @@ function applyTouches(
   progress: SegmentProgress,
   theme: Theme,
 ): void {
+  const moving = movedObjects(stages.before, stages.after);
+  const arrived = arrivedObjects(stages.before, stages.after);
   for (const touch of touches) {
-    const box = lerpBox(boxOf(stages.before, touch.objectId), boxOf(stages.after, touch.objectId), progress.eased);
+    const box = lerpBox(boxOf(stages.before, touch.objectId), boxOf(stages.after, touch.objectId), moving.has(touch.objectId) ? progress.shift : progress.eased);
     if (touch.action.type === "effect") {
       const own = [...items.values()].filter((item) => objectOf(item.id) === touch.objectId);
       const center = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
@@ -217,7 +218,10 @@ function applyTouches(
       const { name, parts, args, seconds, trueTime } = touch.action;
       const drive = trueTime ? trueProgress(progress, seconds) : progress.eased;
       const local = duringLabOp(definitionOf(touch.after), touch.before.state, touch.after.state, { name, parts, args }, drive, { objectId: touch.objectId, links: {} });
-      placeDrawables(touch.objectId, local, box).forEach((drawable) => items.set(drawable.id, paintDrawable(drawable, theme)));
+      placeDrawables(touch.objectId, local, box).forEach((drawable) => {
+        const painted = paintDrawable(drawable, theme);
+        items.set(drawable.id, arrived.has(touch.objectId) ? arriving(painted, progress.eased) : painted);
+      });
     }
   }
 }
@@ -237,18 +241,19 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
     afterItems.forEach((item, id) => items.set(id, item));
   } else {
     const oldObjects = new Set(before.objects.map((object) => object.id));
+    const moved = movedObjects(before, after);
     const clamped = clamp01(progress.eased);
     afterItems.forEach((item, id) => {
       const previous = beforeItems.get(id);
-      if (replaced.has(objectOf(id))) {
+      const owner = objectOf(id);
+      if (replaced.has(owner)) {
         items.set(id, { ...item, opacity: item.opacity * clamped });
       } else if (previous) {
-        blend(previous, item, progress.eased).forEach((blended) => items.set(blended.id, blended));
+        blend(previous, item, progress.shift).forEach((blended) => items.set(blended.id, blended));
+      } else if (moved.has(owner)) {
+        items.set(id, { ...item, opacity: item.opacity * clamp01((clamp01(progress.shift) - RELAYOUT_FADE_START) / (1 - RELAYOUT_FADE_START)) });
       } else {
-        const owner = objectOf(id);
-        const rise = oldObjects.has(owner) ? 0 : ENTER_RISE * (1 - clamped);
-        const fadeFrom = oldObjects.has(owner) && boxChanges(before, after, owner) ? RELAYOUT_FADE_START : 0;
-        items.set(id, { ...item, y: item.y + rise, opacity: item.opacity * clamp01((clamped - fadeFrom) / (1 - fadeFrom)) });
+        items.set(id, oldObjects.has(owner) ? { ...item, opacity: item.opacity * clamped } : arriving(item, progress.eased));
       }
     });
     beforeItems.forEach((item, id) => {
