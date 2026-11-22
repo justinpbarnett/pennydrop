@@ -1,3 +1,5 @@
+import { prepareStepAssets } from "../assets";
+import { THEMES } from "../theme";
 import { easeFor, type Painted, renderFrame } from "../frame";
 import type { Voice } from "../format";
 import { LabError } from "../lab";
@@ -7,9 +9,10 @@ import { applySceneSpecs, definitionOf, EMPTY_SCENE, type SceneState } from "../
 import { parseSelector } from "../selector";
 import { buildStage, type Stage } from "../stage";
 import type { Theme } from "../theme";
-import { Timeline } from "../timeline";
-import { cssMatrix, drift, type Pose, poseAt, poseFor, project, regionOf, type ScreenRegion, type Shot } from "./camera";
+import { type Located, Timeline } from "../timeline";
+import { cssMatrix, drift, type Follow, type Pose, poseAt, poseFor, project, regionOf, type ScreenRegion, type Shot } from "./camera";
 import type { CameraMove, FilmLine, FilmSource } from "./format";
+import { type InkBox, InkRecord } from "./inks";
 import { centerOf, focusedOn, layoutWorld, type Placement } from "./world";
 
 const DEFAULT_LEAD_SECONDS = 2;
@@ -21,6 +24,8 @@ const BLUR_FREE_RANGE = 600;
 const BLUR_PER_UNIT = 1 / 700;
 const BLUR_LIMIT = 6;
 const ON_CUE_EASE = "power2.out";
+const MAX_DASH_SECONDS = 10;
+const NUMBER_WORD = /\d|\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|half|double|triple|twice|hundredth|thousandth|percent|first|second|third|fourth|fifth)\b/i;
 
 export class FilmError extends Error {
   override name = "FilmError";
@@ -55,7 +60,7 @@ export interface Film {
   travels: { time: number; seconds: number }[];
   lineStarts: number[];
   bounds: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
-  inks: InkBoxes;
+  inks: InkRecord;
 }
 
 function planeLayout(scene: SceneState): Layout {
@@ -90,29 +95,36 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export interface InkBox {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-export type InkBoxes = Map<string, InkBox>;
-
-function inked(placement: Placement, inks: InkBoxes): Placement {
-  const ink = inks.get(placement.id);
+function inked(placement: Placement, ink: InkBox | undefined): Placement {
   return ink ? { ...placement, x: placement.x + ink.x, y: placement.y + ink.y, w: ink.w, h: ink.h } : placement;
 }
 
-function resolvePlacement(scenes: SceneState[], id: string, inks: InkBoxes): Placement | null {
-  for (const scene of scenes) {
-    const placement = layoutWorld(scene).get(id);
-    if (placement) return inked(placement, inks);
-  }
-  return null;
+function undrawable(line: FilmLine): string[] {
+  return (line.do ?? []).filter((op) => op.op === "connect" || (op.spec as { kind?: string } | undefined)?.kind === "edge").map(
+    (op) => `line ${line.line}: the op "${op.op}" on ${JSON.stringify(op.on)} draws a connector line, which a Film does not draw; place the two objects side by side along the route and say the link in the narration`,
+  );
 }
 
-export function buildFilm(source: FilmSource, inks: InkBoxes = new Map()): Film {
+function idleCounters(lineScenes: SceneState[], lineStarts: number[], lineNumbers: number[], cues: CueRecord[]): string[] {
+  const counted = new Set<string>();
+  const problems: string[] = [];
+  cues.filter((cue) => cue.kind === "do" && cue.op === "count" && cue.object).forEach((cue) => {
+    if (cue.cue && !NUMBER_WORD.test(cue.cue)) problems.push(`line ${cue.line}: counter "${cue.object}" counts on "${cue.cue}", which is not a number word; cue the count on the word that says the number`);
+    if (counted.has(cue.object!)) return;
+    counted.add(cue.object!);
+    const first = lineScenes.findIndex((scene) => scene.objects.some((object) => object.id === cue.object && definitionOf(object).id === "counter"));
+    if (first < 0) return;
+    const created = cues.find((other) => other.kind === "do" && other.op === "create" && other.object === cue.object);
+    const idle = cue.opStart - (created?.opStart ?? lineStarts[first]!);
+    if (idle > MAX_DASH_SECONDS) {
+      const where = lineNumbers[first] === cue.line ? `in line ${cue.line}, ${idle.toFixed(0)} s into the line` : `from line ${lineNumbers[first]} to line ${cue.line}`;
+      problems.push(`counter "${cue.object}" shows a dash for ${idle.toFixed(0)} s before its number is said (it is added in line ${lineNumbers[first]} and counted ${where}); bring it in with a create op cued just before the number word (the counter then appears as the number is said), or add it in the Scene of a line where the number comes early`);
+    }
+  });
+  return problems;
+}
+
+export async function buildFilm(source: FilmSource, inks = new InkRecord()): Promise<Film> {
   const { header, lines } = source;
   const lead = header.lead ?? DEFAULT_LEAD_SECONDS;
   const errors: string[] = [];
@@ -122,6 +134,7 @@ export function buildFilm(source: FilmSource, inks: InkBoxes = new Map()): Film 
   } catch (error) {
     errors.push(`header start: ${describe(error)}`);
   }
+  await prepareStepAssets(startScene);
   const timeline = new Timeline(startScene, planeStage);
   const lineScenes: SceneState[] = [];
   const cues: CueRecord[] = [];
@@ -130,7 +143,9 @@ export function buildFilm(source: FilmSource, inks: InkBoxes = new Map()): Film 
   const lineStarts: number[] = [];
   const shotRequests: { index: number; time: number; seconds: number; line: FilmLine; move: CameraMove }[] = [];
 
-  lines.forEach((line, index) => {
+  for (const [index, line] of lines.entries()) {
+    await prepareStepAssets(line.scene);
+    errors.push(...undrawable(line));
     const span = timeline.addStep({ step: line.line, say: line.say, scene: line.scene, do: line.do, voice: line.voice as Voice | undefined });
     lineScenes.push(timeline.finalScene);
     lineStarts.push(lead + span.start);
@@ -169,17 +184,26 @@ export function buildFilm(source: FilmSource, inks: InkBoxes = new Map()): Film 
       accents.push({ time, tone: sound.tone, gain: sound.gain ?? 1 });
       cues.push({ line: line.line, kind: "sound", op: sound.tone, object: null, cue: sound.cue ?? null, wordStart: wordTime(sound.cue, match), opStart: time });
     });
-  });
+  }
+  errors.push(...idleCounters(lineScenes, lineStarts, lines.map((line) => line.line), cues));
+  if (errors.length > 0) throw new FilmError(errors.join("\n"));
   const everyScene = [startScene, ...lineScenes];
-  const opening = openingPose(source, startScene, lineScenes, errors, inks);
+  const requests = [...shotRequests].sort((a, b) => a.time - b.time);
+  const opening = openingPose(source, everyScene, errors, inks, requests[0]?.time ?? Infinity);
+  timeline.finish();
+  const duration = lead + timeline.duration + (header.tail ?? DEFAULT_TAIL_SECONDS);
   const shots: Shot[] = [];
-  [...shotRequests].sort((a, b) => a.time - b.time).forEach(({ move, time, seconds, index, line }) => {
-    const placement = resolvePlacement([lineScenes[index]!, ...everyScene], move.go, inks);
-    if (!placement) {
+  const settle = THEMES[header.theme];
+  requests.forEach(({ move, time, seconds, line }, order) => {
+    const settled = timeline.locate(time + seconds - lead, 1, easeFor(settle)).after;
+    const scene = [settled, ...everyScene].find((candidate) => layoutWorld(candidate).has(move.go));
+    const placed = scene && layoutWorld(scene).get(move.go)!;
+    if (!placed) {
       errors.push(`line ${line.line}: the camera goes to "${move.go}", which is not in the Scene`);
       return;
     }
-    shots.push({ start: time, end: time + seconds, to: poseFor(move.focus ? focusedOn(placement, move.focus) : placement, move) });
+    const placement = inked(placed, inks.between(move.go, time, requests[order + 1]?.time ?? duration));
+    shots.push({ start: time, end: time + seconds, to: poseFor(move.focus ? focusedOn(placement, move.focus) : placement, move), subject: move.go, anchor: [placed.x, placed.y, placed.z] });
   });
 
   if (errors.length > 0) throw new FilmError(errors.join("\n"));
@@ -193,11 +217,10 @@ export function buildFilm(source: FilmSource, inks: InkBoxes = new Map()): Film 
     minZ: Math.min(...placements.map((p) => p.z)),
     maxZ: Math.max(...placements.map((p) => p.z)),
   };
-  timeline.finish();
   return {
     source,
     lead,
-    duration: lead + timeline.duration + (header.tail ?? DEFAULT_TAIL_SECONDS),
+    duration,
     timeline,
     opening,
     shots,
@@ -211,11 +234,10 @@ export function buildFilm(source: FilmSource, inks: InkBoxes = new Map()): Film 
   };
 }
 
-function openingPose(source: FilmSource, startScene: SceneState, lineScenes: SceneState[], errors: string[], inks: InkBoxes): Pose {
-  const scenes = [startScene, ...lineScenes];
+function openingPose(source: FilmSource, scenes: SceneState[], errors: string[], inks: InkRecord, firstShot: number): Pose {
   const wanted = source.header.opening?.go;
-  const first = scenes.map((scene) => [...layoutWorld(scene).values()][0]).find((placement) => placement !== undefined);
-  const placement = wanted ? resolvePlacement(scenes, wanted, inks) : first ? inked(first, inks) : null;
+  const placed = scenes.map((scene) => (wanted ? layoutWorld(scene).get(wanted) : [...layoutWorld(scene).values()][0])).find((placement) => placement !== undefined);
+  const placement = placed ? inked(placed, inks.between(placed.id, 0, firstShot)) : null;
   if (!placement) {
     errors.push(wanted ? `header opening: the camera goes to "${wanted}", which is not in the Scene` : "the film has no pieces to point the camera at");
     return { px: 0, py: 0, pz: 2000, tx: 0, ty: 0, tz: 0 };
@@ -253,14 +275,41 @@ function mix(a: number, b: number, amount: number): number {
   return a + (b - a) * amount;
 }
 
+function placedBetween(id: string, located: Located): Placement | null {
+  const from = layoutWorld(located.before).get(id) ?? layoutWorld(located.after).get(id);
+  if (!from) return null;
+  const to = layoutWorld(located.after).get(id) ?? from;
+  const progress = located.progress.eased;
+  return { id, x: mix(from.x, to.x, progress), y: mix(from.y, to.y, progress), z: mix(from.z, to.z, progress), w: Math.max(from.w, to.w), h: Math.max(from.h, to.h) };
+}
+
+function nearestPlacement(film: Film, local: number, id: string, located: Located): Placement | null {
+  const now = placedBetween(id, located);
+  if (now) return now;
+  const holds = (scene: SceneState) => scene.objects.some((object) => object.id === id);
+  const begun = film.timeline.segments.filter((segment) => segment.start - segment.lead <= local);
+  const left = begun.findLast((segment) => holds(segment.before));
+  if (left) return layoutWorld(left.before).get(id) ?? null;
+  const arriving = film.timeline.segments.find((segment) => segment.start - segment.lead > local && holds(segment.after));
+  return arriving ? layoutWorld(arriving.after).get(id) ?? null : null;
+}
+
+function locateAt(film: Film, time: number, theme: Theme): Located {
+  return film.timeline.locate(time - film.lead, theme.motionScale, easeFor({ ...theme, ease: ON_CUE_EASE }));
+}
+
+function subjectFollow(film: Film, theme: Theme, time: number, located: Located): Follow {
+  return (shot, at) => {
+    const placed = nearestPlacement(film, at - film.lead, shot.subject, at === time ? located : locateAt(film, at, theme));
+    return placed ? [placed.x - shot.anchor[0], placed.y - shot.anchor[1], placed.z - shot.anchor[2]] : [0, 0, 0];
+  };
+}
+
 export function frameAt(film: Film, time: number, theme: Theme): FilmFrame {
   const local = time - film.lead;
   const onCue: Theme = { ...theme, ease: ON_CUE_EASE };
-  const located = film.timeline.locate(local, theme.motionScale, easeFor(onCue));
-  const progress = located.progress.eased;
+  const located = locateAt(film, time, theme);
   const inner = renderFrame(film.timeline, local, onCue, planeStage);
-  const before = layoutWorld(located.before);
-  const after = layoutWorld(located.after);
 
   const grouped = new Map<string, Painted[]>();
   for (const item of inner.items) {
@@ -270,27 +319,33 @@ export function frameAt(film: Film, time: number, theme: Theme): FilmFrame {
     else grouped.set(id, [item]);
   }
 
-  const pose = drift(poseAt(film.opening, film.shots, time, easeFor(theme)), time);
+  const pose = drift(poseAt(film.opening, film.shots, time, easeFor(theme), subjectFollow(film, theme, time, located)), time);
   const focusDepth = project(pose, [pose.tx, pose.ty, pose.tz])?.depth ?? 0;
   const planes: PlaneFrame[] = [...grouped].map(([id, items]) => {
-    const from = before.get(id) ?? after.get(id)!;
-    const to = after.get(id) ?? from;
-    const placement: Placement = {
-      id,
-      x: mix(from.x, to.x, progress),
-      y: mix(from.y, to.y, progress),
-      z: mix(from.z, to.z, progress),
-      w: Math.max(from.w, to.w),
-      h: Math.max(from.h, to.h),
-    };
+    const placement = placedBetween(id, located);
+    if (!placement) throw new FilmError(`something painted for "${id}" has no place in the world at ${time.toFixed(1)} s (items ${items.map((item) => item.id).join(", ")}); it is an overlay or a piece that left the Scene while still drawing`);
     const center = centerOf(placement);
     const screen = project(pose, [center.x, center.y, center.z]);
     const depth = screen?.depth ?? 0;
     const fog = 1 / (1 + (Math.max(0, depth - FOG_START) / FOG_SCALE) ** 2);
     const blur = Math.min(BLUR_LIMIT, Math.max(0, (Math.abs(depth - focusDepth) - BLUR_FREE_RANGE) * BLUR_PER_UNIT));
-    return { ...placement, items, opacity: fog, blur, visible: screen !== null, region: regionOf(pose, placement), ink: regionOf(pose, inked(placement, film.inks)) };
+    return { ...placement, items, opacity: fog, blur, visible: screen !== null, region: regionOf(pose, placement), ink: regionOf(pose, inked(placement, film.inks.at(id, time))) };
   });
   return { planes, matrix: cssMatrix(pose), pose, time };
+}
+
+export function holdEnd(film: Film, shot: number): number {
+  return film.shots[shot + 1]?.start ?? film.duration;
+}
+
+export function framedRegion(film: Film, shot: number, frame: FilmFrame, plane: PlaneFrame): ScreenRegion | null {
+  return regionOf(frame.pose, inked(plane, film.inks.between(plane.id, film.shots[shot]!.start, holdEnd(film, shot))));
+}
+
+export function unfilledAt(film: Film, time: number, theme: Theme, id: string): boolean {
+  const scene = film.timeline.locate(time - film.lead, theme.motionScale, easeFor({ ...theme, ease: ON_CUE_EASE })).after;
+  const object = scene.objects.find((candidate) => candidate.id === id);
+  return object ? definitionOf(object).unfilled?.(object.state) === true : false;
 }
 
 export function loadFilmError(error: unknown): Error {

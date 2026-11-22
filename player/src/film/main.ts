@@ -4,8 +4,9 @@ import { loadMintedLabs } from "../minted";
 import { registerModules } from "../registry";
 import { THEMES } from "../theme";
 import { PERSPECTIVE, project } from "./camera";
-import { buildFilm, type CueRecord, type Film, frameAt, type InkBoxes, type PlaneFrame } from "./film";
+import { buildFilm, type CueRecord, type Film, frameAt, framedRegion, holdEnd, type PlaneFrame, unfilledAt } from "./film";
 import { FILM_FPS, parseFilm } from "./format";
+import { type InkBox, InkRecord } from "./inks";
 import { loadLand } from "./land";
 import { FilmView } from "./view";
 
@@ -26,15 +27,15 @@ declare global {
   interface Window {
     film: {
       ready: Promise<void>;
-      load(text: string): FilmManifest;
+      load(text: string): Promise<FilmManifest>;
       seek(time: number): Promise<void>;
       regions(time: number): Record<string, { x: number; y: number; w: number; h: number } | null>;
-      audit(): { shot: number; at: number; object: string | null; tilt: number; top: number | null; bottom: number | null; left: number | null; right: number | null; smallestText: number | null }[];
+      audit(): { shot: number; at: number; object: string | null; tilt: number; top: number | null; bottom: number | null; left: number | null; right: number | null; smallestText: number | null; peeking: string[]; wait: number | null }[];
     };
   }
 }
 
-const INK_SAMPLES = [0.1, 0.35, 0.6, 0.85, 0.99];
+const LINE_END = 0.99;
 
 let film: Film | null = null;
 let view: FilmView | null = null;
@@ -44,32 +45,28 @@ function loaded(): Film {
   return film;
 }
 
-function measureInks(draft: Film, drawing: FilmView): InkBoxes {
+function measureInks(draft: Film, drawing: FilmView): InkRecord {
   const theme = THEMES[draft.source.header.theme];
-  const inks: InkBoxes = new Map();
-  draft.lineStarts.forEach((start, index) => {
-    const end = draft.lineStarts[index + 1] ?? draft.duration;
-    for (const share of INK_SAMPLES) {
-      for (const plane of frameAt(draft, start + (end - start) * share, theme).planes) {
+  const lineEnds = draft.lineStarts.map((start, index) => start + ((draft.lineStarts[index + 1] ?? draft.duration) - start) * LINE_END);
+  const holdEnds = draft.shots.map((_, index) => holdEnd(draft, index) - 1 / FILM_FPS);
+  return new InkRecord(
+    [...new Set([...lineEnds, ...holdEnds])].map((time) => ({
+      time,
+      boxes: new Map(frameAt(draft, time, theme).planes.flatMap((plane): [string, InkBox][] => {
         const ink = drawing.measureInk(plane, theme);
-        if (!ink) continue;
-        const known = inks.get(plane.id);
-        const left = Math.min(known?.x ?? ink.x, ink.x);
-        const top = Math.min(known?.y ?? ink.y, ink.y);
-        inks.set(plane.id, { x: left, y: top, w: Math.max((known?.x ?? ink.x) + (known?.w ?? ink.w), ink.x + ink.w) - left, h: Math.max((known?.y ?? ink.y) + (known?.h ?? ink.h), ink.y + ink.h) - top });
-      }
-    }
-  });
-  return inks;
+        return ink ? [[plane.id, ink]] : [];
+      })),
+    })),
+  );
 }
 
 window.film = {
   ready: Promise.all([loadFonts(), loadMintedLabs(), loadLand()]).then(() => undefined),
-  load(text) {
+  async load(text) {
     const source = parseFilm(text);
-    const draft = buildFilm(source);
+    const draft = await buildFilm(source);
     view = new FilmView(document.body, draft.bounds);
-    film = buildFilm(source, measureInks(draft, view));
+    film = await buildFilm(source, measureInks(draft, view));
     return {
       duration: film.duration,
       fps: FILM_FPS,
@@ -90,7 +87,7 @@ window.film = {
     const current = loaded();
     const theme = THEMES[current.source.header.theme];
     const slope = (frame: ReturnType<typeof frameAt>, placed: PlaneFrame): number => {
-      const ink = current.inks.get(placed.id);
+      const ink = current.inks.at(placed.id, frame.time);
       if (!ink) return 0;
       const left = project(frame.pose, [placed.x + ink.x, placed.y + ink.y, placed.z]);
       const right = project(frame.pose, [placed.x + ink.x + ink.w, placed.y + ink.y, placed.z]);
@@ -105,14 +102,17 @@ window.film = {
         }
       }
       const frame = frameAt(current, shot.end, theme);
-      const target = frame.planes
+      const nearest = frame.planes
         .filter((plane) => plane.ink)
         .sort((a, b) => Math.hypot(a.ink!.x + a.ink!.w / 2 - 960, a.ink!.y + a.ink!.h / 2 - 540) - Math.hypot(b.ink!.x + b.ink!.w / 2 - 960, b.ink!.y + b.ink!.h / 2 - 540))[0];
-      const ink = target?.ink;
+      const target = frame.planes.find((plane) => plane.id === shot.subject && plane.ink) ?? nearest;
+      const ink = target && framedRegion(current, index, frame, target);
       const depth = target ? project(frame.pose, [target.x + target.w / 2, target.y + target.h / 2, target.z])?.depth : undefined;
       const sizes = (target?.items ?? []).filter((item) => item.kind === "text" && (item.text?.trim() || item.spans?.length)).map((item) => item.size);
       const smallestText = depth && sizes.length ? Math.min(...sizes) * (PERSPECTIVE / depth) : null;
-      return { shot: index, at: shot.end, object: target?.id ?? null, tilt, top: ink?.y ?? null, bottom: ink ? 1080 - ink.y - ink.h : null, left: ink?.x ?? null, right: ink ? 1920 - ink.x - ink.w : null, smallestText };
+      const laterOps = target ? current.cues.filter((cue) => cue.kind === "do" && cue.object === target.id && cue.opStart > shot.end).map((cue) => cue.opStart) : [];
+      const wait = target && laterOps.length && unfilledAt(current, shot.end, theme, target.id) ? Math.min(...laterOps) - shot.end : null;
+      return { shot: index, at: shot.end, object: target?.id ?? null, tilt, top: ink?.y ?? null, bottom: ink ? 1080 - ink.y - ink.h : null, left: ink?.x ?? null, right: ink ? 1920 - ink.x - ink.w : null, smallestText, peeking: frame.planes.filter((plane) => plane.ink && plane.id !== target?.id).map((plane) => plane.id), wait };
     });
   },
   regions(time) {

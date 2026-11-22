@@ -17,7 +17,7 @@ function option(name: string): string | undefined {
 }
 
 function usage(message: string): never {
-  console.error(`${message}\nusage:\n  bun player/tools/film.ts theme <theme>\n  bun player/tools/film.ts plan --film <film.jsonl>\n  bun player/tools/film.ts render --film <film.jsonl> --out <video.mp4> [--workers 4] [--seconds N]`);
+  console.error(`${message}\nusage:\n  bun player/tools/film.ts theme <theme>\n  bun player/tools/film.ts plan --film <film.jsonl>\n  bun player/tools/film.ts audit --film <film.jsonl>\n  bun player/tools/film.ts stills --film <film.jsonl> --dir <directory> --times <seconds,...>\n  bun player/tools/film.ts render --film <film.jsonl> --out <video.mp4> [--workers 4] [--seconds N]`);
   process.exit(2);
 }
 
@@ -70,7 +70,7 @@ if (command === "plan") {
 
 if (command === "audit") {
   const report = await withFilm(text, 1, async ([page]) => page!.evaluate(() => window.film.audit()));
-  console.table(report);
+  console.log(JSON.stringify(report));
   process.exit(0);
 }
 

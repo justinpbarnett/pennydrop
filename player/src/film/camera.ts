@@ -1,10 +1,10 @@
 import { lerp } from "../lab";
-import type { CameraMove, CameraView } from "./format";
+import type { CameraMove } from "./format";
 import { centerOf, type Placement } from "./world";
 
-export const SCREEN = { w: 1920, h: 1080 } as const;
-export const PERSPECTIVE = 2000;
-const FILL: Record<CameraView, number> = { wide: 0.5, fit: 0.88, close: 0.96 };
+import { FILL, PERSPECTIVE, SCREEN } from "./screen";
+
+export { PERSPECTIVE, SCREEN };
 const MIN_DISTANCE = 700;
 const ARC_LIFT = 0.05;
 const DOLLY_SHARE = 0.4;
@@ -23,13 +23,17 @@ export interface Pose {
   tz: number;
 }
 
+export type Vec = [number, number, number];
+
 export interface Shot {
   start: number;
   end: number;
   to: Pose;
+  subject: string;
+  anchor: Vec;
 }
 
-type Vec = [number, number, number];
+export type Follow = (shot: Shot, time: number) => Vec;
 
 const subtract = (a: Vec, b: Vec): Vec => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a: Vec, b: Vec) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -70,7 +74,11 @@ export function blendPose(from: Pose, to: Pose, progress: number): Pose {
   return { ...pose, px: pose.px + away[0] * dolly, py: pose.py + away[1] * dolly, pz: pose.pz + away[2] * dolly };
 }
 
-export function poseAt(opening: Pose, shots: Shot[], time: number, ease: (progress: number) => number): Pose {
+function shifted(pose: Pose, [dx, dy, dz]: Vec): Pose {
+  return { px: pose.px + dx, py: pose.py + dy, pz: pose.pz + dz, tx: pose.tx + dx, ty: pose.ty + dy, tz: pose.tz + dz };
+}
+
+export function poseAt(opening: Pose, shots: Shot[], time: number, ease: (progress: number) => number, follow: Follow): Pose {
   let index = -1;
   shots.forEach((shot, position) => {
     if (shot.start <= time) index = position;
@@ -78,8 +86,9 @@ export function poseAt(opening: Pose, shots: Shot[], time: number, ease: (progre
   const settle = (position: number, at: number): Pose => {
     if (position < 0) return opening;
     const shot = shots[position]!;
-    if (at >= shot.end) return shot.to;
-    return blendPose(settle(position - 1, shot.start), shot.to, ease(Math.max(0, (at - shot.start) / (shot.end - shot.start))));
+    const framed = shifted(shot.to, follow(shot, at));
+    if (at >= shot.end) return framed;
+    return blendPose(settle(position - 1, shot.start), framed, ease(Math.max(0, (at - shot.start) / (shot.end - shot.start))));
   };
   return settle(index, time);
 }

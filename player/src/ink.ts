@@ -1,6 +1,6 @@
 import type { Drawable, Size } from "./lab";
 import { textInk } from "./text-metrics";
-import { shownText, type Theme } from "./theme";
+import { shownText, type Theme, type ThemeFont } from "./theme";
 
 export const ARROW_HEAD_ANGLE = 0.46;
 
@@ -52,13 +52,16 @@ export function turned(drawable: Drawable, points: number[]): number[] {
   return rotated;
 }
 
+export function placedTextInk(text: string, size: number, font: ThemeFont, x: number, y: number, anchor: Drawable["anchor"]): Extent {
+  const { width, left, right, above, below } = textInk(text, size, font);
+  const origin = anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+  return [origin + left, y - above, origin + right, y + below];
+}
+
 function textExtent(drawable: Drawable, theme: Theme): Extent | null {
   const text = shownText(drawable, theme);
   if (!text) return null;
-  const font = theme.fonts[drawable.font ?? "read"];
-  const { width, left, right, above, below } = textInk(text, drawable.size ?? 28, font);
-  const origin = drawable.anchor === "start" ? drawable.x : drawable.anchor === "end" ? drawable.x - width : drawable.x - width / 2;
-  return [origin + left, drawable.y - above, origin + right, drawable.y + below];
+  return placedTextInk(text, drawable.size ?? 28, theme.fonts[drawable.font ?? "read"], drawable.x, drawable.y, drawable.anchor);
 }
 
 export function extentOf(drawable: Drawable, theme: Theme): Extent | null {

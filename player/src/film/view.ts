@@ -1,8 +1,10 @@
-import type { Frame } from "../frame";
+import type { Frame, Painted } from "../frame";
+import { placedTextInk } from "../ink";
 import { STAGE } from "../layout";
 import { StageRenderer } from "../render";
 import type { Theme } from "../theme";
-import type { FilmFrame, InkBox, PlaneFrame } from "./film";
+import type { FilmFrame, PlaneFrame } from "./film";
+import type { InkBox } from "./inks";
 import { FILM_FPS } from "./format";
 import { PERSPECTIVE, project, SCREEN } from "./camera";
 
@@ -19,6 +21,12 @@ const MOTE_HALO = 1.6;
 const MOTE_MAX_SCREEN = 7;
 const INK_BAND = 140;
 const STAGE_CENTER = { x: STAGE.w / 2, y: STAGE.h / 2 };
+
+function glyphBox(item: Painted | undefined): DOMRect | null {
+  if (item?.kind !== "text" || !item.text) return null;
+  const [left, top, right, bottom] = placedTextInk(item.text, item.size, { family: item.fontFamily, weight: item.fontWeight, tracking: item.tracking }, item.x, item.y, item.anchor);
+  return new DOMRect(left, top, right - left, bottom - top);
+}
 
 interface PlaneView {
   element: HTMLDivElement;
@@ -142,10 +150,10 @@ export class FilmView {
     let top = Infinity;
     let right = -Infinity;
     let bottom = -Infinity;
-    for (const child of content ? [...content.children] : []) {
-      if (!(child instanceof SVGGraphicsElement) || Number.parseFloat(getComputedStyle(child).opacity) < MIN_INK_OPACITY) continue;
-      const box = child.getBBox();
-      if (box.width === 0 && box.height === 0) continue;
+    [...(content?.children ?? [])].forEach((child, index) => {
+      if (!(child instanceof SVGGraphicsElement) || Number.parseFloat(getComputedStyle(child).opacity) < MIN_INK_OPACITY) return;
+      const box = glyphBox(plane.items[index]) ?? child.getBBox();
+      if (box.width === 0 && box.height === 0) return;
       const matrix = child.transform.baseVal.consolidate()?.matrix ?? new DOMMatrix();
       for (const corner of [new DOMPoint(box.x, box.y), new DOMPoint(box.x + box.width, box.y), new DOMPoint(box.x, box.y + box.height), new DOMPoint(box.x + box.width, box.y + box.height)]) {
         const placed = corner.matrixTransform(matrix);
@@ -154,7 +162,7 @@ export class FilmView {
         top = Math.min(top, placed.y);
         bottom = Math.max(bottom, placed.y);
       }
-    }
+    });
     return right > left && bottom > top ? { x: left, y: top, w: right - left, h: bottom - top } : null;
   }
 

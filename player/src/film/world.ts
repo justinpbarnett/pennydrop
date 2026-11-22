@@ -1,5 +1,6 @@
 import { fail } from "../lab";
 import { definitionOf, type SceneObject, type SceneState } from "../scene";
+import { frameAround } from "./screen";
 
 export interface Placement {
   id: string;
@@ -13,6 +14,7 @@ export interface Placement {
 export const PLANE_GAP = 380;
 export const PLANE_DEPTH = 900;
 const PEEK = 0.08;
+const PEEK_CLEARANCE = 60;
 
 const SIDES = ["next", "right of", "left of", "above", "below", "behind", "in front of"] as const;
 type Side = (typeof SIDES)[number];
@@ -29,15 +31,24 @@ function relationOf(object: SceneObject): { side: Side; target: string } | null 
   return { side: side as Side, target };
 }
 
-function spotFor(side: Side, target: Placement, size: { w: number; h: number }): { x: number; y: number; z: number } {
+type Size = { w: number; h: number };
+
+function gapBetween(target: Size, size: Size, axis: "w" | "h"): number {
+  const room = (piece: Size) => (frameAround(piece, "fit")[axis] - piece[axis]) / 2;
+  return Math.max(PLANE_GAP, room(target) + PEEK_CLEARANCE, room(size) + PEEK_CLEARANCE);
+}
+
+function spotFor(side: Side, target: Placement, size: Size): { x: number; y: number; z: number } {
+  const across = gapBetween(target, size, "w");
+  const down = gapBetween(target, size, "h");
   const centerX = target.x + target.w / 2 - size.w / 2;
   const centerY = target.y + target.h / 2 - size.h / 2;
   switch (side) {
     case "next":
-    case "right of": return { x: target.x + target.w + PLANE_GAP, y: centerY, z: target.z };
-    case "left of": return { x: target.x - size.w - PLANE_GAP, y: centerY, z: target.z };
-    case "above": return { x: centerX, y: target.y - size.h - PLANE_GAP, z: target.z };
-    case "below": return { x: centerX, y: target.y + target.h + PLANE_GAP, z: target.z };
+    case "right of": return { x: target.x + target.w + across, y: centerY, z: target.z };
+    case "left of": return { x: target.x - size.w - across, y: centerY, z: target.z };
+    case "above": return { x: centerX, y: target.y - size.h - down, z: target.z };
+    case "below": return { x: centerX, y: target.y + target.h + down, z: target.z };
     case "behind": return { x: centerX + target.w * PEEK, y: centerY - target.h * PEEK, z: target.z - PLANE_DEPTH };
     case "in front of": return { x: centerX - target.w * PEEK, y: centerY + target.h * PEEK, z: target.z + PLANE_DEPTH };
   }
