@@ -94,8 +94,10 @@ class PracticeAuthor:
         for step in steps:
             stage.settle(step)
             stage.remember_trace(step, step, {})
-        scene = await self._validator.replay(steps, reading)
-        return Standing(stage, scene, {}, frozenset().union(*(case_keys(step) for step in steps)), reading)
+        replay = await self._validator.replay(steps, reading)
+        if replay.skipped:
+            LOG.warning("the stored steps play with these ops skipped: %s", "; ".join(replay.skipped))
+        return Standing(stage, replay.scene, {}, frozenset().union(*(case_keys(step) for step in steps)), reading)
 
     async def _errors(self, written: ParsedLine, standing: Standing, steps: list[dict[str, Any]], lesson_id: str) -> LineErrors:
         if not isinstance(written, dict) or "practice" not in written:

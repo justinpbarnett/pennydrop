@@ -37,6 +37,12 @@ class Verdict:
         return not self.errors
 
 
+@dataclass(frozen=True)
+class Replay:
+    scene: Any
+    skipped: tuple[str, ...]
+
+
 class Validator:
     def __init__(self, settings: Settings):
         self._player_dir = settings.player_dir
@@ -53,7 +59,7 @@ class Validator:
                 reply = await (await self._running()).ask({"scene": scene, "step": wire, **({} if reading else {"reading": False}), **({"replay": True} if replay else {})})
                 if "crash" in reply:
                     raise PlayerCrash(reply["crash"])
-                return Verdict(tuple(reply["errors"]), reply["scene"] if reply["ok"] else scene)
+                return Verdict(tuple(reply["errors"]), reply["scene"] if reply["ok"] or replay else scene)
             except ValidatorError:
                 if attempt == 2:
                     raise
@@ -63,14 +69,14 @@ class Validator:
         verdict = await self.check({"step": 1, "say": DECLARATION_PROBE, "scene": {name: spec}}, None, reading, replay=True)
         return next((entry["state"] for entry in verdict.scene["objects"] if entry["id"] == name), None) if verdict.ok else None
 
-    async def replay(self, steps: list[dict[str, Any]], reading: bool = True) -> Any:
+    async def replay(self, steps: list[dict[str, Any]], reading: bool = True) -> Replay:
         scene = None
+        skipped: list[str] = []
         for step in steps:
             verdict = await self.check({key: value for key, value in step.items() if key != "voice"}, scene, reading, replay=True)
-            if not verdict.ok:
-                raise ValidatorError(f"stored step {step.get('step')} no longer plays: {'; '.join(verdict.errors)}")
+            skipped.extend(verdict.errors)
             scene = verdict.scene
-        return scene
+        return Replay(scene, tuple(skipped))
 
     async def close(self) -> None:
         if self._session:

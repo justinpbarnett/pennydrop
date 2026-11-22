@@ -69,9 +69,12 @@ def _failed_replays(validator: Validator, store: Store, lab_id: str) -> list[str
         try:
             for lesson in lessons:
                 try:
-                    await validator.replay(store.steps(lesson.id), reading=lesson.header.get("reading") is not False)
+                    replay = await validator.replay(store.steps(lesson.id), reading=lesson.header.get("reading") is not False)
                 except ValidatorError as error:
                     broken.append(f"{lesson.id}: {error}"[:600])
+                    continue
+                if replay.skipped:
+                    broken.append(f"{lesson.id}: the player now skips {'; '.join(replay.skipped)}"[:600])
         finally:
             await validator.close()
         return broken

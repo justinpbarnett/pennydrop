@@ -90,7 +90,7 @@ async function answer(request: Request): Promise<object> {
   await prepareStepAssets(scene);
   const timeline = new Timeline(scene);
   const result = await checkStep(timeline, step, request.replay === true);
-  return { id, ...result, scene: snapshotOf(result.ok ? timeline.finalScene : start) };
+  return { id, ...result, scene: snapshotOf(result.ok || request.replay === true ? timeline.finalScene : start) };
 }
 
 function crashMessage(error: unknown): string {

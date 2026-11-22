@@ -209,7 +209,7 @@ class LessonRun:
         self._request_missing_lab(plan)
         photo_search = plan.photo_subject if "picture" in plan.labs else None
         photo = asyncio.ensure_future(kit.directive_tools.images.find(photo_search, not self._is_kid, self._record.id)) if photo_search else None
-        start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
+        start_scene = (await kit.validator.replay(self._ask.earlier_steps, self._reading)).scene if plan.follow_up else None
         outline = (await kid_outline(plan.algorithm, kit.directive_tools.tracer) if self._is_kid else await run_outline(plan.algorithm, kit.directive_tools.tracer, plan.shows_code)) if plan.algorithm else None
         self._last_scene = start_scene
         self._stage = Stage(start_scene, outline.runs if outline else Runs(), kid=self._is_kid, charts_quantities=plan.charts_quantities)
