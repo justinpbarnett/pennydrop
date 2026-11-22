@@ -229,6 +229,7 @@ interface ArrowStyle {
 }
 
 const LABEL_CLEARANCE = 6;
+const ARROW_GAP = 4;
 const LABEL_NUDGE = 4;
 const MAX_LABEL_REACH = 400;
 const MASS_LABEL_SIDE = 22;
@@ -283,14 +284,14 @@ function arrows(prefix: string, view: { reading: boolean; vectors: string[] }, a
       const base = Math.max(offset + span, style.clear) + 26;
       const side = { x: -unit.y, y: unit.x };
       const candidate = (along: number, across: number) => ({ x: at.x + unit.x * (base + along) + side.x * across + shift.x + lift.x, y: at.y + unit.y * (base + along) + side.y * across + shift.y + lift.y });
-      const fits = (point: Point) => !taken.some((rect) => overlaps(textRect(symbols[name]!, point, LABEL_TEXT, "mark"), rect));
+      const fits = (point: Point) => !taken.some((rect) => overlaps(textRect(symbols[name]!, point, LABEL_TEXT, "math"), rect));
       let label = candidate(0, 0);
       for (let step = 1; !fits(label) && step * LABEL_NUDGE < MAX_LABEL_REACH; step++) {
         const distance = step * LABEL_NUDGE;
         label = [candidate(0, distance), candidate(0, -distance), candidate(distance, 0), candidate(-distance / 2, distance), candidate(-distance / 2, -distance)].find(fits) ?? label;
       }
-      taken.push(textRect(symbols[name]!, label, LABEL_TEXT, "mark"));
-      out.push(textDrawable(`${prefix}vec-${name}-label`, symbols[name]!, label, { size: LABEL_TEXT, fill: role, z: 7, font: "mark" }));
+      taken.push(textRect(symbols[name]!, label, LABEL_TEXT, "math"));
+      out.push(textDrawable(`${prefix}vec-${name}-label`, symbols[name]!, label, { size: LABEL_TEXT, fill: role, z: 7, font: "math" }));
     }
     return out;
   });
@@ -445,7 +446,7 @@ const launch: Kind<LaunchParams, LaunchLayout> = {
     out.push(...arrows("", view, at, {
       velocity: { x: body.v[0]! * (LAUNCH_VELOCITY_PX / view.params.speed), y: -body.v[1]! * (LAUNCH_VELOCITY_PX / view.params.speed) },
       gravity: { x: 0, y: view.params.gravity * LAUNCH_G_PX },
-    }, { velocity: "v", gravity: "g" }, { clear: ball + 8 }));
+    }, { velocity: "v", gravity: "g" }, { clear: ball + 8, edge: () => ball + ARROW_GAP }));
     const path = view.trajectory;
     const apexAt = bodyAt(path, path.times[argMax(path, 1)]!);
     const landing = bodyAt(path, endTime(path));
@@ -606,7 +607,8 @@ const drop: Kind<DropParams, DropLayout> = {
           const y = heightAt(index, bodyAt(view.trajectory, tick * stride).q[index]!);
           if (Math.abs(y - last) < STROBE_GAP) continue;
           last = y;
-          if (tick * stride <= view.time + 1e-9) out.push(circle(`strobe-${index}-${tick}`, { x: xs[index]!, y }, STROBE_DOT, role, "none", 0, 3, { opacity: 0.55 }));
+          const underBody = Math.abs(y - at.y) < radii[index]! + STROBE_DOT;
+          if (tick * stride <= view.time + 1e-9 && !underBody) out.push(circle(`strobe-${index}-${tick}`, { x: xs[index]!, y }, STROBE_DOT, role, "none", 0, 3, { opacity: 0.55 }));
         }
       }
       out.push(...tappableBody(index, at, radii[index]!, role, `${view.objectId}[${index}]`));
@@ -615,7 +617,7 @@ const drop: Kind<DropParams, DropLayout> = {
       out.push(...arrows(`${index}-`, view, at, {
         velocity: { x: 0, y: -body.v[index]! * vscale },
         gravity: { x: 0, y: view.params.gravity * LAUNCH_G_PX },
-      }, { velocity: "v", gravity: "g" }, { clear: radii[index]! + 6, avoid: view.reading ? [textRect(massText, massAt, LABEL_TEXT, "read")] : [] }));
+      }, { velocity: "v", gravity: "g" }, { clear: radii[index]! + 6, edge: () => radii[index]! + ARROW_GAP, avoid: view.reading ? [textRect(massText, massAt, LABEL_TEXT, "read")] : [] }));
       if (view.reading) out.push(textDrawable(`mass-${index}`, massText, massAt, { size: LABEL_TEXT, fill: role, z: 4 }));
     });
     if (view.marks.includes("height")) {
@@ -899,7 +901,7 @@ const pendulum: Kind<PendulumParams, PendulumLayout> = {
         gravity: weight,
         tension,
         net: sum([weight, tension]),
-      }, { velocity: "v", gravity: "W", tension: "T", net: "net" }, { clear: ball + 8, lift: { tension: { x: Math.cos(theta) * 30, y: -Math.sin(theta) * 30 }, net: { x: -Math.sign(theta) * Math.cos(theta) * 30 - Math.sin(theta) * 36, y: Math.sign(theta) * Math.sin(theta) * 30 - Math.cos(theta) * 48 } } }),
+      }, { velocity: "v", gravity: "W", tension: "T", net: "net" }, { clear: ball + 8, edge: () => ball + ARROW_GAP, lift: { tension: { x: Math.cos(theta) * 30, y: -Math.sin(theta) * 30 }, net: { x: -Math.sign(theta) * Math.cos(theta) * 30 - Math.sin(theta) * 36, y: Math.sign(theta) * Math.sin(theta) * 30 - Math.cos(theta) * 48 } } }),
     ];
     view.marks.forEach((mark) => {
       if (mark === "lowest") {
@@ -1086,7 +1088,7 @@ const orbit: Kind<OrbitParams, OrbitLayout> = {
             const pull = (GM / distance ** 2 / strongest) * VELOCITY_PX;
             return { x: (-state.q[0]! / distance) * pull, y: (state.q[1]! / distance) * pull };
           })(),
-        }, { velocity: "v", gravity: "g" }, { clear: radius + 8 }),
+        }, { velocity: "v", gravity: "g" }, { clear: radius + 8, edge: () => radius + ARROW_GAP }),
       );
     });
     view.marks.forEach((key) => {
