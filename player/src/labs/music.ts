@@ -25,6 +25,7 @@ interface MusicState {
   tempo: number;
   events: MusicEvent[];
   scale: Scale | null;
+  flats: number[];
 }
 
 interface MusicSpec {
@@ -109,7 +110,8 @@ const CLICK_VOLUME = -22;
 const CLICK_MIDI = 96;
 const CLICK_HOLD = 0.04;
 
-const PITCH_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const SHARP_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const FLAT_NAMES = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
 const LETTER_STEPS: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 const ACCIDENTAL_STEPS: Record<string, number> = { "": 0, "#": 1, b: -1 };
 const PITCH_PATTERN = /^([A-G])(#|b)?(\d)$/;
@@ -126,12 +128,22 @@ const EVENT_COLOR: Record<EventKind, Role> = {
   rest: "muted",
 };
 
-function pitchName(midi: number): string {
-  return `${PITCH_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
+function pitchName(midi: number, flats: readonly number[] = []): string {
+  const names = flats.includes(midi) ? FLAT_NAMES : SHARP_NAMES;
+  return `${names[midi % 12]}${Math.floor(midi / 12) - 1}`;
 }
 
-function isSharp(midi: number): boolean {
-  return PITCH_NAMES[midi % 12]!.endsWith("#");
+function isBlackKey(midi: number): boolean {
+  return SHARP_NAMES[midi % 12]!.endsWith("#");
+}
+
+function flatSpelled(value: unknown): boolean {
+  return typeof value === "string" && PITCH_PATTERN.exec(value)?.[2] === "b";
+}
+
+function withFlats(state: MusicState, midis: number[]): MusicState {
+  const flats = midis.filter(isBlackKey).filter((midi) => !state.flats.includes(midi));
+  return flats.length === 0 ? state : { ...state, flats: [...state.flats, ...flats] };
 }
 
 function parsePitch(value: unknown, where: string): number {
@@ -160,7 +172,7 @@ function rowPitches(state: MusicState): number[] {
 }
 
 function widestLabel(state: MusicState, size: number): number {
-  return Math.max(...rowPitches(state).map((midi) => textWidth(pitchName(midi), size, "mark")));
+  return Math.max(...rowPitches(state).map((midi) => textWidth(pitchName(midi, state.flats), size, "read")));
 }
 
 function layout(state: MusicState): Layout {
@@ -211,9 +223,11 @@ function lengthArg(op: LabOp): number {
   return length as number;
 }
 
-function inRange(state: MusicState, midi: number, opName: string): number {
+function onRoll(state: MusicState, value: unknown, where: string, opName: string): number {
+  const midi = parsePitch(value, where);
   if (midi < state.low || midi > state.high) {
-    fail(`op "${opName}": ${pitchName(midi)} is off the roll, which runs from ${pitchName(state.low)} to ${pitchName(state.high)}; pick a pitch in that range or widen "low" and "high" in the spec`);
+    const flats = flatSpelled(value) ? [...state.flats, midi] : state.flats;
+    fail(`op "${opName}": ${pitchName(midi, flats)} is off the roll, which runs from ${pitchName(state.low, state.flats)} to ${pitchName(state.high, state.flats)}; pick a pitch in that range or widen "low" and "high" in the spec`);
   }
   return midi;
 }
@@ -222,15 +236,30 @@ function overlaps(event: MusicEvent, start: number, length: number): boolean {
   return start < event.start + event.length && event.start < start + length;
 }
 
-function clashOf(state: MusicState, kind: EventKind, pitches: number[], start: number, length: number): string | null {
-  const clash = state.events.find((event) => {
+function clashingEvent(state: MusicState, kind: EventKind, pitches: number[], start: number, length: number): MusicEvent | undefined {
+  return state.events.find((event) => {
     if (!overlaps(event, start, length)) return false;
     if (kind === "rest" || event.kind === "rest") return true;
     return event.pitches.some((midi) => pitches.includes(midi));
   });
+}
+
+function freeBeats(state: MusicState, kind: EventKind, pitches: number[], length: number): number[] {
+  return Array.from({ length: state.beats }, (_, start) => start).filter((start) => start + length <= state.beats && !clashingEvent(state, kind, pitches, start, length));
+}
+
+function freeBeatsAdvice(state: MusicState, kind: EventKind, pitches: number[], length: number): string {
+  const subject = kind === "rest" ? "a rest" : pitches.map((midi) => pitchName(midi, state.flats)).join(" ");
+  const free = freeBeats(state, kind, pitches, length).map(beatLabel);
+  if (free.length === 0) return `no beat is free for ${subject} at length ${length}, and the roll has ${state.beats} beats; shorten "length", use other pitches, or raise "beats" in the spec`;
+  return `pick one of the beats free for ${subject} at length ${length}: ${free.join(", ")}`;
+}
+
+function clashOf(state: MusicState, kind: EventKind, pitches: number[], start: number, length: number): string | null {
+  const clash = clashingEvent(state, kind, pitches, start, length);
   if (!clash) return null;
-  const what = clash.kind === "rest" ? "a rest" : clash.pitches.map(pitchName).join(" ");
-  return `${what} already fills beat ${beatLabel(clash.start)}`;
+  const what = clash.kind === "rest" ? "a rest" : clash.pitches.map((midi) => pitchName(midi, state.flats)).join(" ");
+  return `${what} already fills beat ${beatLabel(clash.start)}; ${freeBeatsAdvice(state, kind, pitches, length)}`;
 }
 
 function placed(state: MusicState, op: LabOp, kind: EventKind, pitches: number[]): MusicState {
@@ -240,13 +269,13 @@ function placed(state: MusicState, op: LabOp, kind: EventKind, pitches: number[]
     fail(`op "${op.name}": ${length} beats from beat ${beatLabel(start)} runs past beat ${state.beats}, the last beat on the roll; shorten "length", start earlier, or raise "beats" in the spec`);
   }
   const clash = clashOf(state, kind, pitches, start, length);
-  if (clash) fail(`op "${op.name}" at beat ${beatLabel(start)}: ${clash}; pick another "beat"`);
+  if (clash) fail(`op "${op.name}" at beat ${beatLabel(start)}: ${clash}`);
   const event: MusicEvent = { id: `e${state.events.length}`, kind, pitches, start, length };
   return { ...state, events: [...state.events, event] };
 }
 
 function notePitch(state: MusicState, op: LabOp): number {
-  return inRange(state, parsePitch(op.args.pitch, `op "note": "pitch"`), op.name);
+  return onRoll(state, op.args.pitch, `op "note": "pitch"`, op.name);
 }
 
 function chordPitches(state: MusicState, op: LabOp): number[] {
@@ -254,7 +283,7 @@ function chordPitches(state: MusicState, op: LabOp): number[] {
   if (!Array.isArray(raw) || raw.length < MIN_CHORD || raw.length > MAX_CHORD) {
     fail(`op "chord" needs "pitches" as a list of ${MIN_CHORD} to ${MAX_CHORD} pitches, such as ["C4", "E4", "G4"]`);
   }
-  const pitches = raw.map((value, index) => inRange(state, parsePitch(value, `op "chord": pitches[${index}]`), op.name));
+  const pitches = raw.map((value, index) => onRoll(state, value, `op "chord": pitches[${index}]`, op.name));
   if (new Set(pitches).size !== pitches.length) fail(`op "chord": "pitches" lists the same pitch twice; give each pitch once`);
   return [...pitches].sort((a, b) => b - a);
 }
@@ -264,6 +293,10 @@ function scaleSteps(op: LabOp): number[] {
   const steps = typeof kind === "string" ? SCALE_STEPS[kind] : undefined;
   if (!steps) fail(`op "scale": "kind" must be one of ${Object.keys(SCALE_STEPS).join(", ")}, got ${JSON.stringify(kind)}`);
   return steps;
+}
+
+function rootLetter(root: unknown): string {
+  return String(root).slice(0, -1);
 }
 
 function scaleOf(state: MusicState, op: LabOp): Scale {
@@ -276,7 +309,23 @@ function scaleOf(state: MusicState, op: LabOp): Scale {
       `op "scale": ${pitchName(root)} ${op.args.kind ?? "major"} runs from ${pitchName(root)} to ${pitchName(top)}, but the roll runs from ${pitchName(state.low)} to ${pitchName(state.high)}; pick another "root" or widen "low" and "high" in the spec`,
     );
   }
-  return { name: `${PITCH_NAMES[root % 12]} ${op.args.kind ?? "major"}`, pitches };
+  return { name: `${rootLetter(op.args.root)} ${op.args.kind ?? "major"}`, pitches };
+}
+
+function noted(state: MusicState, op: LabOp): MusicState {
+  const pitch = notePitch(state, op);
+  return withFlats(placed(state, op, "note", [pitch]), flatSpelled(op.args.pitch) ? [pitch] : []);
+}
+
+function chorded(state: MusicState, op: LabOp): MusicState {
+  const pitches = chordPitches(state, op);
+  const spelledFlat = (op.args.pitches as unknown[]).filter(flatSpelled).map((value) => parsePitch(value, `op "chord": pitches`));
+  return withFlats(placed(state, op, "chord", pitches), spelledFlat);
+}
+
+function scaled(state: MusicState, op: LabOp): MusicState {
+  const scale = scaleOf(state, op);
+  return withFlats({ ...state, scale }, flatSpelled(op.args.root) ? scale.pitches : []);
 }
 
 function tempoArg(op: LabOp): number {
@@ -298,14 +347,14 @@ function scaleSeconds(op: LabOp): number {
 function rowDrawables(state: MusicState, frame: Layout): Drawable[] {
   return rowPitches(state).flatMap((midi): Drawable[] => {
     const top = rowTop(state, frame, midi);
-    const sharp = isSharp(midi);
+    const sharp = isBlackKey(midi);
     const row = [
       boxDrawable(`row-${midi}`, { x: frame.gridLeft, y: top, w: WIDTH - frame.gridLeft, h: frame.rowHeight }, { fill: sharp ? "fill2" : "fill", stroke: "rule", strokeWidth: 1, z: 0 }),
       boxDrawable(`key-${midi}`, { x: frame.keyLeft, y: top, w: KEY_WIDTH, h: frame.rowHeight }, { fill: sharp ? "edge" : "fill2", stroke: "rule", strokeWidth: 1, z: 1 }),
     ];
     if (!state.reading) return row;
-    const look = { size: frame.labelSize, font: "mark" as const, anchor: "end" as const, fill: "ink" as const, z: 1 };
-    return [...row, textDrawable(`label-${midi}`, pitchName(midi), { x: frame.labelRight, y: top + frame.rowHeight / 2 }, look)];
+    const look = { size: frame.labelSize, font: "read" as const, anchor: "end" as const, fill: "ink" as const, z: 1 };
+    return [...row, textDrawable(`label-${midi}`, pitchName(midi, state.flats), { x: frame.labelRight, y: top + frame.rowHeight / 2 }, look)];
   });
 }
 
@@ -514,7 +563,7 @@ export const lab: LabDef<MusicSpec, MusicState> = {
   reading: "optional",
   catalog: {
     summary:
-      "A piano roll for rhythm, pitch and harmony: rows are pitches named by letter and octave (high at the top), columns are numbered beats. Notes sit on their pitch row across their beats, rests are framed silent gaps, chords are stacked notes in one frame, tempo plays the roll back with a playhead, and a scale lights its notes in turn. Every op also sounds. Every op targets the whole roll object.",
+      "A piano roll for rhythm, pitch and harmony: rows are pitches named by letter and octave (high at the top; a black key reads as a sharp, such as D#4, until a note, chord or scale spells it with a flat, such as Eb4, and then that row reads Eb4), columns are numbered beats. Notes sit on their pitch row across their beats, rests are framed silent gaps, chords are stacked notes in one frame, tempo plays the roll back with a playhead, and a scale lights its notes in turn. Every op also sounds. Every op targets the whole roll object.",
     spec: {
       low: 'lowest pitch row, such as "C4" (letter A to G, optional # or b, octave 0 to 8); default "C4"',
       high: `highest pitch row, above low; default "C5"; low to high is at most ${MAX_ROWS} rows (semitones), so C4 to F5 is the widest from C4`,
@@ -538,14 +587,15 @@ export const lab: LabDef<MusicSpec, MusicState> = {
       tempo: integerField(fields, "tempo", 90, MIN_BPM, MAX_BPM, objectId),
       events: [],
       scale: null,
+      flats: [],
     };
   },
 
   ops: {
     note: {
-      doc: '{"pitch": "E4", "beat": 3, "length": 1}; one note on its pitch row from that beat for "length" beats (default 1, halves such as 0.5 allowed); "beat" counts from 1 and defaults to the beat right after the last thing placed; the pitch must be on the roll and not already sounding then',
+      doc: '{"pitch": "E4", "beat": 3, "length": 1}; one note on its pitch row from that beat for "length" beats (default 1, halves such as 0.5 allowed); "beat" counts from 1 and defaults to the beat right after the last thing placed; the pitch must be on the roll and not already sounding then; if the beat is taken the error lists the beats that are free',
       seconds: NOTE_SECONDS,
-      apply: (state, op) => placed(state, op, "note", [notePitch(state, op)]),
+      apply: (state, op) => noted(state, op),
       during: (_before, after, _op, progress) => growLatest(after, progress),
       sound: (op, state) => void play(placedSound(state, op, [notePitch(state, op)])),
     },
@@ -559,7 +609,7 @@ export const lab: LabDef<MusicSpec, MusicState> = {
     chord: {
       doc: `{"pitches": ["C4", "E4", "G4"], "beat": 5, "length": 2}; ${MIN_CHORD} to ${MAX_CHORD} notes stacked in one column and framed together, sounding at once; "beat" and "length" work as in note`,
       seconds: CHORD_SECONDS,
-      apply: (state, op) => placed(state, op, "chord", chordPitches(state, op)),
+      apply: (state, op) => chorded(state, op),
       during: (_before, after, _op, progress) => growLatest(after, progress),
       sound: (op, state) => void play(placedSound(state, op, chordPitches(state, op))),
     },
@@ -578,7 +628,7 @@ export const lab: LabDef<MusicSpec, MusicState> = {
     scale: {
       doc: `{"root": "C4", "kind": "major"}; kind is ${Object.keys(SCALE_STEPS).join(", ")} (default major); the scale's notes are lit one at a time from the root upward, a band moving up row by row, and stay marked with a dot on their keys; every note must be on the roll`,
       seconds: scaleSeconds,
-      apply: (state, op) => ({ ...state, scale: scaleOf(state, op) }),
+      apply: (state, op) => scaled(state, op),
       during: (_before, after, _op, progress) => scaleRun(after, progress),
       sound(op, state) {
         const notes = scaleOf(state, op).pitches.map((midi, index) => ({ midi, at: index * SCALE_STEP_SECONDS, hold: SCALE_STEP_SECONDS, volume: NOTE_VOLUME }));
