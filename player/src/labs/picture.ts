@@ -107,6 +107,9 @@ const POINTER_MIN = 40;
 const EDGE_MARGIN = 12;
 
 const LABEL_SIZE = 40;
+const TAP_MIN = 120;
+const TAP_PAD_Z = 7;
+const TAP_Z = 8;
 const LABEL_PAD = 24;
 const LABEL_HEIGHT = 68;
 const LABEL_LEADER = 56;
@@ -541,6 +544,7 @@ function compose(state: PictureState, marks: Marks): Drawable[] {
       out.push(textDrawable(`credit-${index}`, text, { x: 0, y: h + CREDIT_TOP + index * CREDIT_PITCH }, { size: state.creditText.size, anchor: "start", fill: "muted", opacity: shown, z: 1 }));
     });
   }
+  if (shown > 0) out.push(...tapTargets(state, view));
   const outlines = new Map<Part, { weight: number; growth: number }>();
   for (const mark of marks.pointing) outlines.set(mark.part, { weight: mark.weight, growth: 0 });
   if (marks.pulse) outlines.set(marks.pulse.part, { weight: 1, growth: marks.pulse.weight });
@@ -548,6 +552,22 @@ function compose(state: PictureState, marks: Marks): Drawable[] {
   for (const mark of marks.pointing) out.push(...pointerDrawables(`point-${state.parts.indexOf(mark.part)}`, state, view, mark));
   for (const mark of marks.labels) out.push(...labelDrawables(`label-${state.parts.indexOf(mark.part)}`, state, view, mark));
   return out;
+}
+
+function tapTargets(state: PictureState, view: View): Drawable[] {
+  const largestFirst = [...state.parts].sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h);
+  return largestFirst.flatMap((part, order) => {
+    const box = inFrame(state, view, part.box);
+    const w = Math.max(box.w, TAP_MIN);
+    const h = Math.max(box.h, TAP_MIN);
+    const index = state.parts.indexOf(part);
+    const target = (id: string, area: Rect, z: number): Drawable[] => {
+      const visible = visiblePart(state, area);
+      return visible ? [boxDrawable(id, visible, { fill: "ground", opacity: 0, z: z + order / 100, part: `${state.objectId}[${part.name}]` })] : [];
+    };
+    const padded = w > box.w || h > box.h ? target(`tap-pad-${index}`, { x: box.x + box.w / 2 - w / 2, y: box.y + box.h / 2 - h / 2, w, h }, TAP_PAD_Z) : [];
+    return [...padded, ...target(`tap-${index}`, box, TAP_Z)];
+  });
 }
 
 function weigh(state: PictureState, names: string[]): Weighted[] {

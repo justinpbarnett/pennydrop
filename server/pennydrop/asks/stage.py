@@ -39,11 +39,18 @@ FRONTIER_OPERATIONS = ("push", "pop", "relax")
 ASKS_TO_PREDICT = re.compile(r"(?:^|[.!?]\s+|\b(?:can you|try to|pause and|stop and|take a (?:moment|second) to|go ahead and|now)\s+|,\s*)(?:predict|guess)\b|\bmake a (?:prediction|guess)\b|\bwhat (?:do|would|will) you (?:predict|guess)\b|\byour (?:prediction|guess)\b", re.IGNORECASE)
 
 
-def _prediction_without_challenge(step: dict[str, Any]) -> list[str]:
+ASKS_TO_TAP = re.compile(r"(?:^|[.!?]\s+|\b(?:can you|try to|go ahead and|now)\s+)(?:tap|touch|press|click)\b", re.IGNORECASE)
+
+
+def _question_without_challenge(step: dict[str, Any]) -> list[str]:
     say = step.get("say")
-    if not isinstance(say, str) or step.get("challenge") or not ASKS_TO_PREDICT.search(say):
+    if not isinstance(say, str) or step.get("challenge"):
         return []
-    return [f'step {step.get("step")} say: the narration asks the learner to predict, but this Step has no "challenge"; add a predict Challenge whose answer the narration and the scene do not show, or take the request to predict out of the narration']
+    if ASKS_TO_PREDICT.search(say):
+        return [f'step {step.get("step")} say: the narration asks the learner to predict, but this Step has no "challenge"; add a predict Challenge whose answer the narration and the scene do not show, or take the request to predict out of the narration']
+    if ASKS_TO_TAP.search(say):
+        return [f'step {step.get("step")} say: the narration asks the learner to tap, but this Step has no "challenge"; add a click Challenge whose answer is the object or part to tap, or take the request to tap out of the narration']
+    return []
 
 
 def _simulation_key(raw: Any) -> str:
@@ -162,7 +169,7 @@ class Stage:
                 self.specs[name] = {**self.specs[name], "parts": operation.get("parts", [])}
 
     def errors_in(self, step: dict[str, Any], ran: bool = False) -> list[str]:
-        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + _prediction_without_challenge(step) + self.unran_values(step, ran)
+        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + _question_without_challenge(step) + self.unran_values(step, ran)
 
     def _empty_figures(self, step: dict[str, Any]) -> list[str]:
         scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}

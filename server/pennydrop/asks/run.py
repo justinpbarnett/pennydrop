@@ -9,7 +9,7 @@ from typing import Any
 
 from ..courses import CourseContext
 from ..lessons import done_event
-from ..pictures import prefetch, subject_of
+from ..pictures import prefetch
 from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
 from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
@@ -126,7 +126,7 @@ class LessonRun:
         self._stopwatch.mark("classified")
         self._refused = not plan.fine_for_young_child
         self._request_missing_lab(plan)
-        photo_search = subject_of(self._ask.text) if "picture" in plan.labs else None
+        photo_search = plan.photo_subject if "picture" in plan.labs else None
         if photo_search:
             self._warm_picture = asyncio.create_task(prefetch(kit.directive_tools.images, photo_search, not self._is_kid, self._record.id))
         self._record = replace(self._record, tier=plan.tier.value)

@@ -86,6 +86,20 @@ class Step(BaseModel):
         return self.model_dump(mode="json", exclude_none=True)
 
 
+class OperationShape(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    op: str = Field(min_length=1)
+    on: list[str] = []
+
+
+class StepShape(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    scene: dict[str, dict[str, Any] | None] = {}
+    do: list[OperationShape] = []
+
+
 @dataclass(frozen=True)
 class Malformed:
     text: str
@@ -112,6 +126,10 @@ def parse_line(text: str) -> ParsedLine | None:
             return Header.model_validate(value["lesson"])
         except ValidationError as error:
             return Malformed(stripped, "bad lesson header: " + "; ".join(describe(error)))
+    try:
+        StepShape.model_validate(value)
+    except ValidationError as error:
+        return Malformed(stripped, "bad Step: " + "; ".join(describe(error)))
     return value
 
 

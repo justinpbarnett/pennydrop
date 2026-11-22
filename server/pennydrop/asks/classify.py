@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from ..gateway import Choice, ChoiceAnswer, Gateway, Question, Score, ScoreAnswer, YesNo, YesNoAnswer
+from ..pictures import subject_phrases
 from ..settings import Job
 from ..store import Profile, ProfileKind
 from .catalog import LabEntry
@@ -18,6 +19,8 @@ LAB_LIMITS = {
 }
 FOLLOW_UP = "follow_up"
 NEW_TOPIC = "new_topic"
+PICTURE_LAB = "picture"
+NO_SUBJECT = "none"
 
 
 class Tier(StrEnum):
@@ -43,6 +46,7 @@ class Plan:
     tier: Tier
     fine_for_young_child: bool
     graded_assignment: bool
+    photo_subject: str | None
 
 
 class Classifier:
@@ -74,6 +78,12 @@ class Classifier:
                 "Does the Ask continue the Lesson the person is watching, or start a new Topic?",
                 {FOLLOW_UP: "it builds on, questions or goes deeper into the Lesson being watched", NEW_TOPIC: "it is about something else"},
             )
+        phrases = subject_phrases(ask) if any(lab.id == PICTURE_LAB for lab in labs) else []
+        if phrases:
+            questions["photo_subject"] = Choice(
+                "Which words name the one real, physical thing a photo for this Ask should show, as plainly as a child would name it?",
+                {phrase: f'a photo of "{phrase}"' for phrase in phrases} | {NO_SUBJECT: "no real thing a photo could show"},
+            )
         if is_kid:
             questions["young_child_ok"] = YesNo("Is this question fine for a young child to learn about?")
         result = await self._gateway.classify(_state(ask, profile, viewing), questions, lesson_id=lesson_id)
@@ -81,12 +91,14 @@ class Classifier:
         depth = answers["depth"]
         assert isinstance(depth, ScoreAnswer)
         relation = answers.get("relation")
+        subject = answers.get("photo_subject")
         return Plan(
             follow_up=isinstance(relation, ChoiceAnswer) and relation.choice == FOLLOW_UP,
             labs=tuple(lab.id for lab in labs if _yes(answers[LAB_QUESTION_PREFIX + lab.id])),
             tier=Tier.STRONG if depth.score >= STRONG_TIER_FROM_SCORE else Tier.FAST,
             fine_for_young_child=_yes(answers["young_child_ok"]) if is_kid else True,
             graded_assignment=_yes(answers["graded_assignment"]),
+            photo_subject=subject.choice if isinstance(subject, ChoiceAnswer) and subject.choice in phrases else None,
         )
 
     async def fine_for_young_child(self, say: str, lesson_id: str) -> bool:

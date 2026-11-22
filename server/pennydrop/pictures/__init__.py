@@ -22,21 +22,21 @@ from .sources import SHARP_WIDTH, Candidate, looks_like_a_photo, preview_url, se
 MIN_WIDTH = 900
 MAX_BYTES = 14_000_000
 SHORTLIST = 6
-CHOOSE_BUDGET = 3.0
 OTHER_NAMES_PROMPT = 'Give the two other common English names people use for "{query}" when they look for photos of it, such as "steam locomotive" for "steam train". Answer with only a JSON list of two strings.'
 FILE_PREFIX_LENGTH = 16
 MIN_ASPECT, MAX_ASPECT = 0.5, 2.2
 NOT_LIVE = re.compile(r"\b(skeleton|skull|fossil|specimen|museum|mnhn|statue|sculpture|skulptur|toy|model|drawing|painting|diagram|cartoon|illustration|bone|bones|taxidermy|mounted|distant|view of|landscape|panorama|silhouette|detail|close-up|closeup|handlebar|handlebars|interior|cockpit|background|backgrounds|banner|wallpaper|graphic|template|poster)\b", re.I)
 CROWDED = re.compile(r"\b(group|crowd|flock|herd|pair|couple|dozens|many)\b", re.I)
 ARCHIVAL = re.compile(r"\b(1[0-8]\d\d|19[0-6]\d)s?\b|\bca\.? ?\d|archive|archival|historic|negative|glass|vintage|daguerreo|collection|album|scan|nzgr|fsac", re.I)
-QUESTION_WORDS = frozenset("what whats does do did is are was a an the show me us see picture pictures photo photos of look looks like looking inside in how can i you tell about please to let my its it s".split())
+NOT_SUBJECT_WORDS = frozenset("what whats why when where which who does do did is are was were has have had a an the show me us see picture pictures photo photos of look looks like looking inside in on how can could would i you tell about please to let my its it s and or with work works make makes many much".split())
+LONGEST_SUBJECT_WORDS = 3
 CHOOSE_SYSTEM = "You choose the best photo for a children's lesson. You answer with one JSON object and nothing else."
 CHOOSE_PROMPT = """These {count} photos, numbered from 1 in the order shown, are candidates for a lesson that shows: {query}.
 Their widths in pixels: {widths}.
 Choose the one photo that shows {query} most clearly: one sharp, real COLOUR photo of the whole subject, large in the frame, with an uncluttered background, not a drawing, diagram, toy, model, crowd, collage or close-up of a detail. A colour photo always beats a black and white, sepia, scanned or archival one, even when the old one is sharper. Reject photos with a scanned plate or film border, and photos where the subject is small in the frame or the scene is cluttered. The {query} itself must be what the photo is about and must fill most of the frame: reject a photo of a person holding it or standing near it, and a photo where it is small or only a background object. Prefer the photo where the {query} covers the most of the frame, is whole and in focus, and shows the parts a child would name (such as head, legs, wings or wheels) clearly and unhidden, with nothing in front of it or taking more room than it does. Choosing none is better than choosing a photo of something else. When two are about equally clear, take the wider one.
 Reply {{"best": number}}, or {{"best": null}} when none of them shows {query} clearly as the main subject."""
 
-__all__ = ["Credit", "LocatedParts", "PartLocator", "PartsNotFound", "Picture", "PictureFinder", "PictureNotFound", "prefetch", "subject_of"]
+__all__ = ["Credit", "LocatedParts", "PartLocator", "PartsNotFound", "Picture", "PictureFinder", "PictureNotFound", "prefetch", "subject_phrases"]
 
 
 class PictureNotFound(LookupError):
@@ -88,7 +88,6 @@ class PictureFinder:
         self._fetcher = PoliteFetcher()
         self._searches: dict[str, asyncio.Task[Picture]] = {}
         self._misses: set[str] = set()
-        self._upgrades: set[asyncio.Future[None]] = set()
         self._without_photo: dict[str | None, set[str]] = {}
         self._deferred: dict[tuple[str | None, str], DeferredPicture] = {}
 
@@ -163,22 +162,8 @@ class PictureFinder:
             if sharp:
                 raise httpx.TransportError("no preview could be fetched")
             raise PictureNotFound(query)
-        top = previews[0]
-        top_full = asyncio.ensure_future(self._download(top.candidate))
-        top_full.add_done_callback(lambda done: self._warm(done, query, lesson_id))
-        best = top
-        if len(previews) > 1:
-            choice = asyncio.ensure_future(self._choose(query, previews, lesson_id))
-            try:
-                best = await asyncio.wait_for(asyncio.shield(choice), CHOOSE_BUDGET)
-            except TimeoutError:
-                self._upgrades.add(upgrade := asyncio.ensure_future(self._upgrade(key, query, lesson_id, top, choice)))
-                upgrade.add_done_callback(self._upgrades.discard)
-        try:
-            full = await (top_full if best is top else self._download(best.candidate))
-        except httpx.HTTPError:
-            full = None
-        full = full or await top_full
+        best = await self._choose(query, previews, lesson_id)
+        full = await self._download(best.candidate)
         if full is None:
             raise PictureNotFound(query)
         return self._remember(key, query, lesson_id, full)
@@ -189,19 +174,6 @@ class PictureFinder:
         if self._on_found:
             self._on_found(picture.file, query, lesson_id)
         return picture
-
-    def _warm(self, done: asyncio.Future[Downloaded | None], query: str, lesson_id: str | None) -> None:
-        if self._on_found and not done.cancelled() and not done.exception() and (full := done.result()):
-            self._on_found(self._save(full).file, query, lesson_id)
-
-    async def _upgrade(self, key: str, query: str, lesson_id: str | None, top: Downloaded, choice: asyncio.Future[Downloaded]) -> None:
-        try:
-            best = await choice
-            full = await self._download(best.candidate) if best is not top else None
-        except (PictureNotFound, GatewayError, httpx.HTTPError):
-            return
-        if full:
-            self._remember(key, query, lesson_id, full)
 
     async def _search_other_names(self, query: str, attribution_ok: bool, lesson_id: str | None) -> list[Candidate]:
         try:
@@ -240,10 +212,10 @@ class PictureFinder:
         try:
             best = json.loads(completion.text[completion.text.find("{"):completion.text.rfind("}") + 1])["best"]
         except (json.JSONDecodeError, KeyError):
-            return options[0]
-        if best is None:
+            best = None
+        if not isinstance(best, int) or not 1 <= best <= len(options):
             raise PictureNotFound(query)
-        return options[best - 1] if isinstance(best, int) and 1 <= best <= len(options) else options[0]
+        return options[best - 1]
 
     def _save(self, chosen: Downloaded) -> Picture:
         file = f"{hashlib.sha256(chosen.data).hexdigest()[:FILE_PREFIX_LENGTH]}.{chosen.shape.extension}"
@@ -277,7 +249,7 @@ def clean_title(title: str, creator: str) -> str:
 
 def _score(query: str, candidate: Candidate) -> float:
     words = re.findall(r"[a-z]+", query.lower())
-    named = sum(word in candidate.text for word in words) / max(len(words), 1)
+    named = sum(any(form in candidate.text for form in _forms(word)) for word in words) / max(len(words), 1)
     score = 4 * named + (1.5 if candidate.featured else 0) + (1.0 if candidate.public_domain else 0)
     score += 5 if candidate.lead else 0
     score += 2 if candidate.width >= SHARP_WIDTH else candidate.width / SHARP_WIDTH
@@ -296,9 +268,23 @@ def _archival(candidate: Candidate) -> bool:
     return bool(ARCHIVAL.search(candidate.title) or ARCHIVAL.search(candidate.source))
 
 
-def subject_of(ask: str) -> str:
-    words = re.findall(r"[a-z]+", ask.lower().replace("'", ""))
-    return " ".join(word for word in words if word not in QUESTION_WORDS)
+def _forms(word: str) -> tuple[str, ...]:
+    if word.endswith("ies"):
+        return word, word[:-3] + "y"
+    if word.endswith("es"):
+        return word, word[:-1], word[:-2]
+    return (word, word[:-1]) if word.endswith("s") and not word.endswith("ss") else (word,)
+
+
+def subject_phrases(ask: str) -> list[str]:
+    runs: list[list[str]] = [[]]
+    for word in re.findall(r"[a-z]+", ask.lower().replace("'", "")):
+        if word in NOT_SUBJECT_WORDS:
+            runs.append([])
+        else:
+            runs[-1].append(word)
+    phrases = [" ".join(run[start:start + size]) for run in runs for size in range(min(len(run), LONGEST_SUBJECT_WORDS), 0, -1) for start in range(len(run) - size + 1)]
+    return list(dict.fromkeys(phrases))
 
 
 async def prefetch(finder: PictureFinder, subject: str, attribution_ok: bool, lesson_id: str) -> None:

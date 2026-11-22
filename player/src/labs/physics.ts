@@ -35,6 +35,7 @@ interface Ghost<P> {
 }
 
 interface View<P> {
+  objectId: string;
   reading: boolean;
   params: P;
   trajectory: Trajectory;
@@ -560,7 +561,7 @@ const drop: Kind<DropParams, DropLayout> = {
           if (tick * stride <= view.time + 1e-9) out.push(circle(`strobe-${index}-${tick}`, { x: xs[index]!, y }, STROBE_DOT, role, "none", 0, 3, { opacity: 0.55 }));
         }
       }
-      out.push(circle(`body-${index}`, at, radii[index]!, role, "ink", 3, 6));
+      out.push(circle(`body-${index}`, at, radii[index]!, role, "ink", 3, 6, { part: `${view.objectId}[${index}]` }));
       const massText = `${fmt(mass, mass < 10 ? 1 : 0)} kg`;
       const massAt = { x: xs[index]! + MASS_LABEL_SIDE + textWidth(massText, LABEL_TEXT, "read") / 2, y: groundY + 42 };
       out.push(...arrows(`${index}-`, view, at, {
@@ -1020,7 +1021,7 @@ const orbit: Kind<OrbitParams, OrbitLayout> = {
       circle("sun-glow", center, sun * 1.45, "accent", "none", 0, 1, { opacity: 0.25 }),
       circle("sun", center, sun, "accent", "ink", 3, 2),
     ];
-    view.params.planets.forEach((_planet, index) => {
+    view.params.planets.forEach((planet, index) => {
       const role = PLANET_ROLES[index]!;
       const guide = guides[index]!;
       const place = (state: Body) => where(state.q[2 * index]!, state.q[2 * index + 1]!);
@@ -1029,7 +1030,7 @@ const orbit: Kind<OrbitParams, OrbitLayout> = {
       out.push(
         ...trace(`guide-${index}`, pathOf(guide, 0, endTime(guide), 240, (sample) => where(sample.q[0]!, sample.q[1]!)), "edge", 2.5, 1, 0.55),
         ...(view.trail && view.ran ? trace(`trail-${index}`, pathOf(view.trajectory, 0, view.time, Math.min(500, Math.max(2, Math.ceil(view.time * 120))), place), role, 6, 3, 0.9) : []),
-        circle(`body-${index}`, at, radius, role, "ink", 3, 6),
+        circle(`body-${index}`, at, radius, role, "ink", 3, 6, { part: `${view.objectId}[${planet.id}]` }),
         ...arrows(`${index}-`, view, at, {
           velocity: { x: (state.v[0]! * VELOCITY_PX) / fastest, y: (-state.v[1]! * VELOCITY_PX) / fastest },
           gravity: (() => {
@@ -1096,6 +1097,7 @@ function viewOf(state: PhysicsState, time: number | "end"): View<any> {
   const attempt = state.attempt;
   const trajectory = attempt ? trajectoryOfAttempt(kind, attempt) : readyTrajectory(kind, state.params);
   return {
+    objectId: state.objectId,
     reading: state.reading,
     params: attempt?.params ?? state.params,
     trajectory,
@@ -1306,7 +1308,7 @@ export const lab: LabDef<Args, PhysicsState> = {
   title: "Physics",
   reading: "optional",
   catalog: {
-    summary: "Motion computed, not drawn: a fixed step integrator runs real Newtonian physics and every path on screen comes from it. Setups: launch (a ball fired at an angle and speed over a ground line), drop (objects of different mass falling from a height together), ramp (a block on a slope with friction that slides or stays), pendulum (a bob on a rod, optionally with drag), orbit (planets circling a fixed sun). You give intent (angle, speed, length, friction); the Lab owns the layout and every number. Set \"reading\": false for a small child: nothing on screen needs reading.",
+    summary: "Motion computed, not drawn: a fixed step integrator runs real Newtonian physics and every path on screen comes from it. Setups: launch (a ball fired at an angle and speed over a ground line), drop (objects of different mass falling from a height together), ramp (a block on a slope with friction that slides or stays), pendulum (a bob on a rod, optionally with drag), orbit (planets circling a fixed sun). A tap on a dropped ball names it by its place in \"masses\" (drop[0] is the first), and a tap on a planet names it by its id (sky[Mars]). You give intent (angle, speed, length, friction); the Lab owns the layout and every number. Set \"reading\": false for a small child: nothing on screen needs reading.",
     spec: specDocs(),
     example: [
       '{"step":1,"say":"A ball leaves the ground at forty five degrees. Watch where it lands, then see its top.","scene":{"shot":{"lab":"physics","setup":"launch","angle":45,"speed":20}},"do":[{"cue":"Watch","op":"launch","on":["shot"]},{"cue":"top","op":"mark","on":["shot"],"what":"apex"}]}',
