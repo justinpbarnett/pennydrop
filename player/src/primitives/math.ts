@@ -1,4 +1,4 @@
-import { typeset } from "../typeset";
+import { loadMath, typeset } from "../typeset";
 import { type LabDef, positiveField, type Role, roleField, stringField } from "../lab";
 
 interface MathState {
@@ -27,6 +27,7 @@ export const primitive: LabDef<Record<string, unknown>, MathState> = {
     typeset(state.latex);
     return state;
   },
+  prepare: loadMath,
   size: sizeOf,
   draw(state) {
     const { w, h } = sizeOf(state);

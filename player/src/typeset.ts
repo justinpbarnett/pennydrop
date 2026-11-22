@@ -1,9 +1,3 @@
-import { mathjax } from "mathjax-full/js/mathjax.js";
-import { TeX } from "mathjax-full/js/input/tex.js";
-import { SVG } from "mathjax-full/js/output/svg.js";
-import { liteAdaptor } from "mathjax-full/js/adaptors/liteAdaptor.js";
-import { RegisterHTMLHandler } from "mathjax-full/js/handlers/html.js";
-import { AllPackages } from "mathjax-full/js/input/tex/AllPackages.js";
 import { fail } from "./lab";
 
 export interface Typeset {
@@ -133,15 +127,45 @@ function inkOf(markup: string): Ink {
   return ink;
 }
 
-const adaptor = liteAdaptor();
-RegisterHTMLHandler(adaptor);
-const document = mathjax.document("", { InputJax: new TeX({ packages: AllPackages }), OutputJax: new SVG({ fontCache: "none" }) });
+type Converter = (latex: string) => string;
+
+let converter: Converter | null = null;
+let loading: Promise<void> | null = null;
 const cache = new Map<string, Typeset>();
+
+async function createConverter(): Promise<Converter> {
+  const [{ mathjax }, { TeX }, { SVG }, { liteAdaptor }, { RegisterHTMLHandler }, { AllPackages }] = await Promise.all([
+    import("mathjax-full/js/mathjax.js"),
+    import("mathjax-full/js/input/tex.js"),
+    import("mathjax-full/js/output/svg.js"),
+    import("mathjax-full/js/adaptors/liteAdaptor.js"),
+    import("mathjax-full/js/handlers/html.js"),
+    import("mathjax-full/js/input/tex/AllPackages.js"),
+  ]);
+  const adaptor = liteAdaptor();
+  RegisterHTMLHandler(adaptor);
+  const document = mathjax.document("", { InputJax: new TeX({ packages: AllPackages }), OutputJax: new SVG({ fontCache: "none" }) });
+  return (latex) => adaptor.outerHTML(document.convert(latex, { display: false }));
+}
+
+export function loadMath(): Promise<void> {
+  loading ??= createConverter().then(
+    (created) => {
+      converter = created;
+    },
+    (error) => {
+      loading = null;
+      throw error;
+    },
+  );
+  return loading;
+}
 
 export function typeset(latex: string): Typeset {
   const cached = cache.get(latex);
   if (cached) return cached;
-  const markup = adaptor.outerHTML(document.convert(latex, { display: false }));
+  if (!converter) return fail("MathJax is not loaded; await prepareStepAssets(step) before adding a Step that uses math");
+  const markup = converter(latex);
   const error = /data-mjx-error="([^"]*)"/.exec(markup);
   if (error) return fail(`math "${latex}" is not valid LaTeX: ${error[1]}`);
   const ink = inkOf(markup);

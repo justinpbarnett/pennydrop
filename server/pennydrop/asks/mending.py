@@ -31,7 +31,77 @@ def mended_cues(step: dict[str, Any]) -> dict[str, Any]:
         return step
     words = say.split()
     spoken = [_plain(word) for word in words]
-    return {**step, "do": [_with_exact_cue(operation, words, spoken) for operation in operations]}
+    exact = [_with_exact_cue(operation, words, spoken) for operation in operations]
+    spoken_forms = [_spoken_form(word) for word in words]
+    return {**step, "do": _without_cues_heard_too_early(_in_spoken_order(exact, spoken_forms), spoken_forms)}
+
+
+def _spoken_form(word: str) -> str:
+    return "".join(character for character in word.lower() if character.isalnum())
+
+
+def _cue_words(operation: Any) -> list[str] | None:
+    cue = operation.get("cue") if isinstance(operation, dict) else None
+    return [word for word in map(_spoken_form, cue.split()) if word] if isinstance(cue, str) else None
+
+
+def _found_at(spoken: list[str], wanted: list[str], start: int) -> int | None:
+    return next((at for at in range(start, len(spoken) - len(wanted) + 1) if spoken[at : at + len(wanted)] == wanted), None) if wanted else None
+
+
+def _cues_resolved(operations: list[Any], spoken: list[str]) -> list[bool]:
+    resolved = []
+    previous: tuple[int, int, list[str]] | None = None
+    for operation in operations:
+        wanted = _cue_words(operation)
+        if wanted is None:
+            resolved.append(True)
+            continue
+        start = 0 if previous is None else previous[0] if wanted == previous[2] else previous[1]
+        at = _found_at(spoken, wanted, start)
+        resolved.append(at is not None)
+        if at is not None:
+            previous = (at, at + len(wanted), wanted)
+    return resolved
+
+
+def _every_cue_resolves(operations: list[Any], spoken: list[str]) -> bool:
+    return all(_cues_resolved(operations, spoken))
+
+
+def _without_cues_heard_too_early(operations: list[Any], spoken: list[str]) -> list[Any]:
+    def heard_earlier(operation: Any) -> bool:
+        return _found_at(spoken, _cue_words(operation) or [], 0) is not None
+
+    return [
+        operation if resolved or not heard_earlier(operation) else {key: value for key, value in operation.items() if key != "cue"}
+        for operation, resolved in zip(operations, _cues_resolved(operations, spoken), strict=True)
+    ]
+
+
+def _in_spoken_order(operations: list[Any], spoken: list[str]) -> list[Any]:
+    if _every_cue_resolves(operations, spoken):
+        return operations
+    groups: list[list[Any]] = []
+    for operation in operations:
+        if groups and _cue_words(operation) is None:
+            groups[-1].append(operation)
+        else:
+            groups.append([operation])
+    heard = [None if (wanted := _cue_words(group[0])) is None else _found_at(spoken, wanted, 0) for group in groups]
+    if any(at is None for at, group in zip(heard, groups, strict=True) if _cue_words(group[0]) is not None):
+        return operations
+    order = sorted(range(len(groups)), key=lambda index: (-1 if heard[index] is None else heard[index], index))
+    targets = [_group_targets(group) for group in groups]
+    for later, earlier in ((later, earlier) for position, later in enumerate(order) for earlier in order[position + 1 :] if earlier < later):
+        if not targets[later] or not targets[earlier] or targets[later] & targets[earlier]:
+            return operations
+    reordered = [operation for index in order for operation in groups[index]]
+    return reordered if _every_cue_resolves(reordered, spoken) else operations
+
+
+def _group_targets(group: list[Any]) -> set[str]:
+    return {re.split(r"[\[.]", str(name))[0] for operation in group if isinstance(operation, dict) for name in operation.get("on") or []}
 
 
 def _without_unchanged_restates(step: dict[str, Any], stage: Stage) -> dict[str, Any]:

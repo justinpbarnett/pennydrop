@@ -16,6 +16,12 @@ from .tether import tethered_argv
 from .words import WordTiming, normalize_word
 
 SAMPLE_RATE = 16000
+SPOKEN_ASK_CONTEXT = (
+    "A question for a tutor about computer science, operating systems, networks, math, physics, chemistry, biology, music, language or history. "
+    "Terms it may use: mutex, semaphore, condition variable, deadlock, race condition, thread, process, scheduler, round robin, MLFQ, page table, "
+    "page fault, TLB, virtual memory, malloc, pointer, stack, heap, cache, DNS, TCP, UDP, RPC, TLS, Kerberos, hash table, linked list, quicksort, "
+    "merge sort, binary search, BFS, DFS, Dijkstra, recursion, Big O, Pythagoras, derivative, integral, Ohm's law."
+)
 
 
 class IntakeError(RuntimeError):
@@ -46,7 +52,7 @@ class Transcriber:
         async with _prepared_wav(audio) as wav:
             async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.post(
-                    f"{base_url}/inference", data={"response_format": "text", "language": "en"}, files={"file": ("speech.wav", wav.read_bytes())},
+                    f"{base_url}/inference", data={"response_format": "text", "language": "en", "prompt": SPOKEN_ASK_CONTEXT}, files={"file": ("speech.wav", wav.read_bytes())},
                 )
         if response.status_code != 200:
             raise IntakeError(f"whisper-server answered {response.status_code}: {response.text[:300]}")

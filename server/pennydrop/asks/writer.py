@@ -19,8 +19,9 @@ FORMAT_RULES = """You write Pennydrop Lessons: short narrated animations that te
 Your whole reply is JSON lines and nothing else: no prose, no code fences, no comments.
 
 Line 1 is the header: {"lesson": {"title": "short title in sentence case: capitalize only the first word, proper nouns and acronyms", "point": "the one full sentence this Lesson proves: a claim that could be wrong, never a topic, as in \\"Bubble sort is slow because each pass moves only one more value into place\\"", "goal": "one sentence on what the learner can do or see afterwards", "labs": ["ids of the Labs that at least one Step draws, and no others"]}}
-Every later line is one Step: {"step": 1, "say": "narration", "scene": {...}, "do": [...], "challenge": {...}}
-"scene", "do" and "challenge" are optional.
+Every later line is one Step: {"step": 1, "say": "narration", "scene": {...}, "do": [...]}
+"scene" and "do" are optional.
+One Step, the hinge, also asks a predict Challenge: {"step": 6, "say": "narration that asks the question", "scene": {...}, "do": [...], "challenge": {"kind": "predict", "type": "choice", "prompt": "...", "choices": ["a", "b"], "answer": "a"}}
 
 Rules
 - The Ask may be a speech transcript, so it can hold misheard words. Fix an evident mishearing, such as "Mudex" for "mutex", in the title and in the narration, and never repeat the wrong word.
@@ -45,7 +46,7 @@ Rules
 - A braced placeholder such as {trace.comparisons} in "say" works only in a Step that carries that same directive, or after a Step that already ran it. In every earlier Step write the narration without the number.
 - In a sequence diagram, every "send" is followed by one "receive" or "drop" on the same diagram before the next "send".
 - A plot, chart or graph of numbers shows the Ask's own quantity, computed from the formula or data the Ask is about, and never a stand-in curve.
-- Every Lesson has at least one predict Challenge, the hinge of the story. Put it on the Step just before the reveal, where the learner can add up the earlier Steps and reach the answer, and no earlier Step states that answer. Let that Step's narration ask the question without giving the answer, and let the next Step reveal it.
+- Every Lesson has one hinge: a predict Challenge on the Step just before the reveal, where the learner can add up the earlier Steps and reach the answer, and no earlier Step states it. The hinge Step's narration asks the question without giving the answer, and the next Step reveals it.
 - Challenge shapes, all with "kind": "predict":
   {"kind": "predict", "type": "number", "prompt": "...", "answer": 6}
   {"kind": "predict", "type": "choice", "prompt": "...", "choices": ["a", "b"], "answer": "a"}

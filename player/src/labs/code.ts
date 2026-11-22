@@ -327,7 +327,7 @@ export const lab: LabDef<CodeStepperSpec, CodeStepperState> = {
       source: "the code, with \\n between lines; line numbers start at 1",
       language: `one of ${CODE_LANGUAGES.join(", ")}, default python`,
       output: "optional true or false; whether the Output panel is drawn, default true when the source calls print, printf, puts or the like",
-      vars: 'optional names every called frame lists from the start, such as ["n","result"]; shown as – until set',
+      vars: 'optional names every function call frame lists from the start, such as ["n","result"], shown as – until set; the global frame never lists them, so a global appears only when a "set" op or the trace directive writes it',
     },
     example: [
       '{"step":1,"say":"Call factorial of three. It gets its own frame with n equal to three.","scene":{"run":{"lab":"code","language":"python","source":"def factorial(n):\\n    if n <= 1:\\n        return 1\\n    return n * factorial(n - 1)\\n\\nprint(factorial(3))","vars":["n"]}},"do":[{"cue":"Call","op":"line","on":["run"],"n":6},{"cue":"own frame","op":"call","on":["run"],"name":"factorial","args":{"n":"3"}},{"cue":"equal to three","op":"line","on":["run"],"n":2}]}',
