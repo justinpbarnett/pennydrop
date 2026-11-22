@@ -517,8 +517,8 @@ export const lab: LabDef<WordsSpec, WordsState> = {
     summary:
       "A word card for languages and reading: one word in large type split into syllables, a track that lights as the word is spoken, a stressed syllable marked in its own color, letter tiles that spell it out, and optional meaning cards to match it with. To pair the word with a picture instead, place a picture Lab beside it and use connect.",
     spec: {
-      word: 'the word, with a hyphen between syllables, such as "ba-na-na" (shown as banana with a dot between syllables); one word, at most 6 syllables and 14 letters',
-      meanings: 'optional list of 1 to 4 short meanings shown as cards under the word, such as ["a long yellow fruit", "a small red fruit"]; a few words each',
+      word: 'the word, with a hyphen between syllables, such as "ba-na-na" (shown as banana with a dot between syllables); one word, at most 6 syllables and 14 letters; a phrase is one words Lab per word, kept side by side with "at": {"row": [...]}, each brought in as the narration says it, so an earlier word stays on stage beside the one that joins it',
+      meanings: 'optional list of 1 to 4 short meanings shown as cards under the word, such as ["a long yellow fruit", "a small red fruit"]; a few words each; they are what this word means on its own, so a word that only changes a phrase, such as a polite ending, has meanings like "a polite ending", never the meaning of the whole phrase',
       answer: "index from 0 of the right meaning; required when meanings is given",
       reading:
         "optional, default true; false draws no letters or words, for a child who cannot read: each syllable is a round beat (the stressed one in the active color), spell lights one blank tile per letter, and meaning cards are refused, so pair the word with pictures instead",
