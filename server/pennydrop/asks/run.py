@@ -16,7 +16,7 @@ from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
-from .directives import DirectiveError, DirectiveTools, as_promise, computed_facts, directive_briefs, expand_directives, fill_values, contrast_run_keys, run_outline, staged_directives, with_sources
+from .directives import DirectiveError, DirectiveTools, as_promise, carries_directive, computed_facts, directive_briefs, expand_directives, fill_values, contrast_run_keys, run_outline, staged_directives, with_sources
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import PROMISE_WORDS, mended, mended_by_verdict, mended_cues, with_one_figure_on_stage
@@ -121,6 +121,7 @@ class LessonRun:
         self._repairs: list[dict[str, Any]] = []
         self._catalog_labs: set[str] = set()
         self._published = 0
+        self._shown_steps = 0
         self._redone_for_child: set[int] = set()
         self._claims_disagreed: set[int] = set()
         self._remembered_values: dict[str, Any] = {}
@@ -233,15 +234,18 @@ class LessonRun:
                 settled = await self._settle_step(brief, step, scene)
             except PlayerCrash as crash:
                 raise LessonError(f"the player's validator crashed on step {step.number}, and no rewrite can fix that: {crash}") from None
+            if settled is None:
+                continue
             scene = settled.scene
             self._asked_challenge = self._asked_challenge or "challenge" in settled.step
             self._told.append(settled.step["say"])
             self._stage.settle(settled.step)
             self._stopwatch.mark("first_step_checked")
-            await ready.put(ReadyStep(settled.step, self._voice(settled.step["say"])))
+            self._shown_steps += 1
+            await ready.put(ReadyStep({**settled.step, "step": self._shown_steps}, self._voice(settled.step["say"])))
         await ready.put(None)
 
-    async def _settle_step(self, brief: Brief, pending: PendingStep, scene: Any) -> SettledStep:
+    async def _settle_step(self, brief: Brief, pending: PendingStep, scene: Any) -> SettledStep | None:
         written = self._mended(pending.written, pending.number)
         sent: list[str] = []
         for attempt in range(MAX_REPAIR_TRIES + 1):
@@ -259,7 +263,7 @@ class LessonRun:
             return self._accepted(written, checked)
         if HONOR_CODE_ERROR in checked.errors:
             raise LessonError(f"Step {pending.number} still broke the honor code after {MAX_REPAIR_TRIES} rewrites")
-        return await self._salvage(brief, pending.number, written, checked, scene)
+        return await self._salvage(brief, pending, written, checked, scene)
 
     def _mended(self, written: dict[str, Any] | Malformed, number: int) -> dict[str, Any] | Malformed:
         if isinstance(written, Malformed):
@@ -465,7 +469,8 @@ class LessonRun:
         shown = json.dumps({field: step[field] for field in ("say", "scene", "challenge") if field in step})
         return await self._kit.classifier.keeps_honor_code(shown, self._ask.course.honor_code, self._record.id)
 
-    async def _salvage(self, brief: Brief, number: int, written: dict[str, Any] | Malformed, last: Checked, scene: Any) -> SettledStep:
+    async def _salvage(self, brief: Brief, pending: PendingStep, written: dict[str, Any] | Malformed, last: Checked, scene: Any) -> SettledStep | None:
+        number = pending.number
         step = last.step or {}
         self._remembered_values.update(last.values)
         recovered = _recover_say(step, written, self._remembered_values)
@@ -475,27 +480,42 @@ class LessonRun:
         answerable = not self._stage.unran_values(step, False) and not any(CHALLENGE_FLAW.match(error) for error in last.errors + last.advice)
         if answerable and last.disputed and "challenge" in step:
             answerable = await self._claim_holds(_claimed({"say": say, "challenge": step["challenge"]}), last.disputed)
+        candidate: dict[str, Any] | None = None
         for kept_fields in (("scene", "challenge"), ("challenge",), ("scene",), ()):
             if "challenge" in kept_fields and not answerable:
                 continue
-            candidate = {"step": number, "say": say, **{field: step[field] for field in kept_fields if field in step}}
-            verdict = await validator.check(candidate, scene, self._reading, replay=not kept_fields)
-            if verdict.ok:
+            trial = {"step": number, "say": say, **{field: step[field] for field in kept_fields if field in step}}
+            verdict = await validator.check(trial, scene, self._reading, replay=not kept_fields)
+            if verdict.ok and not self._salvage_flaws(trial, written, last.values):
+                candidate = trial
                 break
-        else:
-            raise LessonError(f"Step {number} could not be repaired, and even its narration alone failed: {'; '.join(verdict.errors)}")
+        kept_ops: list[dict[str, Any]] = []
+        for operation in step.get("do", []) if candidate is not None else []:
+            trial = {**candidate, "do": [*kept_ops, operation]}
+            checked = await validator.check(trial, scene, self._reading)
+            if checked.ok and not self._salvage_flaws(trial, written, last.values):
+                kept_ops.append(operation)
+                verdict = checked
+        if candidate is None or (number > 1 and not kept_ops and set(candidate) == {"step", "say"} and _plays_something(step, written)):
+            if number > 1 and await pending.followed:
+                self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, "left the Step out, since none of its play could be kept and its narration told that play")
+                return None
+            if number > 1:
+                say = self._record.header.get("point") or say
+            candidate, kept_ops = {"step": number, "say": say}, []
+            verdict = await validator.check(candidate, scene, self._reading, replay=True)
+            if not verdict.ok:
+                raise LessonError(f"Step {number} could not be repaired, and even its narration alone failed: {'; '.join(verdict.errors)}")
         if question_without_challenge(candidate):
             candidate, verdict = await self._told_not_asked(brief, candidate, verdict, scene)
-        kept_ops: list[dict[str, Any]] = []
-        for operation in step.get("do", []) if "scene" in candidate else []:
-            trial = await validator.check({**candidate, "do": [*kept_ops, operation]}, scene, self._reading)
-            if trial.ok:
-                kept_ops.append(operation)
-                verdict = trial
-        told = "kept the narration" if say == recovered else f"narrated only what the computed facts bear out, {json.dumps(say)}"
-        outcome = f"{told}, dropped fields {sorted(set(step) - set(candidate))} and {len(step.get('do', [])) - len(kept_ops)} operations"
+        told = "kept the narration" if say == recovered else "closed on the Lesson's point" if say == self._record.header.get("point") else f"narrated only what the computed facts bear out, {json.dumps(say)}"
+        outcome = f"{told}, dropped fields {sorted(set(step) - set(candidate) - {'do'})} and {len(step.get('do', [])) - len(kept_ops)} operations"
         self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, outcome)
         return SettledStep({**candidate, **({"do": kept_ops} if kept_ops else {})}, verdict.scene)
+
+    def _salvage_flaws(self, candidate: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any]) -> list[str]:
+        asked_aloud = set(question_without_challenge(candidate))
+        return [error for error in self._stage.errors_in(candidate, written, values) if error not in asked_aloud]
 
     async def _told_not_asked(self, brief: Brief, candidate: dict[str, Any], verdict: Verdict, scene: Any) -> tuple[dict[str, Any], Verdict]:
         rewritten = await self._kit.writer.repair(brief, scene, candidate, [NARRATION_ONLY], self._record.id)
@@ -592,6 +612,10 @@ def _claims_disagree(claimed: str, facts: list[str]) -> str:
         " The computed values are right, so rewrite the claim, in \"say\" or in the Challenge\'s \"answer\", so every number and comparison in it matches them, such as which run is lower or which job finishes sooner;"
         " when the facts hold several runs, name the run each value comes from, such as \"with the lock\" or \"in the round robin run\", and leave out any claim they do not bear out"
     )
+
+
+def _plays_something(step: dict[str, Any], written: dict[str, Any] | Malformed) -> bool:
+    return bool(step.get("do") or step.get("scene") or "challenge" in step) or (isinstance(written, dict) and carries_directive(written))
 
 
 def _recover_say(step: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any]) -> str:

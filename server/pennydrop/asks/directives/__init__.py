@@ -40,6 +40,10 @@ def as_promise(step: Any) -> Any:
     return {**step, **{name: {**step[name], "until": 0} for name in staged_directives(step)}}
 
 
+def carries_directive(step: dict[str, Any]) -> bool:
+    return any(isinstance(step.get(name), dict) for name in DIRECTIVES)
+
+
 def staged_directives(step: dict[str, Any]) -> list[str]:
     return [name for name, directive in DIRECTIVES.items() if getattr(directive, "PLAYS_IN_STAGES", False) and isinstance(step.get(name), dict)]
 

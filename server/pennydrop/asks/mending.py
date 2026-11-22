@@ -8,6 +8,7 @@ from ..tracer import ALGORITHMS
 from .directives._support import operation_targets
 from .directives.simulate import filled_from
 from .directives.trace.code import shown_source
+from .played_hops import says_number
 from .stage import FRONTIER_OPERATIONS, TRACE_TOTAL_PREFIX, Stage, answer_given_away
 
 NUMBER_WORDS = {
@@ -31,6 +32,7 @@ def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     step = _with_numeric_answer(step)
     step = _with_tap_answer_on_its_node(step, stage)
     step = _without_the_answer_said(step, stage)
+    step = _without_the_landing_said(step, stage)
     step = stage.setups.with_reveal_run(step)
     return _with_every_send_settled(_with_library_listing(step), stage.in_flight)
 
@@ -349,6 +351,15 @@ def _without_the_answer_said(step: dict[str, Any], stage: Stage) -> dict[str, An
     if not kept or len(kept) == len(sentences):
         return step
     return {**step, "say": "".join(kept).strip()}
+
+
+def _without_the_landing_said(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    landing = stage.hops.landing_told(step)
+    if landing is None:
+        return step
+    sentences = re.findall(r"[^.?!]+[.?!]*\s*", step["say"])
+    kept = [sentence for sentence in sentences if not says_number(landing, sentence)]
+    return {**step, "say": "".join(kept).strip()} if kept else step
 
 
 OPERATION_ERROR = re.compile(r"do\[(?P<index>\d+)\] (?P<op>\w+): (?P<message>.*)")

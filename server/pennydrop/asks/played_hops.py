@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any
 
+from ..spoken import comparable_script
+
 SHAPES_LAB = "shapes"
 LINE_FIGURE = "line"
 BLOCKS_FIGURE = "blocks"
@@ -57,6 +59,13 @@ class PlayedHops:
 
     def errors_in(self, step: dict[str, Any]) -> list[str]:
         return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step) + self._block_tapped(step) + self._pile_sum_too_early(step)
+
+    def landing_told(self, step: dict[str, Any]) -> int | None:
+        hoppers = self._play(step)
+        asked = _landing_asked(step, hoppers)
+        if asked is None or asked.spot in (hoppers[asked.line].base, abs(asked.spot - hoppers[asked.line].base)):
+            return None
+        return asked.spot if says_number(asked.spot, step.get("say")) else None
 
     def _pile_sum_too_early(self, step: dict[str, Any]) -> list[str]:
         if not self._warm_up_only_one or self._challenged:
@@ -118,6 +127,10 @@ class PlayedHops:
             return []
         hopper = hoppers[asked.line]
         prefix = f"step {step.get('step')} challenge:"
+        if self._warm_up_only_one and not hopper.asked and not hopper.landed:
+            return [f"{prefix} the child has not seen the hopper hop on {asked.line} yet, so the Challenge comes before the normal case; leave the Challenge out of this Step, let the Steps after it hop one and hop back to {hopper.base}, and ask in the Step after those"]
+        if (told := self.landing_told(step)) is not None:
+            return [f'{prefix} the narration says {told}, where the hopper will land, before the learner taps it; leave that number out of "say" and let the next Step tell it']
         if hopper.at != hopper.base:
             back = hopper.base - hopper.at
             return [f'{prefix} the sum starts with the hopper on {hopper.base}, but when the Challenge waits it stands on {hopper.at}, after the hops played so far, so the learner predicts only the last few hops instead of the sum. Add {{"op": "{HOP}", "on": ["{asked.line}"], "by": {back}, "each": {abs(back)}}} to the end of this Step\'s "do" so the hopper is back on {hopper.base}, say that it goes back, and make the answer the spot the asked hops from {hopper.base} land on']
@@ -159,6 +172,10 @@ def _landing_asked(step: dict[str, Any], hoppers: dict[str, Hopper]) -> AskedLan
     if not found or found["line"] not in hoppers:
         return None
     return AskedLanding(found["line"], int(found["spot"]), hoppers[found["line"]].at, step.get("step", 0))
+
+
+def says_number(number: int, text: Any) -> bool:
+    return isinstance(text, str) and str(number) in comparable_script(text)
 
 
 def _whole(value: Any, fallback: int) -> int:
