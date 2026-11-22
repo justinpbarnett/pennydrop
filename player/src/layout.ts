@@ -286,7 +286,7 @@ function packedToStage(clusters: Cluster[], maxScale: number): Layout {
   const flowCount = flowOf(clusters).length;
   const column = 2 ** Math.max(0, flowCount - 1) - 1;
   let best = fitToStage(placeClusters(clusters, column), maxScale);
-  if (scaleOf(best) >= MIN_FIT_SCALE || flowCount > MAX_PACKED_FLOW) return best;
+  if (scaleOf(best) >= maxScale || flowCount > MAX_PACKED_FLOW) return best;
   for (let breaks = 0; breaks < column; breaks++) {
     const packed = fitToStage(placeClusters(clusters, breaks), maxScale);
     if (scaleOf(packed) > scaleOf(best)) best = packed;
