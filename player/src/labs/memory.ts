@@ -40,6 +40,7 @@ interface Block {
 interface MemoryState {
   objectId: string;
   reading: boolean;
+  hasHeap: boolean;
   frames: Frame[];
   heap: Block[];
 }
@@ -47,6 +48,7 @@ interface MemoryState {
 type MemorySpec = {
   frames?: unknown;
   reading?: unknown;
+  heap?: unknown;
 };
 
 type Area = "stack" | "heap";
@@ -117,9 +119,11 @@ const HEIGHT = 760;
 const GUTTER = 190;
 const PANEL_WIDTH = (WIDTH - GUTTER) / 2;
 const HEAP_LEFT = PANEL_WIDTH + GUTTER;
+const SOLO_PANEL_WIDTH = 940;
 const PANEL_PAD = 28;
 const CONTENT_TOP = 76;
-const ROOM = { w: PANEL_WIDTH - 2 * PANEL_PAD, h: HEIGHT - CONTENT_TOP - PANEL_PAD };
+const ROOM_HEIGHT = HEIGHT - CONTENT_TOP - PANEL_PAD;
+const HEAP_ROOM = { w: PANEL_WIDTH - 2 * PANEL_PAD, h: ROOM_HEIGHT };
 const TITLE_Y = 40;
 const TITLE_SIZE = 30;
 
@@ -174,6 +178,11 @@ const POINTER_LOOKS: Record<PointerStatus, PointerLook> = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readsHeap(spec: MemorySpec, objectId: string): boolean {
+  if (spec.heap !== undefined && typeof spec.heap !== "boolean") fail(`${objectId}: "heap" must be true or false`);
+  return spec.heap !== false;
 }
 
 const MIN_PRINTABLE = 0x20;
@@ -309,6 +318,10 @@ function listed(names: string[], none: string): string {
   return names.length > 0 ? names.join(", ") : none;
 }
 
+function requireHeap(state: MemoryState, subject: string): void {
+  if (!state.hasHeap) fail(`${subject}: this memory has no heap; declare it with "heap": true, or leave "heap" out, when the Lesson allocates`);
+}
+
 function pointerArg(state: MemoryState, op: LabOp, key: string): PointerVariable {
   const name = stringArg(op.args, key, op.name);
   const found = allVariables(state).find((variable) => variable.name === name);
@@ -345,6 +358,7 @@ function pushFrame(state: MemoryState, op: LabOp): MemoryState {
 
 function malloc(state: MemoryState, op: LabOp): MemoryState {
   const subject = 'op "malloc"';
+  requireHeap(state, subject);
   const name = readName(op.args.block, subject, "block");
   const block: Block = { name, bytes: emptyBytes(readByteCount(op.args.bytes, subject)), freed: false };
   const grown = checked({ ...state, heap: [...state.heap, block] }, subject);
@@ -353,6 +367,7 @@ function malloc(state: MemoryState, op: LabOp): MemoryState {
 }
 
 function free(state: MemoryState, op: LabOp): MemoryState {
+  requireHeap(state, 'op "free"');
   const block = blockArg(state, op);
   if (block.freed) fail(`op "free": block "${block.name}" is already freed, and freeing it again is a double free; free a live block instead`);
   return withBlock(state, block.name, (entry) => ({ ...entry, freed: true }));
@@ -361,6 +376,7 @@ function free(state: MemoryState, op: LabOp): MemoryState {
 function pointerArrow(state: MemoryState, op: LabOp): MemoryState {
   const pointer = pointerArg(state, op, "pointer");
   if (op.args.block === null) return aim(state, pointer.name, null);
+  requireHeap(state, 'op "pointer-arrow"');
   const block = blockArg(state, op);
   const at = integerArg(op.args, "at", op.name, 0, block.bytes.length - 1, 0);
   return aim(state, pointer.name, { block: block.name, at });
@@ -373,6 +389,7 @@ function regionsOf(state: MemoryState, area: Area): Region[] {
 
 function writeStart(state: MemoryState, op: LabOp): { area: Area; region: Region; offset: number } {
   if (op.args.through !== undefined) {
+    requireHeap(state, 'op "write-bytes"');
     const pointer = pointerArg(state, op, "through");
     const status = pointerStatus(state, pointer);
     if (status === "null") fail(`op "write-bytes": ${pointer.name} is NULL, so writing through it would crash; aim it with pointer-arrow or malloc first`);
@@ -483,6 +500,14 @@ function frameHeight(frame: Frame, cell: number): number {
   return FRAME_HEAD + frame.vars.length * cell + (frame.vars.length - 1) * ROW_GAP + FRAME_PAD;
 }
 
+function stackPanel(state: MemoryState): { left: number; width: number } {
+  return state.hasHeap ? { left: 0, width: PANEL_WIDTH } : { left: (WIDTH - SOLO_PANEL_WIDTH) / 2, width: SOLO_PANEL_WIDTH };
+}
+
+function stackRoom(state: MemoryState): { w: number; h: number } {
+  return { w: stackPanel(state).width - 2 * PANEL_PAD, h: ROOM_HEIGHT };
+}
+
 function stackExtent(state: MemoryState, cell: number): { w: number; h: number } {
   if (state.frames.length === 0) return { w: 0, h: 0 };
   const heights = state.frames.map((frame) => frameHeight(frame, cell));
@@ -517,22 +542,23 @@ function heapExtent(state: MemoryState, cell: number): { w: number; h: number } 
   return { w: Math.max(widestBlock(state) * cell, heapLabelWidth(state)), h: state.heap.length * blockBand(cell) };
 }
 
-function fitsRoom(extent: { w: number; h: number }): boolean {
-  return extent.w <= ROOM.w && extent.h <= ROOM.h;
+function fitsRoom(extent: { w: number; h: number }, room: { w: number; h: number }): boolean {
+  return extent.w <= room.w && extent.h <= room.h;
 }
 
 function cellSize(state: MemoryState): number {
-  return CELL_SIZES.find((cell) => fitsRoom(stackExtent(state, cell)) && fitsRoom(heapExtent(state, cell))) ?? MIN_CELL;
+  return CELL_SIZES.find((cell) => fitsRoom(stackExtent(state, cell), stackRoom(state)) && fitsRoom(heapExtent(state, cell), HEAP_ROOM)) ?? MIN_CELL;
 }
 
 function placeFrames(state: MemoryState, cell: number): FramePlace[] {
   const extent = stackExtent(state, cell);
+  const room = stackRoom(state);
   const contentWidth = extent.w - 2 * FRAME_PAD;
-  let top = CONTENT_TOP + (ROOM.h - extent.h) / 2;
+  let top = CONTENT_TOP + (room.h - extent.h) / 2;
   return state.frames.map((frame) => {
-    const rect = { x: PANEL_PAD, y: top, w: ROOM.w, h: frameHeight(frame, cell) };
+    const rect = { x: stackPanel(state).left + PANEL_PAD, y: top, w: room.w, h: frameHeight(frame, cell) };
     top += rect.h + FRAME_GAP;
-    const labelLeft = rect.x + (ROOM.w - contentWidth) / 2;
+    const labelLeft = rect.x + (room.w - contentWidth) / 2;
     const cellsLeft = labelLeft + rowLabelWidth(state) + LABEL_GAP;
     const rows = frame.vars.map((variable, index): RowPlace => {
       const rowTop = rect.y + FRAME_HEAD + index * (cell + ROW_GAP);
@@ -544,8 +570,8 @@ function placeFrames(state: MemoryState, cell: number): FramePlace[] {
 
 function placeBlocks(state: MemoryState, cell: number): BlockPlace[] {
   const extent = heapExtent(state, cell);
-  const left = HEAP_LEFT + PANEL_PAD + (ROOM.w - widestBlock(state) * cell) / 2;
-  const top = CONTENT_TOP + (ROOM.h - extent.h) / 2;
+  const left = HEAP_LEFT + PANEL_PAD + (HEAP_ROOM.w - widestBlock(state) * cell) / 2;
+  const top = CONTENT_TOP + (HEAP_ROOM.h - extent.h) / 2;
   return state.heap.map((block, index) => {
     const cellsTop = top + index * blockBand(cell) + APPROACH;
     const label = { x: left + (block.bytes.length * cell) / 2, y: cellsTop + cell + CAPTION_GAP + LABEL_SIZE / 2 };
@@ -700,19 +726,18 @@ function routeDrawables(state: MemoryState, layout: Layout): Drawable[] {
   });
 }
 
-function panelDrawable(id: string, left: number): Drawable {
-  return boxDrawable(id, { x: left, y: 0, w: PANEL_WIDTH, h: HEIGHT }, { fill: "none", stroke: "rule", strokeWidth: CELL_STROKE, z: 0 });
+function panelDrawable(id: string, left: number, width: number): Drawable {
+  return boxDrawable(id, { x: left, y: 0, w: width, h: HEIGHT }, { fill: "none", stroke: "rule", strokeWidth: CELL_STROKE, z: 0 });
 }
 
 function panelDrawables(state: MemoryState): Drawable[] {
-  const panels = [panelDrawable("stack-panel", 0), panelDrawable("heap-panel", HEAP_LEFT)];
+  const stack = stackPanel(state);
+  const panels = [panelDrawable("stack-panel", stack.left, stack.width), ...(state.hasHeap ? [panelDrawable("heap-panel", HEAP_LEFT, PANEL_WIDTH)] : [])];
   if (!state.reading) return panels;
   const title = { size: TITLE_SIZE, font: "mark" as const, fill: "muted" as const, z: 1 };
-  return [
-    ...panels,
-    textDrawable("stack-title", "Stack", { x: PANEL_PAD, y: TITLE_Y }, { ...title, anchor: "start" }),
-    textDrawable("heap-title", "Heap", { x: WIDTH - PANEL_PAD, y: TITLE_Y }, { ...title, anchor: "end" }),
-  ];
+  const stackTitle = textDrawable("stack-title", "Stack", { x: stack.left + PANEL_PAD, y: TITLE_Y }, { ...title, anchor: "start" });
+  if (!state.hasHeap) return [...panels, stackTitle];
+  return [...panels, stackTitle, textDrawable("heap-title", "Heap", { x: WIDTH - PANEL_PAD, y: TITLE_Y }, { ...title, anchor: "end" })];
 }
 
 function drawMemory(state: MemoryState): Drawable[] {
@@ -785,10 +810,11 @@ export const lab: LabDef<MemorySpec, MemoryState> = {
   reading: "optional",
   catalog: {
     summary:
-      "C memory: a Stack panel of call frames (newest on top) holding variables as rows of byte cells, a Heap panel of malloc'd blocks, pointer arrows from a pointer variable to the heap byte it holds, and bytes written into a buffer that run past its end into the neighbour, outlined in red. Teaches pointers, stack frames, malloc and free, dangling pointers and buffer overflow. Memory order runs top to bottom: within a frame vars are listed from low address to high, and below a frame sits its caller, so an overflow runs down into the next variable, then into the caller's frame; in the heap it runs into the next block. Put the object alone in \"on\"; names of variables and blocks are unique.",
+      "C memory: a Stack panel of call frames (newest on top) holding variables as rows of byte cells, a Heap panel of malloc'd blocks (omitted when the spec says \"heap\": false), pointer arrows from a pointer variable to the heap byte it holds, and bytes written into a buffer that run past its end into the neighbour, outlined in red. Teaches pointers, stack frames, malloc and free, dangling pointers and buffer overflow. Memory order runs top to bottom: within a frame vars are listed from low address to high, and below a frame sits its caller, so an overflow runs down into the next variable, then into the caller's frame; in the heap it runs into the next block. Put the object alone in \"on\"; names of variables and blocks are unique.",
     spec: {
       frames:
         'optional list of frames, oldest (main) first, at most 3, each {"name":"main","vars":[...]}; vars, 1 to 4 per frame and at most 6 in all, are {"name":"buf","bytes":8,"text":"hi"} (1 to 8 bytes; optional text fills the first bytes, one printable ASCII character each, or optional "values" such as [2,1] fills them with byte numbers 0 to 255 drawn as two hex digits, 02 and 01; not both) or {"name":"p","pointer":true} (starts NULL; each pointer keeps its own color). Default: an empty stack',
+      heap: 'optional boolean, default true; false draws the Stack panel alone, wider and with bigger cells, and rejects malloc, free and pointer aims; use it for a Lesson that never mallocs, such as a stack buffer overflow',
       reading: "optional boolean, default true; false draws no names or characters, written bytes show as dots",
     },
     example: [
@@ -797,7 +823,7 @@ export const lab: LabDef<MemorySpec, MemoryState> = {
   },
 
   init(spec, objectId) {
-    return checked({ objectId, reading: readsWords(spec), frames: readFrames(spec.frames, objectId), heap: [] }, objectId);
+    return checked({ objectId, reading: readsWords(spec), hasHeap: readsHeap(spec, objectId), frames: readFrames(spec.frames, objectId), heap: [] }, objectId);
   },
 
   ops: {
