@@ -113,6 +113,7 @@ export interface LabDef<Spec = Record<string, unknown>, State = unknown> {
   reading: LabReading;
   overlay?: boolean;
   round?: boolean;
+  framed?: boolean;
   catalog: LabCatalog;
   ops: Record<string, OpDef<State>>;
   prepare?(): Promise<void>;

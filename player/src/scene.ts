@@ -106,7 +106,26 @@ export function removeObject(scene: SceneState, id: string): SceneState {
 export function applySceneSpecs(scene: SceneState, specs: Record<string, ObjectSpec | null>): SceneState {
   let next = scene;
   for (const [id, spec] of Object.entries(specs)) {
-    next = spec === null ? removeObject(next, id) : upsertObject(next, createObject(id, spec, next));
+    if (spec === null) {
+      next = removeObject(next, id);
+      continue;
+    }
+    const created = createObject(id, spec, next);
+    if (!alreadyOnStage(findObject(next, id), created)) next = upsertObject(next, created);
   }
   return next;
+}
+
+function alreadyOnStage(existing: SceneObject | undefined, created: SceneObject): boolean {
+  return existing !== undefined && !existing.tint && !existing.highlight && existing.defKey === created.defKey && sameValue(existing.at, created.at) && sameValue(existing.state, created.state);
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, index) => sameValue(item, b[index]));
+  if (Object.getPrototypeOf(a) !== Object.prototype || Object.getPrototypeOf(b) !== Object.prototype) return false;
+  const [left, right] = [a as Record<string, unknown>, b as Record<string, unknown>];
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameValue(left[key], right[key]));
 }

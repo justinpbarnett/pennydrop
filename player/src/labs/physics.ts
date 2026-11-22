@@ -1218,13 +1218,17 @@ function run(state: PhysicsState, op: LabOp, resuming: boolean): PhysicsState {
     if (kind.events[last.event]!.terminal) fail(`op "resume": the run already ended (${last.event}); start a new one with "${kind.startOp}"`);
     attempt = { ...current, legs: [...current.legs, leg] };
   } else {
-    ghosts = kind.ghosts && state.attempt ? [...state.ghosts, state.attempt].slice(-MAX_GHOSTS) : [];
+    ghosts = retiredAttempts(kind, state);
     attempt = { id: state.started, params: state.params, legs: [leg] };
   }
   const { trajectory, failed } = runAttempt(kind, attempt.params, attempt.legs);
   if (failed !== null) fail(`op "${op.name}": ${kind.events[attempt.legs[failed]!.event]!.stuck}`);
   trajectories.set(attempt, trajectory);
   return { ...state, ghosts, attempt, started: resuming ? state.started : state.started + 1, marks: resuming ? state.marks : [] };
+}
+
+function retiredAttempts(kind: AnyKind, state: PhysicsState): Attempt<unknown>[] {
+  return kind.ghosts ? [...state.ghosts, ...(state.attempt ? [state.attempt] : [])].slice(-MAX_GHOSTS) : [];
 }
 
 function runKeys(kind: AnyKind): string[] {
@@ -1237,7 +1241,7 @@ function setOp(state: PhysicsState, op: LabOp): PhysicsState {
   const unknown = Object.keys(op.args).filter((key) => !(key in kind.settable) && !(state.setup === "orbit" && key === "planet"));
   if (unknown.length > 0) fail(`op "set" cannot change ${unknown.map((key) => `"${key}"`).join(", ")} on a ${state.setup}; it can change ${Object.entries(kind.settable).map(([key, unit]) => `${key} (${unit})`).join(", ")}`);
   const params = kind.change(state.params, op.args);
-  return { ...state, params, ghosts: kind.ghosts && state.attempt ? [...state.ghosts, state.attempt].slice(-MAX_GHOSTS) : [], attempt: null, marks: [] };
+  return { ...state, params, ghosts: retiredAttempts(kind, state), attempt: null, marks: [] };
 }
 
 function vectorsOp(state: PhysicsState, op: LabOp): PhysicsState {
@@ -1350,6 +1354,7 @@ export const lab: LabDef<Args, PhysicsState> = {
   id: "physics",
   title: "Physics",
   reading: "optional",
+  framed: true,
   catalog: {
     summary: "Motion computed, not drawn: a fixed step integrator runs real Newtonian physics and every path on screen comes from it. Setups: launch (a ball fired at an angle and speed over a ground line), drop (one to three balls falling from a height together, each with its own mass and bounciness: balls of different bounciness make a good \"which one bounces higher? tap it\" Challenge, asked before those balls are ever released, so their first release is the reveal), ramp (a block on a slope with friction that slides or stays), pendulum (a bob on a rod, optionally with drag), orbit (planets circling a fixed sun). A tap on a dropped ball names the drop object, then the ball's place in \"masses\" in square brackets: in a drop object called pair, pair[0] is the first ball and pair[1] the second. A tap on a planet names the orbit object, then the planet: sky[Mars]. You give intent (angle, speed, length, friction); the Lab owns the layout and every number. Set \"reading\": false for a small child: nothing on screen needs reading.",
     spec: specDocs(),

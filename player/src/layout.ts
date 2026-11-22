@@ -287,10 +287,15 @@ function reachFor(object: SceneObject, theme: Theme): Reach {
   let reach = perTheme.get(theme);
   if (!reach) {
     const def = definitionOf(object);
-    reach = def.overlay ? NO_REACH : reachOf(def.draw(object.state, { objectId: object.id, links: {} }), def.size(object.state), theme);
+    const ink = def.overlay ? NO_REACH : reachOf(def.draw(object.state, { objectId: object.id, links: {} }), def.size(object.state), theme);
+    reach = def.framed ? outward(ink) : ink;
     perTheme.set(theme, reach);
   }
   return reach;
+}
+
+function outward(reach: Reach): Reach {
+  return { left: Math.max(0, reach.left), top: Math.max(0, reach.top), right: Math.max(0, reach.right), bottom: Math.max(0, reach.bottom) };
 }
 
 export function layoutScene(scene: SceneState, theme?: Theme): Layout {

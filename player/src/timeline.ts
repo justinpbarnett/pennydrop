@@ -202,8 +202,10 @@ export class Timeline {
       const previous = this.segments.at(-1);
       const previousStart = previous?.start ?? 0;
       const clear = exits || relayout ? EXIT_SHARE * Math.min(baseDuration, SCENE_CHANGE_SECONDS) : 0;
-      const time = Math.max(group.time, this.trueEnd + clear, previousStart);
-      const lead = Math.min(clear, time - previousStart);
+      const afterChallenge = index === 0 && Boolean(this.steps.at(-1)?.step.challenge);
+      const earliestExit = afterChallenge ? start : previousStart;
+      const time = Math.max(group.time, this.trueEnd + clear, earliestExit + (afterChallenge ? clear : 0));
+      const lead = Math.min(clear, time - earliestExit);
       if (previous) previous.cutAt = time - lead;
       this.segments.push({ start: time, lead, clear, exits, relayout, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches: sharedStart(group.ops.flatMap((planned) => planned.touches)), replaced });
       opStarts.push(...group.ops.map((planned) => ({ index: planned.op.index, time })));
