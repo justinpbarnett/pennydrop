@@ -12,6 +12,9 @@ BLOCKS_FIGURE = "blocks"
 HOP = "hop"
 PILE_SUMS = ("add", "take")
 SPOT = re.compile(r"^(?P<line>[\w-]+)\[(?P<spot>-?\d+)\]$")
+NUMBER_NAMES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split()
+STANDING_CLAIM = re.compile(r"\b(?:stands?|is|sits?|starts?|waits?)\s+(?:on|at)\s+(?P<number>\w+)", re.IGNORECASE)
+HOPPING_CLAIM = re.compile(r"\b(?P<preposition>on|at|to)\s+(?P<number>\w+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -58,7 +61,51 @@ class PlayedHops:
             self._hoppers[self._asked.line] = replace(self._hoppers[self._asked.line], asked=True)
 
     def errors_in(self, step: dict[str, Any]) -> list[str]:
-        return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step) + self._block_tapped(step) + self._pile_sum_too_early(step)
+        return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step) + self._block_tapped(step) + self._pile_sum_too_early(step) + self._position_errors(step)
+
+    def plain_step(self, step: dict[str, Any]) -> dict[str, Any] | None:
+        if not self._warm_up_only_one or self._challenged or len(self._hoppers) != 1:
+            return None
+        (name, hopper), = self._hoppers.items()
+        asked = _landing_asked(step, self._hoppers)
+        if asked is not None:
+            if hopper.at != hopper.base or not hopper.landed:
+                return None
+            count = asked.spot - hopper.at
+            hops = f"{_number_name(abs(count))} hop{'s' if abs(count) != 1 else ''}{' back' if count < 0 else ''}"
+            return {"say": f"Tap the spot where {hops} from {_number_name(hopper.at)} will land.", "challenge": step["challenge"]}
+        if "challenge" in step:
+            return None
+        if hopper.at == hopper.base:
+            written = next((operation.get("by") for operation in step.get("do") or [] if isinstance(operation, dict) and operation.get("op") == HOP and operation.get("on") == [name]), 1)
+            by = -1 if _whole(written, 1) < 0 else 1
+            say = f"Hop one {'more' if by > 0 else 'back'}, to {_number_name(hopper.at + by)}."
+        elif abs(hopper.at - hopper.base) == 1:
+            by = hopper.base - hopper.at
+            say = f"Hop back to {_number_name(hopper.base)}."
+        else:
+            return None
+        return {"say": say, "do": [{"op": HOP, "on": [name], "by": by, "each": 1}]}
+
+    def _position_errors(self, step: dict[str, Any]) -> list[str]:
+        say = step.get("say")
+        if not self._warm_up_only_one or self._challenged or not isinstance(say, str):
+            return []
+        before, after = self._play({**step, "do": []}), self._play(step)
+        if len(after) != 1 or set(before) != set(after):
+            return []
+        (name, hopper), = after.items()
+        start = before[name].at
+        landed = {spot for spot, _ in hopper.landed[len(before[name].landed) :]} | {hopper.at}
+        hopping = hopper.landed != before[name].landed
+        claims = HOPPING_CLAIM.finditer(say) if hopping else STANDING_CLAIM.finditer(say)
+        for claim in claims:
+            spot = _spoken_whole(claim["number"])
+            allowed = landed if hopping and claim["preposition"].lower() == "to" else landed | {start}
+            if spot is not None and spot not in allowed:
+                where = f"goes from {start} to {hopper.at}" if hopping else f"stands on {start}"
+                return [f'step {step.get("step")}: the narration puts the hopper on {spot}, but in this Step the hopper on {name} {where}; tell only the spots the hopper stands on and lands on in this Step']
+        return []
 
     def landing_told(self, step: dict[str, Any]) -> int | None:
         hoppers = self._play(step)
@@ -176,6 +223,17 @@ def _landing_asked(step: dict[str, Any], hoppers: dict[str, Hopper]) -> AskedLan
 
 def says_number(number: int, text: Any) -> bool:
     return isinstance(text, str) and str(number) in comparable_script(text)
+
+
+def _number_name(number: int) -> str:
+    return NUMBER_NAMES[number] if 0 <= number < len(NUMBER_NAMES) else str(number)
+
+
+def _spoken_whole(token: str) -> int | None:
+    plain = token.lower()
+    if plain.isdigit():
+        return int(plain)
+    return NUMBER_NAMES.index(plain) if plain in NUMBER_NAMES else None
 
 
 def _whole(value: Any, fallback: int) -> int:

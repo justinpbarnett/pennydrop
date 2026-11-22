@@ -496,22 +496,37 @@ class LessonRun:
             if checked.ok and not self._salvage_flaws(trial, written, last.values):
                 kept_ops.append(operation)
                 verdict = checked
+        told = "kept the narration" if say == recovered else f"narrated only what the computed facts bear out, {json.dumps(say)}"
         if candidate is None or (number > 1 and not kept_ops and set(candidate) == {"step", "say"} and _plays_something(step, written)):
-            if number > 1 and await pending.followed:
+            plain = await self._plainly(number, step, scene, written, last.values)
+            if plain is not None:
+                candidate, kept_ops, verdict = plain
+                told = f"told the play plainly, {json.dumps(candidate['say'])}"
+            elif number > 1 and await pending.followed:
                 self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, "left the Step out, since none of its play could be kept and its narration told that play")
                 return None
-            if number > 1:
-                say = self._record.header.get("point") or say
-            candidate, kept_ops = {"step": number, "say": say}, []
-            verdict = await validator.check(candidate, scene, self._reading, replay=True)
-            if not verdict.ok:
-                raise LessonError(f"Step {number} could not be repaired, and even its narration alone failed: {'; '.join(verdict.errors)}")
+            else:
+                if number > 1 and self._record.header.get("point"):
+                    say, told = self._record.header["point"], "closed on the Lesson's point"
+                candidate, kept_ops = {"step": number, "say": say}, []
+                verdict = await validator.check(candidate, scene, self._reading, replay=True)
+                if not verdict.ok:
+                    raise LessonError(f"Step {number} could not be repaired, and even its narration alone failed: {'; '.join(verdict.errors)}")
         if question_without_challenge(candidate):
             candidate, verdict = await self._told_not_asked(brief, candidate, verdict, scene)
-        told = "kept the narration" if say == recovered else "closed on the Lesson's point" if say == self._record.header.get("point") else f"narrated only what the computed facts bear out, {json.dumps(say)}"
         outcome = f"{told}, dropped fields {sorted(set(step) - set(candidate) - {'do'})} and {len(step.get('do', [])) - len(kept_ops)} operations"
         self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, outcome)
         return SettledStep({**candidate, **({"do": kept_ops} if kept_ops else {})}, verdict.scene)
+
+    async def _plainly(self, number: int, step: dict[str, Any], scene: Any, written: dict[str, Any] | Malformed, values: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]], Verdict] | None:
+        plain = self._stage.hops.plain_step(step)
+        if plain is None:
+            return None
+        trial = {"step": number, **plain}
+        verdict = await self._kit.validator.check(trial, scene, self._reading)
+        if not verdict.ok or self._salvage_flaws(trial, written, values):
+            return None
+        return {key: value for key, value in trial.items() if key != "do"}, trial.get("do", []), verdict
 
     def _salvage_flaws(self, candidate: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any]) -> list[str]:
         asked_aloud = set(question_without_challenge(candidate))
