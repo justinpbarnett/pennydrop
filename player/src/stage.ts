@@ -1,7 +1,8 @@
 import type { Color, Drawable, Link, Paint, Role } from "./lab";
 import { type Box, type Layout, layoutScene, STAGE } from "./layout";
 import { definitionOf, type SceneObject, type SceneState } from "./scene";
-import type { Theme } from "./theme";
+import { reachOf } from "./ink";
+import { type Theme, THEMES } from "./theme";
 
 export interface PlacedObject {
   id: string;
@@ -67,9 +68,15 @@ function highlightOutline(role: Role, [left, top, right, bottom]: Bounds, pad: n
   };
 }
 
-function outlined(object: SceneObject, local: Drawable[], box: Box): Drawable | null {
+function inkBounds(local: Drawable[], box: Box, theme: Theme): Bounds {
+  const [w, h] = [box.w / box.scale, box.h / box.scale];
+  const reach = reachOf(local, { w, h }, theme);
+  return [-reach.left, -reach.top, w + reach.right, h + reach.bottom];
+}
+
+function outlined(object: SceneObject, local: Drawable[], box: Box, theme: Theme): Drawable | null {
   if (!object.highlight) return null;
-  const whole: Bounds = [0, 0, box.w / box.scale, box.h / box.scale];
+  const whole = inkBounds(local, box, theme);
   if (!object.highlightParts) return highlightOutline(object.highlight, whole, 14);
   const parts = local.filter((drawable) => drawable.part !== undefined && object.highlightParts!.includes(drawable.part)).map(shapeBounds).filter((bounds) => bounds !== null);
   if (parts.length === 0) return highlightOutline(object.highlight, whole, 14);
@@ -122,7 +129,7 @@ export function buildStage(scene: SceneState, layout: LayoutOf = layoutScene, th
       if (!def.overlay) localDrawables.set(object, local);
     }
     const drawn = object.tint ? local.map((drawable) => tinted(drawable, object.tint!)) : local;
-    const outline = def.overlay ? null : outlined(object, local, box);
+    const outline = def.overlay ? null : outlined(object, local, box, theme ?? THEMES.pattern);
     const withOutline = outline ? [...drawn, outline] : drawn;
     return { id: object.id, box, drawables: placeDrawables(object.id, withOutline, box) };
   });
