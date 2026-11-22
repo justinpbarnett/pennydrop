@@ -279,7 +279,7 @@ export function soundLabOp(def: AnyLabDef, op: LabOp, state: unknown): void {
 }
 
 export function duringLabOp(def: AnyLabDef, before: unknown, after: unknown, op: LabOp, progress: number, ctx: LabCtx): Drawable[] {
-  return def.ops[op.name]?.during?.(before, after, op, progress, ctx) ?? [];
+  return def.ops[op.name]?.during?.(before, after, op, clamp01(progress), ctx) ?? [];
 }
 
 export function labCatalog(def: AnyLabDef): Catalog {
