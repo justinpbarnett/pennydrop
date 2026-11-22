@@ -7,6 +7,7 @@ import { typeset } from "./typeset";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const GRAIN_FRAMES_PER_SECOND = 12;
+const FINGER_REACH = 32;
 
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attributes: Record<string, string | number> = {}): SVGElementTagNameMap[K] {
   const element = document.createElementNS(SVG_NS, tag);
@@ -338,7 +339,19 @@ export class StageRenderer {
     await nextPaint();
   }
 
-  partAt(target: EventTarget | null): string | null {
-    return target instanceof Element ? target.closest("[data-part]")?.getAttribute("data-part") ?? null : null;
+  partAt(tap: MouseEvent): string | null {
+    const hit = tap.target instanceof Element ? tap.target.closest("[data-part]") : null;
+    return (hit ?? this.nearestPart(tap.clientX, tap.clientY))?.getAttribute("data-part") ?? null;
+  }
+
+  private nearestPart(x: number, y: number): Element | null {
+    let nearest: Element | null = null;
+    let nearestDistance = FINGER_REACH;
+    for (const element of this.root.querySelectorAll("[data-part]")) {
+      const box = element.getBoundingClientRect();
+      const distance = Math.hypot(Math.max(box.left - x, 0, x - box.right), Math.max(box.top - y, 0, y - box.bottom));
+      if (distance <= nearestDistance) [nearest, nearestDistance] = [element, distance];
+    }
+    return nearest;
   }
 }

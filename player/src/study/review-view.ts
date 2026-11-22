@@ -30,7 +30,7 @@ export function buildReviewView(profile: number, themeId: ThemeId): ReviewView {
 
   const redraw = () => playback && renderer.draw(playback.frame(), THEMES[theme]);
   svg.addEventListener("click", (event) => {
-    const part = renderer.partAt(event.target);
+    const part = renderer.partAt(event);
     if (part) challengeView?.acceptPart(part);
   });
 

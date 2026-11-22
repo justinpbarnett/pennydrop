@@ -110,17 +110,17 @@ export const primitive: LabDef<Record<string, unknown>, ShapeState> = {
     return { ...base, w: wideEnough(positiveField(spec, "w", 220, objectId)), h: tallEnough(positiveField(spec, "h", 120, objectId)) };
   },
   size: (state) => ({ w: state.w, h: state.h }),
-  draw(state) {
+  draw(state, { objectId: part }) {
     const { shape, w, h, role, label } = state;
     const box = { x: w / 2, y: h / 2 };
     const out: Drawable[] = [];
-    if (shape === "rect") out.push({ id: "body", kind: "rect", ...box, w, h, fill: state.fillRole, stroke: role, strokeWidth: 1.6, radius: 1 });
-    if (shape === "circle") out.push({ id: "body", kind: "circle", ...box, r: w / 2, fill: state.fillRole, stroke: role, strokeWidth: 1.6 });
+    if (shape === "rect") out.push({ id: "body", kind: "rect", ...box, w, h, fill: state.fillRole, stroke: role, strokeWidth: 1.6, radius: 1, part });
+    if (shape === "circle") out.push({ id: "body", kind: "circle", ...box, r: w / 2, fill: state.fillRole, stroke: role, strokeWidth: 1.6, part });
     if (shape === "line" || shape === "arrow") {
       const [from, to] = lineEnds(state);
-      out.push(segmentDrawable(shape, from, to, role, STROKE));
+      out.push({ ...segmentDrawable(shape, from, to, role, STROKE), part });
     }
-    if (shape === "path") out.push({ id: "body", kind: "path", x: 0, y: 0, points: state.points, fill: state.fillRole, stroke: role, strokeWidth: 2, closed: state.fillRole !== "none" });
+    if (shape === "path") out.push({ id: "body", kind: "path", x: 0, y: 0, points: state.points, fill: state.fillRole, stroke: role, strokeWidth: 2, closed: state.fillRole !== "none", part });
     if (label) out.push(labelDrawable(label, labelAnchor(state), LABEL_SIZE, "mark", "ink", 1));
     return out;
   },

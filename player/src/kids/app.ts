@@ -189,7 +189,7 @@ export class KidsApp {
   private tapStage(event: MouseEvent): void {
     const pending = this.playback.pending;
     if (!pending || pending.challenge.type !== "click") return;
-    const part = this.renderer.partAt(event.target);
+    const part = this.renderer.partAt(event);
     if (!part) {
       this.sounds.pop();
       return;

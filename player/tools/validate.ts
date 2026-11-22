@@ -58,7 +58,7 @@ function untappableAnswer(step: Step, settled: Painted[]): string | null {
     return `step ${step.step} challenge: every thing the learner can tap (${[...tappable].join(", ")}) is a right answer, so the tap asks nothing; make the scene differ so only some of them are right, or use no Challenge`;
   }
   if (missing.length === 0) return null;
-  const offer = tappable.size > 0 ? `a tap can name ${[...tappable].slice(0, MAX_LISTED_PARTS).join(", ")}` : "nothing on the stage answers a tap, so use another Challenge type, or none";
+  const offer = tappable.size > 0 ? `a tap can name ${[...tappable].slice(0, MAX_LISTED_PARTS).join(", ")}, so ask a question that one of those truly answers, and never move the answer to a thing that does not do what the question asks` : "nothing on the stage answers a tap, so use another Challenge type, or none";
   return `step ${step.step} challenge: ${missing.join(", ")} is not something the learner can tap when this Step ends; ${offer}`;
 }
 

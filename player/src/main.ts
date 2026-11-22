@@ -221,7 +221,7 @@ function wireControls(): void {
     if (!Number.isNaN(index)) playback.seek(playback.timeline.steps[index]!.start);
   });
   $("#stage").addEventListener("click", (event) => {
-    const part = renderer.partAt(event.target);
+    const part = renderer.partAt(event);
     if (part) challengeView?.acceptPart(part);
   });
   picker.addEventListener("change", () => void open(picker.value));
