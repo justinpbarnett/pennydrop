@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any
 
 from ..courses import CourseContext
 from ..gateway import CallStats, Gateway
-from ..settings import Job
 from ..store import Profile
 from .catalog import Catalog
 from .classify import Plan
@@ -127,16 +127,17 @@ WRITER_HEDGE_SECONDS = 1.5
 ANSWER_AT_ONCE = "Latency-sensitive; begin your visible answer immediately."
 MAX_CONTINUATIONS = 2
 FEWEST_STORY_STEPS = 5
+STORY_CUT_SHORT = "the writer started the Lesson over part way, so tell the rest of this story: whatever of its cause chain, hinge and reveal is still to come, and a last Step that says the point again"
 
 
-def _missing_from_story(brief: Brief, steps: list[dict[str, Any] | Malformed]) -> str | None:
+def _missing_from_story(brief: Brief, steps: list[dict[str, Any] | Malformed], cut_short: bool) -> str | None:
     if not brief.plan.fine_for_young_child:
         return None
     asked = [number for number, step in enumerate(steps, 1) if isinstance(step, dict) and "challenge" in step]
     if asked and asked[-1] == len(steps):
         return f"Step {len(steps)} asked the hinge's predict Challenge, so write the reveal that answers it and a last Step that says the point again"
     if len(steps) >= FEWEST_STORY_STEPS:
-        return None
+        return STORY_CUT_SHORT if cut_short else None
     told = f"{len(steps)} Step{'s' if len(steps) > 1 else ''}"
     if asked:
         return f"the story is only {told} long, so carry its cause chain on to the reveal and a last Step that says the point again"
@@ -163,12 +164,18 @@ class Writer:
         system = await self._system()
         stopwatch.mark("writer_started")
         steps: list[dict[str, Any] | Malformed] = []
-        async for parsed in self._streamed(brief, f"{brief.text()}\n{ANSWER_AT_ONCE}", system, lesson_id, stopwatch):
-            if not isinstance(parsed, Header):
-                steps.append(parsed)
-            yield parsed
+        cut_short = False
+        async with aclosing(self._streamed(brief, f"{brief.text()}\n{ANSWER_AT_ONCE}", system, lesson_id, stopwatch)) as first:
+            async for parsed in first:
+                if isinstance(parsed, Header) and steps:
+                    cut_short = True
+                    break
+                if not isinstance(parsed, Header):
+                    steps.append(parsed)
+                yield parsed
         for _ in range(MAX_CONTINUATIONS):
-            missing = _missing_from_story(brief, steps)
+            missing = _missing_from_story(brief, steps, cut_short)
+            cut_short = False
             if not steps or missing is None:
                 return
             async for parsed in self._streamed(brief, _continuation(brief, steps, missing), system, lesson_id, stopwatch):
@@ -179,15 +186,16 @@ class Writer:
 
     async def _streamed(self, brief: Brief, prompt: str, system: str, lesson_id: str, stopwatch: Stopwatch) -> AsyncIterator[ParsedLine]:
         buffer = ""
-        async for item in self._gateway.stream(brief.plan.tier.job, prompt, system=system, lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS):
-            if isinstance(item, CallStats):
-                continue
-            stopwatch.mark("writer_first_token")
-            buffer += item
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                if parsed := parse_line(line):
-                    yield parsed
+        async with aclosing(self._gateway.stream(brief.plan.tier.job, prompt, system=system, lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS)) as items:
+            async for item in items:
+                if isinstance(item, CallStats):
+                    continue
+                stopwatch.mark("writer_first_token")
+                buffer += item
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    if parsed := parse_line(line):
+                        yield parsed
         if parsed := parse_line(buffer):
             yield parsed
 
@@ -204,7 +212,7 @@ class Writer:
             *(f"- {error}" for error in errors),
             ANSWER_AT_ONCE,
         ])
-        completion = await self._gateway.complete(Job.WRITER_FAST, prompt, system=await self._system(), lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS)
+        completion = await self._gateway.complete(brief.plan.tier.job, prompt, system=await self._system(), lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS)
         for line in completion.text.splitlines():
             parsed = parse_line(line)
             if isinstance(parsed, Header):

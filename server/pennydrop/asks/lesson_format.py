@@ -119,7 +119,7 @@ MAX_STRAY_CLOSERS = 4
 
 def parse_line(text: str) -> ParsedLine | None:
     stripped = text.strip()
-    if not stripped or stripped.startswith("```"):
+    if "{" not in stripped:
         return None
     try:
         read, value, end = _decoded(stripped)
