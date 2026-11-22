@@ -15,6 +15,7 @@ class Hopper:
     base: int
     at: int
     landed: tuple[tuple[int, int], ...]
+    asked: bool = False
 
     def hopped(self, by: int, each: int, step: int) -> Hopper:
         spots = range(self.at + each, self.at + by + each, each) if by > 0 else range(self.at - each, self.at + by - each, -each)
@@ -33,7 +34,8 @@ class AskedLanding:
 
 
 class PlayedHops:
-    def __init__(self) -> None:
+    def __init__(self, warm_up_only_one: bool = False) -> None:
+        self._warm_up_only_one = warm_up_only_one
         self._hoppers: dict[str, Hopper] = {}
         self._asked: AskedLanding | None = None
 
@@ -42,11 +44,24 @@ class PlayedHops:
         self._hoppers = self._play(step)
         if revealed and revealed.line in self._hoppers:
             settled = self._hoppers[revealed.line]
-            self._hoppers[revealed.line] = Hopper(settled.at, settled.at, ())
+            self._hoppers[revealed.line] = Hopper(settled.at, settled.at, (), asked=True)
         self._asked = _landing_asked(step, self._hoppers)
+        if self._asked:
+            self._hoppers[self._asked.line] = replace(self._hoppers[self._asked.line], asked=True)
 
     def errors_in(self, step: dict[str, Any]) -> list[str]:
-        return self._reveal_errors(step) + self._challenge_errors(step)
+        return self._reveal_errors(step) + self._warm_up_errors(step) + self._challenge_errors(step)
+
+    def _warm_up_errors(self, step: dict[str, Any]) -> list[str]:
+        if not self._warm_up_only_one:
+            return []
+        errors = []
+        for name, hopper in self._play(step).items():
+            earlier = self._hoppers.get(name)
+            far = [spot for spot, _ in hopper.landed[len(earlier.landed) :] if abs(spot - hopper.base) > 1] if earlier and not earlier.asked else []
+            if far:
+                errors.append(f'step {step.get("step")}: before its Challenge, a sum on {name} plays only one hop of one away from where it starts, {hopper.base}, and back, so the hops the Challenge asks about stay unplayed; this Step takes the hopper to {far[-1]}. Hop it at most to {hopper.base + 1} or {hopper.base - 1}, then back to {hopper.base} before the Challenge, and narrate only those hops')
+        return errors
 
     def _reveal_errors(self, step: dict[str, Any]) -> list[str]:
         asked = self._asked

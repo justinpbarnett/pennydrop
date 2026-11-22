@@ -162,7 +162,7 @@ class LessonRun:
             self._warm_picture = asyncio.create_task(prefetch(kit.directive_tools.images, photo_search, not self._is_kid, self._record.id))
         self._record = replace(self._record, tier=plan.tier.value)
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
-        self._stage = Stage(start_scene, contrast_run_keys(plan.algorithm))
+        self._stage = Stage(start_scene, contrast_run_keys(plan.algorithm), kid=self._is_kid)
         outline = await run_outline(plan.algorithm, kit.directive_tools.tracer) if plan.algorithm else None
         brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, photo_search, outline)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()

@@ -65,7 +65,7 @@ def _how_to_fill(lab: str) -> str:
 
 
 class Stage:
-    def __init__(self, snapshot: Any = None, side_runs: frozenset[str] = frozenset()):
+    def __init__(self, snapshot: Any = None, side_runs: frozenset[str] = frozenset(), kid: bool = False):
         self.side_runs = side_runs
         self.specs: dict[str, dict[str, Any]] = {}
         self.labs: dict[str, str] = {}
@@ -85,7 +85,7 @@ class Stage:
         self.moved: dict[str, list[str]] = {}
         self.simulations: dict[str, dict[str, Any]] = {}
         self.setups = PlayedSetups()
-        self.hops = PlayedHops()
+        self.hops = PlayedHops(warm_up_only_one=kid)
         for thing in (snapshot or {}).get("objects", []):
             key = str(thing.get("defKey", ""))
             if key.startswith(LAB_KEY_PREFIX):
