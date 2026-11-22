@@ -5,32 +5,38 @@ import re
 import sys
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ....tracer import ALGORITHMS, TraceError, Tracer
+from . import _stages as stages
 from . import code
+from ._stages import Window
 from .code import shown_source
-from .._support import MAX_STEP_OPERATIONS, DirectiveError, DirectiveTools, TracedRun, discover, limit_operations, parse_spec, trace_key
+from .._support import MAX_STEP_OPERATIONS, DirectiveError, DirectiveTools, TracedRun, discover, limit_operations, operation_targets, parse_spec, trace_key, values_said, with_answer_from
 
 TRACE_TOTALS = ("comparisons", "swaps", "writes")
 TARGETS = discover(sys.modules[__name__])
 
-BRIEF = "The trace directive can play the {lab} Labs when a library algorithm or a short function of your own fits the Ask: then write no operations for it yourself. When none fits, show the idea with plain objects and operations."
+BRIEF = 'The trace directive plays the {lab} Labs whenever a library algorithm or a short function of your own fits the Ask, and it writes every operation of the run: compare, swap and set on an array, line, call, set, return and print on code, and visit, push, pop and relax on a graph search. Then carry the same trace in every Step that moves the run, each with a later "until", and write none of those operations yourself, even though the Catalog lists them. When none fits, such as a tree you build by hand, show the idea with plain objects and operations.'
+PLAYS_IN_STAGES = True
+
 GUIDE = "\n".join([
     "### Directive `trace`",
     '`"trace": {"code": "bubble_sort", "input": [4, 3, 2, 1]}` runs real code and plays every compare, swap and write of it on an object of a Lab, in order.',
     "`code` is the name of a library algorithm or the Python source of one function. Library algorithms and their input:",
     *(f"- `{algorithm.name}`: {algorithm.input_help}" for algorithm in ALGORITHMS.values()),
-    "The same Step sets the traced object in its own `scene`, even when an earlier Step set it already, and `on` names it when the scene holds several objects of those Labs; without `on`, the first Lab below that can play the algorithm is traced. Labs that can play a trace: " + ", ".join(TARGETS) + ".",
+    "The first Step that carries the trace sets the traced object in its own `scene`, and `on` names it when the scene holds several objects of those Labs; without `on`, the first Lab below that can play the algorithm is traced. Labs that can play a trace: " + ", ".join(TARGETS) + ".",
+    "A Step that carries a trace plays the whole run, unless the trace has an `until`. To tell one run across several Steps, repeat the same trace, with the same `code` and `input`, in each Step, give every Step but the last a later `until` than the Step before, and leave `until` out of the Step that plays the end of the run. Each Step then plays only the part no earlier Step played, on the same objects, and its narration talks only about that part.",
+    "`until` counts turns: one turn of the traced function's outer loop for the array and code Labs, and one node taken for the graph Lab, so `\"until\": 2` stops the run after its second turn. `\"until\": 0` draws the objects with the run's input and plays none of it, for Step 1 or any Step that asks a question before the run starts. A Step with the same `until` as the Step before keeps the stage as it is. merge_sort and quick_sort call themselves and have no outer loop, so they play whole, without `until`.",
     *(target.GUIDE for target in TARGETS.values()),
     "An `array` object is played only when its `values` equal the traced `input` list. A hash table, a stack or any other structure that the code builds is not that, so trace it on a `code` object alone, and show any array of buckets with plain operations after the run.",
     "The directive writes the operations and counters for you, so write no `do` entries for the traced run.",
-    'Use the measured totals as `{trace.comparisons}`, `{trace.swaps}` or `{trace.writes}` inside `say` or text, and as `"answer": "trace.comparisons"` (or `swaps`, `writes`) in a number Challenge, in the Step that carries `trace` or in any later Step.',
-    'The `{trace.name}` placeholders and the `"answer": "trace.name"` form work only in the Step that carries `trace` or after it, so a predict Challenge placed before the trace gives its answer as a plain number you worked out by hand, from an input small enough to count.',
+    'Use the measured totals as `{trace.comparisons}`, `{trace.swaps}` or `{trace.writes}` inside `say` or text, and as `"answer": "trace.comparisons"` (or `swaps`, `writes`) in a number Challenge, in the Step that plays the run to its end or in any later Step, so the narration never states a total before the stage shows it. Only the totals the run makes exist: insertion sort shifts and never swaps, so it has no `trace.swaps`, and a graph search has none of the three.',
+    'A predict Challenge may name a total as its `"answer"` in any Step that carries the trace, even one with an `until`, because the whole run is computed there; that is how the hinge asks for the result before the reveal Step plays it.',
     'For your own code, `code` is the whole source text of one function, such as `"def grow(balance, years):\\n    for _ in range(years):\\n        balance = balance * 1.05\\n    return balance"`, never a bare function name that is not in the library list',
     "Write the `input` with exactly the keys named above, such as `{\"array\": [1, 3, 5], \"target\": 3}` for binary_search, and never `arr` or other short names.",
     "For binary_search choose a target that is not the middle value of the array: the first guess is the middle, and a search that ends at once shows no halving, so aim for at least 3 comparisons.",
-    "Keep the input small, 3 to 6 numbers, because a Step plays at most 40 operations.",
+    "Keep the input small, 3 to 6 numbers. A Step plays at most 40 operations, so stage a longer run with `until`.",
 ])
 
 
@@ -40,6 +46,7 @@ class TraceSpec(BaseModel):
     code: str
     input: Any
     on: str | None = None
+    until: int | None = Field(default=None, ge=0)
 
 
 def prepare(step: dict[str, Any], _tools: DirectiveTools) -> dict[str, Any]:
@@ -74,19 +81,67 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     step = _with_traced_object(step, {**kept, **written}, spec)
     written = {name: obj for name, obj in (step.get("scene") or {}).items() if isinstance(obj, dict)}
     object_id = _traced_object(written, kept, spec)
-    if object_id in tools.staged and trace_key(raw) in tools.traced:
-        return _without_replay(step, object_id), {}
-    step = {**step, "scene": {**(step.get("scene") or {}), **{name: obj for name, obj in kept.items() if name == object_id or obj.get("lab") == "code"}}}
-    target = TARGETS[step["scene"][object_id]["lab"]]
+    pool = {**tools.staged, **written}
+    target = TARGETS[pool[object_id]["lab"]]
     library = getattr(target, "LIBRARY", None)
     if library and spec.code not in library:
         raise DirectiveError(f"trace directive: this Lab plays only a library algorithm, so write `code` as one of {', '.join(library)} with its input, not your own code")
     run = await _run(spec, tools.tracer)
     _require_a_search_worth_watching(spec, run)
+    by_event = target.operations_by_event(run, object_id)
+    continuing = object_id in tools.staged and trace_key(raw) in tools.traced
+    turns = target.turns(run)
+    played_run = [operation for name, operation in tools.played if name == object_id and operation.get("op") in target.OPERATIONS] if continuing else []
+    window = stages.window(spec.until, turns, by_event, played_run, run, spec.code)
+    code_id = _following_code(pool, object_id)
+    step = _without_hand_run(step, {object_id: target.OPERATIONS, **({code_id: code.OPERATIONS} if code_id else {})})
     played = len(step.get("do", []))
-    expanded = _with_code_following(target.apply(step, object_id, run), played, object_id, target, run)
-    limit_operations("trace", expanded.get("do", [])[played:])
-    return expanded, {f"trace.{name}": getattr(run.trace.counters, name) for name in TRACE_TOTALS}
+    if continuing and not window.of(by_event):
+        return _without_replay(step, object_id), _totals(run) if window.finished else {}
+    if continuing:
+        step = _without_replay(step, object_id)
+        expanded = {**step, "do": [*step.get("do", []), *window.of(by_event)]}
+    else:
+        step = {**step, "scene": {**(step.get("scene") or {}), **{name: obj for name, obj in kept.items() if name in (object_id, code_id)}}}
+        expanded = target.apply(step, object_id, run, window)
+        if code_id:
+            expanded = code.drawn(expanded, code_id, run)
+    if target is code and not turns:
+        expanded = {**expanded, "do": [*expanded["do"][:played], *code.within_budget(expanded["do"][played:], MAX_STEP_OPERATIONS)]}
+    elif code_id:
+        expanded = _with_code_following(expanded, played, code_id, by_event, run, window)
+    _require_within_a_step(expanded.get("do", [])[played:], bool(turns))
+    if not window.finished:
+        _require_totals_unsaid(expanded, spec.until)
+        return with_answer_from(expanded, _totals(run)), {}
+    return expanded, _totals(run)
+
+
+def _totals(run: TracedRun) -> dict[str, Any]:
+    return {f"trace.{name}": count for name in TRACE_TOTALS if (count := getattr(run.trace.counters, name))}
+
+
+def _without_hand_run(step: dict[str, Any], owned: dict[str, frozenset[str]]) -> dict[str, Any]:
+    kept = [operation for operation in step.get("do", []) if not any(operation.get("op") in owned.get(name, ()) for name in operation_targets(operation))]
+    return {**step, "do": kept} if "do" in step else step
+
+
+def _require_within_a_step(operations: list[dict[str, Any]], staged: bool) -> None:
+    if staged and len(operations) > MAX_STEP_OPERATIONS:
+        raise DirectiveError(f'trace directive: this Step plays {len(operations)} operations of the run and a Step plays at most {MAX_STEP_OPERATIONS}; tell the run in stages: give this Step an "until" that stops it after fewer turns, and play the rest in later Steps that repeat the same trace with a later "until", each narrating only its own part')
+    limit_operations("trace", operations)
+
+
+def _following_code(pool: dict[str, Any], data_id: str) -> str | None:
+    if pool[data_id].get("lab") == "code":
+        return None
+    return next((name for name, obj in pool.items() if isinstance(obj, dict) and obj.get("lab") == "code" and name != data_id), None)
+
+
+def _require_totals_unsaid(step: dict[str, Any], until: int | None) -> None:
+    said = values_said(step, [f"trace.{name}" for name in TRACE_TOTALS])
+    if said:
+        raise DirectiveError(f'trace directive: {{{said[0]}}} is a total of the whole run, and this Step stops it after turn {until}, so the stage does not show it yet; leave the number out of the narration here, and say it in the Step that plays the run to its end, which carries the trace without "until". A predict Challenge here may still name it as its "answer"')
 
 
 def _require_a_search_worth_watching(spec: TraceSpec, run: TracedRun) -> None:
@@ -106,16 +161,10 @@ def _require_the_array_shown(spec: TraceSpec, pool: dict[str, Any]) -> None:
     raise DirectiveError(f"trace directive: the array '{name}' on stage holds {shown['values']}, but the trace runs {spec.code} on {values}, so the picture and the counts would tell different stories; set the trace input to {shown['values']} so the run plays on '{name}', or set '{name}' to {values} in this Step's scene")
 
 
-def _with_code_following(step: dict[str, Any], played: int, data_id: str, target: Any, run: TracedRun) -> dict[str, Any]:
-    if not hasattr(target, "operations_by_event"):
-        return step
-    data_operations = target.operations_by_event(run, data_id)
-    for name, obj in step["scene"].items():
-        if isinstance(obj, dict) and obj.get("lab") == "code" and name != data_id:
-            bare = {**step, "do": step["do"][:played]}
-            full = code.follow(bare, name, run, data_operations)
-            return full if len(full["do"]) - played <= MAX_STEP_OPERATIONS else code.follow(bare, name, run, data_operations, lines_only=True)
-    return step
+def _with_code_following(step: dict[str, Any], played: int, code_id: str, data_operations: Any, run: TracedRun, window: Window) -> dict[str, Any]:
+    bare = {**step, "do": step["do"][:played]}
+    full = code.follow(bare, code_id, run, data_operations, window)
+    return full if len(full["do"]) - played <= MAX_STEP_OPERATIONS else code.follow(bare, code_id, run, data_operations, window, lines_only=True)
 
 
 def _with_traced_object(step: dict[str, Any], pool: dict[str, Any], spec: TraceSpec) -> dict[str, Any]:

@@ -179,10 +179,25 @@ def _value_names_in(step: dict[str, Any]) -> list[str]:
 
 
 def values_used(step: dict[str, Any], names: list[str]) -> list[str]:
+    said = values_said(step, names)
+    return [name for name in names if name in said or _answer(step) == name]
+
+
+def values_said(step: dict[str, Any], names: list[str]) -> list[str]:
     texts = list(_texts_in(step))
+    return [name for name in names if any("{" + name + "}" in text for text in texts)]
+
+
+def with_answer_from(step: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+    answer = _answer(step)
+    if not isinstance(answer, str) or answer not in values:
+        return step
+    return {**step, "challenge": {**step["challenge"], "answer": values[answer]}}
+
+
+def _answer(step: dict[str, Any]) -> Any:
     challenge = step.get("challenge")
-    answer = challenge.get("answer") if isinstance(challenge, dict) else None
-    return [name for name in names if answer == name or any("{" + name + "}" in text for text in texts)]
+    return challenge.get("answer") if isinstance(challenge, dict) else None
 
 
 def _texts_in(value: Any) -> Iterator[str]:

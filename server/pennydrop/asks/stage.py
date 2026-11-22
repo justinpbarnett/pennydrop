@@ -65,6 +65,9 @@ class Stage:
         self.specs: dict[str, dict[str, Any]] = {}
         self.labs: dict[str, str] = {}
         self.traces: set[str] = set()
+        self.finished_traces: set[str] = set()
+        self.last_trace: dict[str, Any] = {}
+        self.trace_until: int | None = None
         self.trace_counters: dict[str, set[str]] = {}
         self.in_flight: set[str] = set()
         self.lost_runs = False
@@ -77,11 +80,25 @@ class Stage:
             if key.startswith(LAB_KEY_PREFIX):
                 self.labs[thing["id"]] = key.removeprefix(LAB_KEY_PREFIX)
 
+    def filled_trace(self, raw: Any) -> Any:
+        if not isinstance(raw, dict):
+            return raw
+        on = raw.get("on")
+        raw = {**raw, "on": on[0]} if isinstance(on, list) and len(on) == 1 else raw
+        if not self.last_trace or ("code" in raw and "input" in raw):
+            return raw
+        return {**self.last_trace, **raw}
+
     def remember_trace(self, written: Any, settled: dict[str, Any]) -> None:
-        key = trace_key(written.get("trace")) if isinstance(written, dict) else None
+        raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
+        key = trace_key(raw)
         if key is None:
             return
         self.traces.add(key)
+        self.last_trace = {name: raw[name] for name in ("code", "input", "on") if name in raw}
+        self.trace_until = raw.get("until")
+        if "until" not in raw:
+            self.finished_traces.add(key)
         for name, spec in (settled.get("scene") or {}).items():
             counters = spec.get("counters") if isinstance(spec, dict) else None
             if counters:
@@ -109,10 +126,11 @@ class Stage:
             if isinstance(target, str) and (name := target.split("[")[0]) in graphs
             and (operation.get("op") in FRONTIER_OPERATIONS or (operation.get("op") == "visit" and graphs[name].get("frontier")))
         })
-        return [f'{name}: a graph search written by hand with push, pop, relax or visit over a frontier goes wrong as soon as one neighbor is missed; when a library algorithm fits (breadth_first_search, depth_first_search, dijkstra), carry a "trace" in this Step and write none of those operations; for a tree you build or walk by hand, leave out "frontier" and use visit only to point at the node being compared' for name in by_hand]
+        carry = 'Step 1 only asks the question, so remove those operations and carry the "trace" with "until": 0, which draws the graph and plays none of the walk' if written.get("step") == 1 else 'carry a "trace" in this Step, with an "until" that stops after the nodes this Step\'s narration names, and write none of those operations'
+        return [f'{name}: a graph search written by hand with push, pop, relax or visit over a frontier goes wrong as soon as one neighbor is missed; when a library algorithm fits (breadth_first_search, depth_first_search, dijkstra), {carry}; for a tree you build or walk by hand, leave out "frontier" and use visit only to point at the node being compared' for name in by_hand]
 
     def _counters_owned_by_trace(self, written: Any) -> list[str]:
-        operations = written.get("do") if isinstance(written, dict) else None
+        operations = written.get("do") if isinstance(written, dict) and "trace" not in written else None
         if not isinstance(operations, list) or not self.trace_counters:
             return []
         changed = {
@@ -194,7 +212,7 @@ class Stage:
         replayed = [
             f'this Step asks the viewer to predict an insert of {value}, but an earlier Step already played that run with a trace, so the result is known; put the prediction in a Step before the Step that carries the trace'
             for value in dict.fromkeys(announced)
-            if self.traces and value not in already
+            if self.finished_traces and value not in already
         ]
         return shown_errors + replayed
 

@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from .._support import DirectiveError, TracedRun
+from ._stages import Window, loop_turns
 
 PROBE_POINTER = "probe"
 COUNTED_EVENTS = ("comparisons", "swaps")
+
+OPERATIONS = frozenset({"compare", "pointer", "counter", "swap", "set"})
 
 GUIDE = "\n".join([
     "The `array` Lab plays a trace as compares, swaps and writes on its cells.",
@@ -13,7 +16,7 @@ GUIDE = "\n".join([
 ])
 
 
-def apply(step: dict[str, Any], object_id: str, run: TracedRun) -> dict[str, Any]:
+def apply(step: dict[str, Any], object_id: str, run: TracedRun, window: Window) -> dict[str, Any]:
     array = step["scene"][object_id]
     values = _traced_list(run.input)
     if values is None or array.get("values") != values:
@@ -21,8 +24,12 @@ def apply(step: dict[str, Any], object_id: str, run: TracedRun) -> dict[str, Any
     return {
         **step,
         "scene": {**step["scene"], object_id: _with_counters(array, [name for name in COUNTED_EVENTS if getattr(run.trace.counters, name)])},
-        "do": [*step.get("do", []), *(operation for _, operations in operations_by_event(run, object_id) for operation in operations)],
+        "do": [*step.get("do", []), *window.of(operations_by_event(run, object_id))],
     }
+
+
+def turns(run: TracedRun) -> list[int]:
+    return loop_turns(run)
 
 
 def holds_input(array: dict[str, Any], arguments: Any) -> bool:

@@ -16,7 +16,7 @@ from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
-from .directives import DirectiveError, DirectiveTools, computed_facts, expand_directives, fill_values
+from .directives import DirectiveError, DirectiveTools, as_promise, computed_facts, expand_directives, fill_values
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import mended, mended_by_verdict, mended_cues
@@ -219,7 +219,7 @@ class LessonRun:
         await ready.put(None)
 
     async def _settle_step(self, brief: Brief, pending: PendingStep, scene: Any) -> SettledStep:
-        written = pending.written
+        written = self._mended(pending.written, pending.number)
         for attempt in range(MAX_REPAIR_TRIES + 1):
             checked = await self._check(written, pending, scene)
             if not checked.errors and not checked.advice:
@@ -228,13 +228,16 @@ class LessonRun:
                 break
             reasons = checked.errors + checked.advice
             self._log_repair(pending.number, attempt + 1, reasons, "redone by the writer")
-            written = await self._kit.writer.repair(brief, scene, written, reasons, self._record.id)
+            written = self._mended(await self._kit.writer.repair(brief, scene, written, reasons, self._record.id), pending.number)
         if not checked.errors:
             self._log_repair(pending.number, MAX_REPAIR_TRIES + 1, checked.advice, "kept as written")
             return self._accepted(written, checked)
         if HONOR_CODE_ERROR in checked.errors:
             raise LessonError(f"Step {pending.number} still broke the honor code after {MAX_REPAIR_TRIES} rewrites")
         return await self._salvage(pending.number, written, checked, scene)
+
+    def _mended(self, written: dict[str, Any] | Malformed, number: int) -> dict[str, Any] | Malformed:
+        return written if isinstance(written, Malformed) else as_promise(mended({**written, "step": number}, self._stage))
 
     def _accepted(self, written: dict[str, Any] | Malformed, checked: Checked) -> SettledStep:
         self._stage.remember_trace(written, checked.step)
@@ -246,7 +249,7 @@ class LessonRun:
         number = pending.number
         if isinstance(written, Malformed):
             return Checked([coached(written.reason)], None, scene)
-        step = mended({**written, "step": number}, self._stage)
+        step = written
         owned = self._stage.errors_in_written(written)
         if owned:
             return Checked(owned, None, scene)

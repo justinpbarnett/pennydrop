@@ -5,9 +5,10 @@ from typing import Any
 
 from ..tracer import ALGORITHMS
 from .directives import DIRECTIVES
+from .directives._support import operation_targets
 from .directives.simulate import filled_from
 from .directives.trace.code import shown_source
-from .stage import Stage, answer_given_away
+from .stage import FRONTIER_OPERATIONS, Stage, answer_given_away
 
 NUMBER_WORDS = {
     word: str(number)
@@ -21,10 +22,13 @@ NUMBER_WITH_COMMAS = re.compile(r"^-?\d{1,3}(,\d{3})+(\.\d+)?$|^-?\d+(\.\d+)?$")
 def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     step = _with_trace_out_of_scene(step)
     step = _with_directives_out_of_operations(step)
-    step = _with_until_in_simulation(step)
+    step = _with_until_in_staged_directive(step)
     step = _with_simulation_filled(step, stage)
+    step = _with_trace_filled(step, stage)
+    step = _with_hand_search_as_trace(step, stage)
     step = _without_unchanged_restates(step, stage)
     step = _with_numeric_answer(step)
+    step = _with_tap_answer_on_its_node(step, stage)
     step = _without_the_answer_said(step, stage)
     return _with_every_send_settled(_with_library_listing(step), stage.in_flight)
 
@@ -129,6 +133,22 @@ def _with_numeric_answer(step: dict[str, Any]) -> dict[str, Any]:
         return step
     number = float(text.replace(",", ""))
     return {**step, "challenge": {**challenge, "answer": int(number) if number.is_integer() else number}}
+
+
+def _with_tap_answer_on_its_node(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    challenge = step.get("challenge")
+    if not (isinstance(challenge, dict) and challenge.get("type") == "click" and isinstance(challenge.get("answer"), str | list)):
+        return step
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    nodes = {name: {str(node.get("id") if isinstance(node, dict) else node) for node in spec.get("nodes") or []} for name, spec in {**stage.on_stage(), **scene}.items() if isinstance(spec, dict)}
+
+    def on_its_node(answer: Any) -> Any:
+        holders = [name for name, held in nodes.items() if str(answer) in held] if isinstance(answer, str) and "[" not in answer else []
+        return f"{holders[0]}[{answer}]" if len(holders) == 1 else answer
+
+    answer = challenge["answer"]
+    placed = [on_its_node(one) for one in answer] if isinstance(answer, list) else on_its_node(answer)
+    return step if placed == answer else {**step, "challenge": {**challenge, "answer": placed}}
 
 
 def _with_library_listing(step: dict[str, Any]) -> dict[str, Any]:
@@ -355,11 +375,57 @@ def _with_directives_out_of_operations(step: dict[str, Any]) -> dict[str, Any]:
     return {**step, "do": [operation for operation in operations if not any(operation is moved for moved in written)], **directives}
 
 
-def _with_until_in_simulation(step: dict[str, Any]) -> dict[str, Any]:
-    simulation = step.get("simulate")
-    if "until" not in step or not isinstance(simulation, dict) or "until" in simulation:
+def _with_until_in_staged_directive(step: dict[str, Any]) -> dict[str, Any]:
+    staged = [name for name in ("simulate", "trace") if isinstance(step.get(name), dict)]
+    if "until" not in step or len(staged) != 1 or "until" in step[staged[0]]:
         return step
-    return {**{key: value for key, value in step.items() if key != "until"}, "simulate": {**simulation, "until": step["until"]}}
+    return {**{key: value for key, value in step.items() if key != "until"}, staged[0]: {**step[staged[0]], "until": step["until"]}}
+
+
+def _with_trace_filled(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    raw = step.get("trace")
+    filled = stage.filled_trace(raw)
+    return step if filled is raw else {**step, "trace": filled}
+
+
+def _with_hand_search_as_trace(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    if "trace" in step or "simulate" in step:
+        return step
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    named = {name for name, lab in stage.labs.items() if lab == "graph"} | {name for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") == "graph"}
+    graphs = {name: {**stage.specs.get(name, {}), **(scene[name] if isinstance(scene.get(name), dict) else {})} for name in named}
+    operations = [operation for operation in step.get("do") or [] if isinstance(operation, dict)]
+    searched = {name for operation in operations if operation.get("op") in (*FRONTIER_OPERATIONS, "visit") for name in operation_targets(operation) if graphs.get(name, {}).get("frontier")}
+    if len(searched) != 1:
+        return step
+    (name,) = searched
+    if stage.last_trace:
+        if stage.trace_until is None:
+            return step
+        trace, shown = {**stage.last_trace, "on": name}, stage.trace_until
+    elif (inferred := _search_of(graphs[name])) is not None:
+        trace, shown = {**inferred, "on": name}, 0
+    else:
+        return step
+    mine = [operation for operation in operations if name in operation_targets(operation)]
+    taken = sum(operation.get("op") == "pop" for operation in mine) or sum(operation.get("op") == "visit" for operation in mine)
+    return {**step, "trace": {**trace, "until": shown + taken}}
+
+
+def _search_of(spec: dict[str, Any]) -> dict[str, Any] | None:
+    code = {"queue": "breadth_first_search", "heap": "dijkstra"}.get(spec.get("frontier"))
+    nodes, edges = spec.get("nodes"), spec.get("edges")
+    if code is None or not isinstance(nodes, list) or not isinstance(edges, list) or not nodes:
+        return None
+    names = [str(node.get("id") if isinstance(node, dict) else node) for node in nodes]
+    adjacency: dict[str, list[Any]] = {node: [] for node in names}
+    for edge in edges:
+        if not isinstance(edge, list) or len(edge) < 2 or (code == "dijkstra" and len(edge) < 3):
+            return None
+        source, target = str(edge[0]), str(edge[1])
+        for start, end in ((source, target), *(() if spec.get("directed") else ((target, source),))):
+            adjacency.setdefault(start, []).append([end, edge[2]] if code == "dijkstra" else end)
+    return {"code": code, "input": {"graph": adjacency, "start": str(spec.get("root") or names[0])}}
 
 
 def _with_simulation_filled(step: dict[str, Any], stage: Stage) -> dict[str, Any]:

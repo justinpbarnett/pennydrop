@@ -6,11 +6,13 @@ import re
 import sys
 from typing import Any
 
-from .._support import DirectiveError, DirectiveTools, Simulation, discover, limit_operations, operation_targets, parse_spec, values_used
+from .._support import DirectiveError, DirectiveTools, Simulation, discover, limit_operations, operation_targets, parse_spec, values_said, with_answer_from
 
 TARGETS = discover(sys.modules[__name__])
 END = math.inf
 RUNS_SHOWN = 2
+
+PLAYS_IN_STAGES = True
 
 BRIEF = 'Only the simulate directive draws and plays these Labs: {lab}. Every Step that shows one carries a "simulate" directive for it, and no Step puts an object of these Labs in "scene" or writes operations for them, so skip their spec fields and operations in the Catalog.'
 
@@ -72,7 +74,8 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
     _require_values_reached(step, simulation, reach)
     drawn = {} if shown else {object_id: {**(scene.get(object_id) or {}), **simulation.scene}, **simulation.objects}
     expanded = {**step, "scene": {**scene, **drawn}, "do": [*step.get("do", []), *limit_operations("simulate", played)]}
-    return expanded, reached
+    later = {key: simulation.values[name] for key, name in simulation.value_names().items() if key not in reached}
+    return with_answer_from(expanded, later), reached
 
 
 def describe_run(run: str) -> str | None:
@@ -128,10 +131,10 @@ def _already_past(until: Any, shown_stop: str) -> str:
 
 def _require_values_reached(step: dict[str, Any], simulation: Simulation, reach: float) -> None:
     names = simulation.value_names()
-    early = [key for key in values_used(step, list(names)) if simulation.known_at.get(names[key], 0) > reach]
+    early = [key for key in values_said(step, list(names)) if simulation.known_at.get(names[key], 0) > reach]
     if early:
         known_at = simulation.stop(simulation.known_at[names[early[0]]])
-        raise DirectiveError(f"simulate directive: {{{early[0]}}} is not known yet in this Step, because the run reaches it at {known_at} and this Step stops earlier; use it in a Step whose \"until\" is {known_at} or later, and leave it out of this one, so the narration never states a number before the stage shows it")
+        raise DirectiveError(f"simulate directive: {{{early[0]}}} is not known yet in this Step, because the run reaches it at {known_at} and this Step stops earlier; use it in a Step whose \"until\" is {known_at} or later, and leave it out of this one, so the narration never states a number before the stage shows it. A predict Challenge here may still name it as its \"answer\"")
 
 
 def _object_beside(lab: str, simulation: Simulation, scene: dict[str, Any], staged: dict[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:

@@ -33,6 +33,13 @@ async def expand_directives(step: dict[str, Any], tools: DirectiveTools, remembe
     return filled, {name: value for name, value in values.items() if name != "math"}
 
 
+def as_promise(step: Any) -> Any:
+    if not isinstance(step, dict) or step.get("step") != 1:
+        return step
+    staged = [name for name, directive in DIRECTIVES.items() if getattr(directive, "PLAYS_IN_STAGES", False) and isinstance(step.get(name), dict)]
+    return {**step, **{name: {**step[name], "until": 0} for name in staged}}
+
+
 def computed_facts(known: dict[str, Any]) -> list[str]:
     by_value: dict[str, list[str]] = {}
     for key, value in known.items():

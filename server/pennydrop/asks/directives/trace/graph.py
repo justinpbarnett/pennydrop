@@ -3,9 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from .._support import DirectiveError, TracedRun
+from ._stages import Window, node_turns
 
 MARKERS = ("visit", "push", "pop", "relax")
 SIDES = ("left", "right")
+
+OPERATIONS = frozenset({"visit", "push", "pop", "relax", "dist"})
 
 LIBRARY = ("breadth_first_search", "depth_first_search", "dijkstra", "tree_preorder", "tree_inorder", "tree_postorder")
 
@@ -17,12 +20,12 @@ GUIDE = "\n".join([
     'DFS: `"trace": {"code": "depth_first_search", "input": {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A", "E"], "D": ["B"], "E": ["C", "F"], "F": ["E"]}, "start": "A"}}`',
     'Dijkstra: `"trace": {"code": "dijkstra", "input": {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}}`, with 4 or 5 nodes.',
     'In-order: `"trace": {"code": "tree_inorder", "input": {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [null, "I"], "A": [null, null], "D": [null, null], "I": [null, null]}, "root": "F"}}`. Pre-order and post-order take the same input.',
-    "Carry the `trace` in the first Step that moves the graph, and let the later Steps talk over the finished run: write no visit, push, pop or relax by hand, because a hand-written walk misses neighbors.",
+    "Write no visit, push, pop or relax by hand, because a hand-written walk misses neighbors: tell the walk in stages with `until`, where one turn is one node taken, so each Step plays the nodes its narration names.",
     "The scene object has just `lab`, with no nodes or edges. Keep a graph to about 6 nodes and a tree to 7 nodes, because a Step plays at most 40 operations.",
 ])
 
 
-def apply(step: dict[str, Any], object_id: str, run: TracedRun) -> dict[str, Any]:
+def apply(step: dict[str, Any], object_id: str, run: TracedRun, window: Window) -> dict[str, Any]:
     graph = _structure(run.input)
     called = {event.function for event in run.trace.events if event.type == "call"}
     frontier = "heap" if "relax" in called else "queue" if "push" in called else None
@@ -31,8 +34,12 @@ def apply(step: dict[str, Any], object_id: str, run: TracedRun) -> dict[str, Any
     return {
         **step,
         "scene": {**step["scene"], object_id: spec},
-        "do": [*step.get("do", []), *(operation for _, operations in operations_by_event(run, object_id) for operation in operations)],
+        "do": [*step.get("do", []), *window.of(operations_by_event(run, object_id))],
     }
+
+
+def turns(run: TracedRun) -> list[int]:
+    return node_turns(run)
 
 
 def _structure(traced_input: Any) -> dict[str, Any]:
