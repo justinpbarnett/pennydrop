@@ -4,8 +4,9 @@ import json
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from ..practice import FORMS, Direction, Form
 from .directives import DIRECTIVES
 from .writer_errors import describe
 
@@ -32,40 +33,53 @@ class StepOp(BaseModel):
 class _Challenge(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["predict"]
     prompt: str | None = None
 
 
-class NumberChallenge(_Challenge):
+class _Prediction(_Challenge):
+    kind: Literal["predict"]
+
+
+class NumberChallenge(_Prediction):
     type: Literal["number"]
     answer: int | float
 
 
-class ChoiceChallenge(_Challenge):
+class ChoiceChallenge(_Prediction):
     type: Literal["choice"]
     choices: list[str] = Field(min_length=2)
     answer: str
 
 
-class ClickChallenge(_Challenge):
+class ClickChallenge(_Prediction):
     type: Literal["click"]
     answer: str | list[str]
 
 
-class OrderChallenge(_Challenge):
+class OrderChallenge(_Prediction):
     type: Literal["order"]
     choices: list[str] = Field(min_length=2)
     answer: list[str]
 
 
-class MatchChallenge(_Challenge):
+class MatchChallenge(_Prediction):
     type: Literal["match"]
     pairs: list[tuple[str, str]] = Field(min_length=2)
     answer: list[tuple[str, str]] | None = None
 
 
+class YesNoChallenge(_Prediction):
+    type: Literal["yesno"]
+    answer: Literal["yes", "no"]
+
+
+class WordsChallenge(_Challenge):
+    kind: Literal["explain"]
+    type: Literal["words"]
+
+
 Challenge = Annotated[
-    NumberChallenge | ChoiceChallenge | ClickChallenge | OrderChallenge | MatchChallenge,
+    NumberChallenge | ChoiceChallenge | ClickChallenge | OrderChallenge | MatchChallenge | YesNoChallenge | WordsChallenge,
     Field(discriminator="type"),
 ]
 
@@ -90,6 +104,45 @@ class Step(BaseModel):
         return self.model_dump(mode="json", exclude_none=True)
 
 
+class PracticeItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    form: Form
+    say: str = Field(min_length=1)
+    direction: Direction | None = None
+    challenge: dict[str, Any]
+    scene: dict[str, dict[str, Any] | None] = {}
+    do: list[OperationShape] = []
+
+    @field_validator("challenge")
+    @classmethod
+    def challenge_names_a_known_type(cls, challenge: dict[str, Any]) -> dict[str, Any]:
+        if challenge.get("type") not in CHALLENGE_TYPES:
+            raise ValueError(f"unknown challenge type {challenge.get('type')!r}. Use {', '.join(CHALLENGE_TYPES)}")
+        return challenge
+
+    @model_validator(mode="after")
+    def direction_only_for_fresh(self) -> PracticeItem:
+        if (self.form is Form.FRESH) != (self.direction is not None):
+            raise ValueError("'direction' belongs to the fresh item and to no other")
+        return self
+
+
+class PracticeLine(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule: str = Field(min_length=1)
+    condition: str = Field(min_length=1)
+    slots: list[str] = Field(min_length=1)
+    challenges: list[PracticeItem]
+
+    @model_validator(mode="after")
+    def one_item_per_form_in_order(self) -> PracticeLine:
+        if tuple(item.form for item in self.challenges) != FORMS:
+            raise ValueError("'challenges' holds exactly one item per form, in the order say, applies, fresh")
+        return self
+
+
 class OperationShape(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -111,9 +164,12 @@ class Malformed:
 
 
 ParsedLine = Header | dict[str, Any] | Malformed
+BAD_PRACTICE = "bad practice line: "
 
 
 EXTRA_SHOWN = 60
+CHALLENGE_TYPES = ("number", "choice", "click", "order", "match", "yesno", "words")
+PRACTICE_FIELDS = "A practice line holds only rule, condition, slots and challenges"
 MAX_STRAY_CLOSERS = 4
 
 
@@ -136,12 +192,29 @@ def parse_line(text: str) -> ParsedLine | None:
             return Header.model_validate(value["lesson"])
         except ValidationError as error:
             return Malformed(stripped, "bad lesson header: " + "; ".join(describe(error)))
+    if "practice" in value:
+        return _practice_line(stripped, value)
     value = _reshaped(value)
     try:
         StepShape.model_validate(value)
     except ValidationError as error:
         return Malformed(stripped, "bad Step: " + "; ".join(describe(error)))
     return value
+
+
+def is_practice_line(parsed: ParsedLine) -> bool:
+    return (isinstance(parsed, dict) and "practice" in parsed) or (isinstance(parsed, Malformed) and parsed.reason.startswith(BAD_PRACTICE))
+
+
+def _practice_line(text: str, value: dict[str, Any]) -> dict[str, Any] | Malformed:
+    body = value["practice"]
+    if isinstance(body, dict) and isinstance(body.get("challenges"), list):
+        body = {**body, "challenges": [_reshaped(item) if isinstance(item, dict) else item for item in body["challenges"]]}
+    try:
+        PracticeLine.model_validate(body)
+    except ValidationError as error:
+        return Malformed(text, BAD_PRACTICE + "; ".join(describe(error, PRACTICE_FIELDS)))
+    return {"practice": body}
 
 
 def _reshaped(step: dict[str, Any]) -> dict[str, Any]:

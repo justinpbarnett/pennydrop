@@ -5,7 +5,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -13,6 +13,7 @@ from ..courses import CourseContext
 from ..gateway import GatewayError
 from ..lessons import done_event
 from ..pictures import Picture, PictureNotFound
+from ..practice import Rule
 from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
 from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
@@ -21,17 +22,19 @@ from .coaching import coached
 from .directives import DirectiveError, DirectiveTools, as_promise, carries_directive, computed_facts, directive_briefs, expand_directives, fill_values, kid_outline, run_outline, staged_directives, with_sources
 from .directives._support import Runs, operation_targets
 from .directives.curves import graphed_half_way
-from .lesson_format import Header, Malformed
+from .lesson_format import Header, Malformed, ParsedLine, is_practice_line
 from .live import LiveLesson
-from .mending import PROMISE_WORDS, brings_in_a_figure, mended, mended_by_verdict, mended_cues, retold, with_one_figure_on_stage
+from .mending import PROMISE_WORDS, brings_in_a_figure, mended, mended_cues, retold, validated_and_mended, with_one_figure_on_stage
 from .stage import Redeclared, Stage, question_without_challenge, ran_something, trace_totals
 from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, card_matches, event_plays, plot_views, shapes_plays, shown_pictures, stress_marks
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
+
+if TYPE_CHECKING:
+    from ..practice.author import PracticeAuthor
 from .writer import Brief, MainPhoto, Writer
 
 LOG = logging.getLogger("pennydrop.asks")
-MAX_MENDS = 3
 MAIN_PHOTO_WAIT = 45.0
 MAX_REPAIR_TRIES = 2
 HONOR_CODE_ERROR = "the Step touches project code or an assignment spec; explain the concept on a toy example of your own instead"
@@ -93,6 +96,7 @@ class Toolkit:
     validator: Validator
     directive_tools: DirectiveTools
     speaker: Speaker
+    practice: PracticeAuthor
 
 
 @dataclass(frozen=True)
@@ -102,6 +106,7 @@ class Ask:
     viewing: Viewing | None
     earlier_steps: list[dict[str, Any]]
     course: CourseContext | None = None
+    link: tuple[Rule, Rule] | None = None
 
 
 @dataclass(frozen=True)
@@ -169,6 +174,10 @@ class LessonRun:
         self._told_point: str | None = None
         self._refused = False
         self._point_check: asyncio.Task[str] | None = None
+        self._practice_line: ParsedLine | None = None
+        self._last_scene: Any = None
+        self._lesson_steps: list[dict[str, Any]] = []
+        self._case_keys: set[str] = set()
 
     @property
     def _reading(self) -> bool:
@@ -202,17 +211,18 @@ class LessonRun:
         photo = asyncio.ensure_future(kit.directive_tools.images.find(photo_search, not self._is_kid, self._record.id)) if photo_search else None
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
         outline = (await kid_outline(plan.algorithm, kit.directive_tools.tracer) if self._is_kid else await run_outline(plan.algorithm, kit.directive_tools.tracer, plan.shows_code)) if plan.algorithm else None
+        self._last_scene = start_scene
         self._stage = Stage(start_scene, outline.runs if outline else Runs(), kid=self._is_kid, charts_quantities=plan.charts_quantities)
         self._told_point = outline.point if outline else None
         main_photo = await self._main_photo(photo_search, photo) if photo_search and photo else None
-        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, main_photo, outline.brief if outline else None)
+        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, main_photo, outline.brief if outline else None, self._ask.link)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()
         ready: asyncio.Queue[ReadyStep | None] = asyncio.Queue()
         async with asyncio.TaskGroup() as group:
             group.create_task(self._read(brief, plan, start_scene, pending))
             group.create_task(self._settle(brief, start_scene, pending, ready))
             group.create_task(self._publish(ready))
-        await self._finish()
+        await self._finish(await self._practice(brief))
 
     async def _main_photo(self, query: str, search: asyncio.Future[Picture]) -> MainPhoto:
         search.add_done_callback(lambda done: done.cancelled() or done.exception())
@@ -232,6 +242,9 @@ class LessonRun:
                 if self._record.header:
                     raise LessonError("the writer sent a second lesson header")
                 self._open(line, start_scene if plan.follow_up else None)
+                continue
+            if is_practice_line(line):
+                self._practice_line = line
                 continue
             if not self._record.header:
                 why = f" ({line.reason}: {line.text[:300]})" if isinstance(line, Malformed) else f", it was {json.dumps(line)[:300]}"
@@ -290,11 +303,13 @@ class LessonRun:
             if self._cut_question is not None and self._cut_question[0] < step.number:
                 self._cut_question = None
             scene = settled.scene
+            self._last_scene = scene
             self._asked_challenge = self._asked_challenge or "challenge" in settled.step
             self._told.append(settled.step["say"])
             self._stage.settle(settled.step)
             self._stopwatch.mark("first_step_checked")
             self._shown_steps += 1
+            self._lesson_steps.append({**settled.step, "step": self._shown_steps})
             await ready.put(ReadyStep({**settled.step, "step": self._shown_steps}, self._voice(settled.step["say"])))
         await ready.put(None)
 
@@ -368,6 +383,9 @@ class LessonRun:
         self._stage.remember_trace(written, checked.step, checked.values)
         self._stage.remember_simulation(written)
         self._remembered_values.update(checked.values)
+        if isinstance(written, dict):
+            self._case_keys |= self._kit.practice.keys_of(written)
+        self._case_keys |= self._kit.practice.keys_of(checked.step)
         return SettledStep(checked.step, checked.scene)
 
     async def _check(self, written: dict[str, Any] | Malformed, pending: PendingStep, scene: Any) -> Checked:
@@ -387,14 +405,7 @@ class LessonRun:
             return Checked([coached(str(error))], None, scene, too_soon)
         known = {**self._remembered_values, **values}
         facts = computed_facts(known)
-        verdict = await self._kit.validator.check(step, scene, self._reading)
-        for _ in range(MAX_MENDS):
-            if (roomier := mended_by_verdict(step, verdict.errors, self._stage)) is None:
-                break
-            retry = await self._kit.validator.check(roomier, scene, self._reading)
-            if retry.errors == verdict.errors:
-                break
-            step, verdict = roomier, retry
+        step, verdict = await validated_and_mended(self._kit.validator, step, scene, self._reading, self._stage)
         arrays, figures = array_plays(scene, step), shapes_plays(scene, step)
         plays: list[StagePlay] = [*arrays, *figures]
         plots = plot_views(scene, step)
@@ -813,12 +824,30 @@ class LessonRun:
             self._published += 1
             self._stopwatch.mark("first_step_published")
 
-    async def _finish(self) -> None:
+    async def _practice(self, brief: Brief) -> str | None:
+        if self._refused:
+            return "not needed: a refusal has no practice"
+        standing = self._kit.practice.standing(self._stage, self._last_scene, dict(self._remembered_values), frozenset(self._case_keys), self._reading)
+        try:
+            authored = await self._kit.practice.settle(self._practice_line, brief, self._record.header, self._lesson_steps, standing, self._record.id)
+            if authored.practice is not None:
+                voiced = await self._kit.practice.voiced(authored.practice)
+                wire = self._kit.store.save_practice(self._record.id, voiced, self._record.topic_id)
+                items = [{**item, "step": self._shown_steps + number} for number, item in enumerate(wire["items"], start=1)]
+                self._live.publish("practice", {**wire, "items": items})
+        except (GatewayError, PlayerCrash) as error:
+            LOG.warning("lesson %s has no practice: %s", self._record.id, error)
+            return f"missed: {error}"
+        finally:
+            self._stopwatch.mark("practice")
+        return authored.check
+
+    async def _finish(self, practice_check: str | None) -> None:
         marks = self._stopwatch.marks
         drawn = [lab for lab in self._stage.drawn_labs if lab in self._catalog_labs]
         point_check = await self._point_check if self._point_check else "not needed: a refusal has no point" if self._refused else "missed: the writer sent no point"
         record = replace(
-            self._record, labs=drawn, header={**(self._record.header or {}), "labs": drawn, "point_check": point_check}, status="ready", first_step_seconds=marks["first_step_published"], done_seconds=self._stopwatch.elapsed(),
+            self._record, labs=drawn, header={**(self._record.header or {}), "labs": drawn, "point_check": point_check, **({"practice_check": practice_check} if practice_check else {})}, status="ready", first_step_seconds=marks["first_step_published"], done_seconds=self._stopwatch.elapsed(),
             cost_usd=self._kit.store.lesson_cost(self._record.id), timings=marks, repairs=self._repairs,
         )
         self._kit.store.save_lesson(record)

@@ -12,7 +12,9 @@ from .directives.trace.array import dressed, holds_input, operations_by_event
 from .directives.trace.code import shown_source
 from .played_hops import says_number
 from .stage import FRONTIER_OPERATIONS, TRACE_TOTAL_PREFIX, Stage, answer_given_away
+from .validator import Validator, Verdict
 
+MAX_MENDS = 3
 NUMBER_WORDS = {
     word: str(number)
     for number, word in enumerate(
@@ -320,6 +322,18 @@ REMOVED_MISSING = re.compile(r'"(?P<name>[^"]+)": null takes an object off the s
 
 EMPTY_STAGE = "nothing is on stage when this Step ends"
 REDUNDANT_OPERATION = re.compile(r'do\[(?P<index>\d+)\] (?:\w+: \w+: (?:the TLB was already looked up|all \d+ levels are walked)|trace: op "trace" draws on a line)')
+
+
+async def validated_and_mended(validator: Validator, step: dict[str, Any], scene: Any, reading: bool, stage: Stage) -> tuple[dict[str, Any], Verdict]:
+    verdict = await validator.check(step, scene, reading)
+    for _ in range(MAX_MENDS):
+        if (roomier := mended_by_verdict(step, verdict.errors, stage)) is None:
+            break
+        retry = await validator.check(roomier, scene, reading)
+        if retry.errors == verdict.errors:
+            break
+        step, verdict = roomier, retry
+    return step, verdict
 
 
 def mended_by_verdict(step: dict[str, Any], errors: list[str], stage: Stage) -> dict[str, Any] | None:

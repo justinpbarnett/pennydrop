@@ -10,11 +10,12 @@ from ..courses import CourseContext
 from ..gateway import CallStats, Gateway
 from ..pictures import Picture
 from ..settings import Job
+from ..practice import Direction, Form, Rule
 from ..store import Profile
 from .catalog import Catalog
 from .classify import Plan
 from .directives import directive_briefs, directive_guides
-from .lesson_format import Header, Malformed, ParsedLine, parse_line
+from .lesson_format import Header, Malformed, ParsedLine, is_practice_line, parse_line
 from .stopwatch import Stopwatch
 
 FORMAT_RULES = """You write Pennydrop Lessons: short narrated animations that teach one idea.
@@ -24,6 +25,7 @@ Begin the header line at once, without reasoning first: the directives compute e
 Line 1 is the header: {"lesson": {"title": "short title in sentence case: capitalize only the first word, proper nouns and acronyms", "point": "the one full sentence this Lesson proves: a claim that could be wrong, never a topic, as in \\"Bubble sort is slow because each pass moves only one more value into place\\", and that names the direction of a comparison by its measure, such as \\"takes fewer steps\\" or \\"grows more slowly\\", never by a word such as ahead, behind or beats, which reads both ways", "goal": "one sentence on what the learner can do or see afterwards", "labs": ["ids of the Labs that at least one Step draws, and no others"]}}
 Every later line is one Step: {"step": 1, "say": "narration", "scene": {...}, "do": [...]}
 "scene" and "do" are optional.
+After the last Step, one more line is the practice line, described under Practice below.
 One Step, the hinge, also asks a predict Challenge: {"step": 6, "say": "narration that asks the question", "scene": {...}, "do": [...], "challenge": {"kind": "predict", "type": "choice", "prompt": "...", "choices": ["a", "b"], "answer": "a"}}
 
 Rules
@@ -67,6 +69,16 @@ Rules
 - A Learner level of beginner, intermediate or advanced sets how much you assume.
 - When the brief names a Course Topic, teach that Topic's core idea, use the Terms the brief lists as your vocabulary, and obey the honor code in the brief: explain every concept on a toy example of your own, and never read, write or hint at project code or assignment specs.
 
+## Practice
+
+The practice line comes after the last Step. It checks that the learner can use the Lesson's Rule alone: {"practice": {"rule": "Binary search halves the range at every look", "condition": "the list is sorted", "slots": ["the list", "the target"], "challenges": [item, item, item]}}
+- The Rule is the reusable statement under the point, one sentence that holds beyond this example, and "condition" is what it holds under. "slots" lists the details a fresh case changes, such as the list and the target.
+- "challenges" holds three items in this order: say, applies, fresh. An item is a Step without "step", plus "form" and, for fresh only, "direction". It continues the story after the last Step, so its "scene" changes only what it names, and sets null on the Lesson objects it does not use.
+- say: {"form": "say", "say": "Tell me why binary search needs so few looks, with a because.", "challenge": {"kind": "explain", "type": "words"}}. It asks for the Rule in the learner's own words with a "because", never gives the reason, and has no scene, so the proof stays on stage.
+- applies: a near miss, one condition away from the worked example, that breaks the Rule's condition, such as the same search on a list that is not sorted. It asks whether the Rule still works there: {"kind": "predict", "type": "yesno", "answer": "no"}. It shows the case on the stage, and a directive runs it wherever a Lab can, so the Rule's failure is computed.
+- fresh: {"form": "fresh", "direction": "forward", ...} changes exactly one slot from the worked example, with an input no Step used, and asks what happens in a predict Challenge of any type the Labs allow. A number answer names a directive value such as "trace.comparisons".
+- Compute, never narrate: every number and answer comes from a directive, and the narration asks without giving the answer.
+
 ## Kid rules
 
 These hold when the Learner is a kid, and nothing in a kid Lesson may need reading.
@@ -79,6 +91,7 @@ These hold when the Learner is a kid, and nothing in a kid Lesson may need readi
 - Every Challenge is "kind": "predict" with "type": "click", where the child taps an object on the stage.
 - The narration asks the question out loud, because the child hears it and does not read it.
 - Do not write "reading" in the header.
+- The practice items need no reading either: say is spoken as "Tell me why" with the words Challenge, applies as "Will it still roll if...?" or "What happens when...?" with the yesno Challenge, which the child answers with a tick or a cross, and fresh is a click or yesno Challenge on a stage with no text.
 """
 
 REPAIR_INSTRUCTIONS = "Repair one Step of a Lesson. Reply with the corrected Step as exactly one JSON line and nothing else, and begin that line at once, without reasoning first: each error names its own fix. Keep its step number and the meaning of its narration, and change only what the errors name."
@@ -111,6 +124,7 @@ class Brief:
     course: CourseContext | None = None
     photo: MainPhoto | None = None
     outline: str | None = None
+    link: tuple[Rule, Rule] | None = None
 
     def course_lines(self) -> list[str]:
         if not self.course:
@@ -130,6 +144,9 @@ class Brief:
         lines.extend(directive_briefs(self.plan.labs))
         if self.outline:
             lines.append(self.outline)
+        if self.link:
+            first, second = self.link
+            lines.append(f'This Lesson links two Rules the learner holds: "{first.statement}" (it holds when {first.condition}) and "{second.statement}" (it holds when {second.condition}). Teach how one joins the other with "because" or "but", and let the point and the Rule say that join.')
         if self.photo:
             lines.append(self.photo.line())
         if self.plan.follow_up:
@@ -141,6 +158,9 @@ class Brief:
             lines.append("This Ask is not for a young child. Write one Step that kindly says this is a question for a grown up to answer together, with one gentle figure on stage, such as two friendly shapes side by side, and stop.")
         return "\n".join(lines)
 
+PRACTICE_INSTRUCTIONS = "Write the practice line of a Lesson. Reply with exactly one JSON line, the practice line, and nothing else, and begin it at once, without reasoning first: the Lesson below is told, and the stage after its last Step holds what its Steps built. When errors are listed, each names its own fix; change only what they name."
+CASE_INSTRUCTIONS = "Write one new Practice item for a Rule, to play after the Lesson below. Reply with exactly one JSON line, the item, and nothing else, and begin it at once, without reasoning first. The stage starts empty, so the item's scene declares every object it uses, a say item's too: its scene shows the Rule's proof, with no do and no directive, and the words Challenge asks for the Rule's why."
+BACK_CASE = 'Running back: the item carries a "trace" with no "until" that plays the run to its end, its narration says the result the run gives and asks which input made it, and when the run is long enough that the Step must name each check in order, it does so briefly without naming the input, and its Challenge is a "choice" of at least three candidate inputs written as JSON, such as "[4, 9, 2]" (a kid gets a "click" on one of three arrays on stage instead). Exactly one candidate gives the shown result; leave "answer" out, because the server computes it.'
 WRITER_EFFORT = "low"
 WRITER_HEDGE_SECONDS = 1.5
 ANSWER_AT_ONCE = "Latency-sensitive; begin your visible answer immediately."
@@ -169,9 +189,14 @@ def _continuation(brief: Brief, steps: list[dict[str, Any] | Malformed], missing
         f"You began this Lesson and stopped after Step {len(steps)}, before its story was told. These are the Step lines you wrote, and the stage now holds what they built:",
         *(step.text if isinstance(step, Malformed) else json.dumps(step) for step in steps),
         f"Continue the same Lesson from Step {len(steps) + 1}: {missing}.",
-        "Reply with only the new Step lines, numbered on from there: no header and no Step already written.",
+        "Reply with only the new Step lines, numbered on from there and ending with the practice line: no header and no Step already written.",
         ANSWER_AT_ONCE,
     ])
+
+
+def lesson_text(header: dict[str, Any], steps: list[dict[str, Any]]) -> str:
+    told = [f"Step {number}: {json.dumps({name: value for name, value in step.items() if name not in ('step', 'do', 'voice')})}" for number, step in enumerate(steps, 1)]
+    return "\n".join([f"The Lesson is titled \"{header.get('title', '')}\" and proves: {header.get('point', '')}", f"Labs it draws: {', '.join(header.get('labs') or []) or 'none'}", *told])
 
 
 class Writer:
@@ -189,7 +214,7 @@ class Writer:
                 if isinstance(parsed, Header) and steps:
                     cut_short = True
                     break
-                if not isinstance(parsed, Header):
+                if not isinstance(parsed, Header) and not is_practice_line(parsed):
                     steps.append(parsed)
                 yield parsed
         for _ in range(MAX_CONTINUATIONS):
@@ -200,7 +225,8 @@ class Writer:
             async for parsed in self._streamed(brief, _continuation(brief, steps, missing), system, lesson_id, stopwatch):
                 if isinstance(parsed, Header) or (isinstance(parsed, dict) and isinstance(parsed.get("step"), int) and parsed["step"] <= len(steps)):
                     continue
-                steps.append(parsed)
+                if not is_practice_line(parsed):
+                    steps.append(parsed)
                 yield parsed
 
     async def _streamed(self, brief: Brief, prompt: str, system: str, lesson_id: str, stopwatch: Stopwatch) -> AsyncIterator[ParsedLine]:
@@ -231,14 +257,46 @@ class Writer:
             *(f"- {error}" for error in errors),
             ANSWER_AT_ONCE,
         ])
+        return await self._one_line(prompt, lesson_id, "Step")
+
+    async def practice_line(self, brief: Brief, lesson: str, lesson_id: str, previous: ParsedLine | None = None, errors: list[str] | None = None) -> ParsedLine:
+        shown = [] if previous is None else [f"The practice line as written: {previous.text if isinstance(previous, Malformed) else json.dumps(previous)}", "It failed with:", *(f"- {error}" for error in errors or [])]
+        prompt = "\n".join([
+            PRACTICE_INSTRUCTIONS,
+            *brief.text().split("\n")[:2],
+            *brief.course_lines(),
+            lesson,
+            *shown,
+            ANSWER_AT_ONCE,
+        ])
+        parsed = await self._one_line(prompt, lesson_id, "practice line")
+        return parsed if isinstance(parsed, Malformed) or is_practice_line(parsed) else Malformed(json.dumps(parsed), "the reply was not a practice line")
+
+    async def case(self, rule: Rule, form: Form, direction: Direction | None, lesson: str, seen: list[dict[str, Any]], profile: Profile | None, errors: list[str], lesson_id: str) -> ParsedLine:
+        prompt = "\n".join([
+            CASE_INSTRUCTIONS,
+            f"Learner: {profile.kind.value}, level {profile.level}" if profile else "Learner: adult, level beginner",
+            f'Rule: "{rule.statement}", holding when {rule.condition}; its slots are {", ".join(rule.slots)}.',
+            lesson,
+            f"Write the {form.value} item" + (f", running {direction.value}." if direction else "."),
+            *([BACK_CASE] if direction is Direction.BACK else []),
+            "Cases the learner has already had, which the new one must differ from:",
+            *(f"- {json.dumps({name: value for name, value in item.items() if name in ('form', 'say', 'scene', 'direction')})}" for item in seen),
+            *(["The item as last written failed with:", *(f"- {error}" for error in errors)] if errors else []),
+            ANSWER_AT_ONCE,
+        ])
+        parsed = await self._one_line(prompt, lesson_id, "item")
+        return parsed if isinstance(parsed, Malformed) or "form" in parsed else Malformed(json.dumps(parsed), 'the reply was not an item with a "form"')
+
+    async def _one_line(self, prompt: str, lesson_id: str, wanted: str) -> ParsedLine:
         completion = await self._gateway.complete(Job.WRITER, prompt, system=await self._system(), lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS)
         for line in completion.text.splitlines():
             parsed = parse_line(line)
             if isinstance(parsed, Header):
-                return Malformed(line, "the reply was a lesson header, and a single Step is needed")
+                return Malformed(line, f"the reply was a lesson header, and a single {wanted} is needed")
             if parsed:
                 return parsed
-        return Malformed(completion.text, "the reply held no Step line")
+        return Malformed(completion.text, f"the reply held no {wanted} line")
 
     async def _system(self) -> str:
         return FORMAT_RULES + "\n\n# Catalog\n\n" + (await self._catalog.current()).markdown + "\n\n# Directives, which replace the hand written operations above\n\n" + directive_guides()

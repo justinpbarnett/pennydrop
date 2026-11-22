@@ -17,7 +17,7 @@ def describe(error: ValidationError, fields: str = STEP_FIELDS) -> list[str]:
         elif item["type"] == "missing" and isinstance(item.get("input"), dict):
             messages.append(f"{where}: Field required; the entry holds only {', '.join(item['input']) or 'nothing'}")
         elif item["type"] == "union_tag_invalid":
-            messages.append(f"{where}: unknown challenge type. Use number, choice, click, order or match")
+            messages.append(f"{where}: unknown challenge type. Use number, choice, click, order, match, yesno or words")
         elif item["type"] in ("dict_type", "list_type", "string_type", "int_type"):
             messages.append(f"{where}: {item['msg']}, and the line has {json.dumps(item.get('input'))[:SHOWN_INPUT]} there")
         else:

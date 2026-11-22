@@ -21,6 +21,9 @@ CRITERIA = {
     "hinge": "A predict Challenge sits where the learner can add up the earlier Steps and reach the answer before the reveal, and it is not a quiz stuck on the end.",
     "reveal": "A Step reveals the answer the promise and the hinge led to.",
     "point_shown_and_restated": "The stage proves the point with something the learner watches happen, and the last Step says the point again in plain words.",
+    "rule_reusable": "The practice line states a Rule that is reusable: one sentence that holds beyond this example, with a stated condition, not a restatement of the Lesson's example.",
+    "near_miss_one_condition": "The practice's applies item is a near miss: it differs from the worked example by exactly one condition, the one the Rule holds under, so the Rule does not apply to it.",
+    "fresh_changes_one_slot": "The practice's fresh item changes exactly one slot of the Rule from the worked example, with an input no Step used, and its answer is something the learner can work out from the Rule.",
     "on_point": "No Step is off the point: every Step moves the story toward it, with no filler operation, no Step that only talks over an unchanged stage and no Step pulsing objects for nothing.",
 }
 
@@ -78,7 +81,7 @@ class Judge:
 
     async def score(self, lesson_id: str) -> Scorecard:
         raw = self._library.raw(lesson_id)
-        prompt = f"{_lesson_text(raw.header, raw.steps, with_point=True)}\n\nReply in this shape: {SCORE_SHAPE}"
+        prompt = f"{_lesson_text(raw.header, raw.steps, raw.practice, with_point=True)}\n\nReply in this shape: {SCORE_SHAPE}"
         reply = await self._ask(prompt)
         try:
             marks = {name: Mark(bool(reply["criteria"][name]["pass"]), str(reply["criteria"][name]["reason"])) for name in CRITERIA}
@@ -91,7 +94,7 @@ class Judge:
         random.shuffle(order)
         shown = [self._library.raw(lesson_id) for lesson_id in order]
         prompt = "\n\n".join([
-            *(f"Lesson-{label}\n{_lesson_text(raw.header, raw.steps, with_point=False)}" for label, raw in zip("AB", shown)),
+            *(f"Lesson-{label}\n{_lesson_text(raw.header, raw.steps, raw.practice, with_point=False)}" for label, raw in zip("AB", shown)),
             "Neither Lesson states its point: infer what each one proves from its Steps. In every reason, write Lesson-A or Lesson-B and never A or B alone.",
             f"For each criterion say which Lesson does it better, A or B, or tie when they are equal. Then say which Lesson is better overall. Reply in this shape: {PAIR_SHAPE}",
         ])
@@ -110,17 +113,21 @@ class Judge:
 
     async def _ask(self, prompt: str) -> dict[str, Any]:
         completion = await self._gateway.complete(Job.JUDGE, prompt, system=SYSTEM, effort=JUDGE_EFFORT, timeout=JUDGE_TIMEOUT_SECONDS)
-        start, end = completion.text.find("{"), completion.text.rfind("}")
-        try:
-            return json.loads(completion.text[start : end + 1])
-        except json.JSONDecodeError:
-            raise JudgeError(f"the judge did not reply with JSON: {completion.text[:300]}") from None
+        reply = completion.json_object
+        if reply is None:
+            raise JudgeError(f"the judge did not reply with JSON: {completion.text[:300]}")
+        return reply
 
 
-def _lesson_text(header: dict[str, Any], steps: list[dict[str, Any]], with_point: bool) -> str:
+def _lesson_text(header: dict[str, Any], steps: list[dict[str, Any]], practice: dict[str, Any] | None, with_point: bool) -> str:
     lines = [f"Title: {header.get('title', '')}", f"Goal: {header.get('goal', '')}"]
     if with_point:
         lines.append(f"Stated point: {header['point']}" if header.get("point") else "Stated point: none was written, so infer what the Lesson proves from its Steps and judge it against that.")
     lines.append(f"Learner: {'kid, nothing to read' if header.get('reading') is False else 'reads along'}")
     lines.extend(f"Step {step['step']}: " + json.dumps({key: value for key, value in step.items() if key not in ("step", "voice")}, separators=(",", ":")) for step in steps)
+    if practice:
+        lines.append(f"Practice line, played after the last Step. Rule: {practice['rule']} (holds when {practice['condition']}; slots: {', '.join(practice['slots'])})")
+        lines.extend(f"Practice {item['form']}" + (f" ({item['direction']})" if item.get("direction") else "") + ": " + json.dumps({key: value for key, value in item.items() if key not in ("step", "voice", "form", "direction", "case_id")}, separators=(",", ":")) for item in practice["items"])
+    else:
+        lines.append("Practice line: none was written.")
     return "\n".join(lines)

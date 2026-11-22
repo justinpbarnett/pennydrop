@@ -9,6 +9,7 @@ from ..courses import CourseContext
 from ..gateway import Gateway
 from ..lessons import LessonLibrary
 from ..pictures import PartLocator, PictureFinder
+from ..practice import Rule
 from ..settings import Settings
 from ..store import LessonRecord, LessonSource, Store
 from ..tracer import Tracer
@@ -40,6 +41,7 @@ class AskRequest:
     transcription_seconds: float | None = None
     bench: bool = False
     course: CourseContext | None = None
+    link: tuple[Rule, Rule] | None = None
 
 
 def _source_of(request: AskRequest) -> LessonSource:
@@ -50,12 +52,19 @@ def _source_of(request: AskRequest) -> LessonSource:
 
 class Asks:
     def __init__(self, settings: Settings, store: Store, library: LessonLibrary, gateway: Gateway, speaker: Speaker, tracer: Tracer):
+        from ..practice.author import PracticeAuthor
+        from ..practice.check import PracticeChecker
+
         catalog = Catalog(settings)
         self._store = store
         self._library = library
         self._validator = Validator(settings)
         locator = PartLocator(gateway, settings.media_dir)
-        self._kit = Toolkit(store, catalog, Classifier(gateway), Writer(gateway, catalog), self._validator, DirectiveTools(tracer, PictureFinder(settings.media_dir, gateway, locator.warm), locator), speaker)
+        classifier = Classifier(gateway)
+        writer = Writer(gateway, catalog)
+        tools = DirectiveTools(tracer, PictureFinder(settings.media_dir, gateway, locator.warm), locator)
+        self.practice = PracticeAuthor(library, writer, PracticeChecker(self._validator, tools, classifier), self._validator, speaker)
+        self._kit = Toolkit(store, catalog, classifier, writer, self._validator, tools, speaker, self.practice)
         self._live: dict[str, LiveLesson] = {}
         self._running: set[asyncio.Task] = set()
 
@@ -71,7 +80,7 @@ class Asks:
         self._store.save_lesson(record)
         live = LiveLesson()
         self._live[lesson_id] = live
-        run = LessonRun(self._kit, Ask(request.text, profile, viewing, earlier_steps, request.course), record, live, Stopwatch(request.received_at))
+        run = LessonRun(self._kit, Ask(request.text, profile, viewing, earlier_steps, request.course, request.link), record, live, Stopwatch(request.received_at))
         task = asyncio.create_task(run.run())
         self._running.add(task)
         task.add_done_callback(lambda finished: (self._running.discard(finished), self._live.pop(lesson_id, None)))

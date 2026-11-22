@@ -350,6 +350,11 @@ async def _run(spec: TraceSpec, tracer: Tracer) -> TracedRun:
     return TracedRun(trace, spec.input, source, sorts=any(event.type in ("swap", "set") for event in trace.events))
 
 
+async def totals_for(raw: Any, tracer: Tracer) -> dict[str, Any]:
+    spec = _with_search_target(_aligned(parse_spec(TraceSpec, raw, "trace")))
+    return {name: count for name, count in _totals(await _run(spec, tracer), "").items() if name.count(".") == 1}
+
+
 def _entry_point(source: str) -> str:
     try:
         functions = [node.name for node in ast.parse(source).body if isinstance(node, ast.FunctionDef)]
