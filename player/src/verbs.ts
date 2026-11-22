@@ -68,7 +68,16 @@ function setField(scene: SceneState, op: ParsedOp, field: "tint" | "highlight", 
     next = upsertObject(next, after);
     touches.push(sceneTouch(id, before, after));
   }
+  if (touches.every(({ before, after }) => looksTheSame(before!, after!, field))) {
+    const targets = op.selectors.map((selector) => (selector.part === null ? selector.id : `${selector.id}[${selector.part}]`)).join(", ");
+    const advice = role === "none" ? `leave the op out, or pulse ${targets} to point at it` : "to point at it again, pulse it, or mark a part that is not marked yet";
+    fail(`op "${op.name}" changes nothing: ${targets} ${role === "none" ? `has no ${field === "tint" ? "color" : "highlight"} to clear` : `is already marked ${role}`}, so the stage stays still; ${advice}`);
+  }
   return { scene: next, touches };
+}
+
+function looksTheSame(before: SceneObject, after: SceneObject, field: "tint" | "highlight"): boolean {
+  return before[field] === after[field] && String(before.highlightParts ?? "") === String(after.highlightParts ?? "");
 }
 
 function partsNamed(op: ParsedOp, id: string): string[] {
