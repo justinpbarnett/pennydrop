@@ -135,9 +135,11 @@ class Stage:
     def side_run_unplayed(self) -> bool:
         return bool(self.side_runs - self.traces)
 
-    def is_side_run(self, written: Any) -> bool:
-        raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
-        return trace_key(raw) in self.side_runs
+    def plays_last_run(self, written: Any) -> bool:
+        key = trace_key(self.filled_trace(written.get("trace")) if isinstance(written, dict) else None)
+        if key in self.side_runs:
+            return bool(self.traces - self.side_runs)
+        return self.side_runs <= self.traces
 
     def remember_simulation(self, written: Any) -> None:
         raw = written.get("simulate") if isinstance(written, dict) else None

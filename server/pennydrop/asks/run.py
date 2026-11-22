@@ -355,7 +355,7 @@ class LessonRun:
     async def _ends_before_hinge(self, step: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any], plots: list[PlotView], followed: asyncio.Future[bool]) -> str | None:
         if self._asked_challenge or "challenge" in step:
             return None
-        if trace_totals(values) and not self._stage.is_side_run(written):
+        if trace_totals(values) and self._stage.plays_last_run(written):
             until = self._stage.until_shown_by(written)
             advice = RUN_ENDS_AFTER_STOP.format(until=until) if isinstance(until, int) and until > 0 else RUN_ENDS_BEFORE_HINGE
         elif finished := next((view for view in plots if view.graphed and not view.unfinished), None):
