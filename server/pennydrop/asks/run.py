@@ -94,6 +94,7 @@ class Checked:
     scene: Any
     advice: list[str] = field(default_factory=list)
     values: dict[str, Any] = field(default_factory=dict)
+    disputed: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -328,7 +329,7 @@ class LessonRun:
             advice.append(OPEN_QUESTION)
         if number == 1 and isinstance(step.get("say"), str) and len(step["say"].split()) > PROMISE_WORDS:
             advice.append(f"the promise must be one question of at most {PROMISE_WORDS} words, and this one has {len(step['say'].split())}; cut it down and keep its concrete example")
-        return Checked(errors, step, verdict.scene, advice, values)
+        return Checked(errors, step, verdict.scene, advice, values, [] if claims_agree else facts)
 
     async def _missing_hinge(self, step: dict[str, Any], number: int, last_after: asyncio.Future[dict[str, Any] | Malformed | None]) -> str | None:
         if number == 1 or self._asked_challenge or "challenge" in step:
@@ -425,11 +426,22 @@ class LessonRun:
         if not isinstance(step.get("say"), str) or not facts:
             return True
         say = with_sources(written["say"], step["say"], known) if isinstance(written.get("say"), str) else step["say"]
+        return await self._claim_holds(_claimed({**step, "say": say}), facts)
+
+    async def _claim_holds(self, claimed: str, facts: list[str]) -> bool:
         try:
-            return await self._kit.classifier.claims_agree(_claimed({**step, "say": say}), facts, self._record.id)
+            return await self._kit.classifier.claims_agree(claimed, facts, self._record.id)
         except GatewayError as error:
             LOG.warning("lesson %s Step could not be checked against its computed facts: %s", self._record.id, error)
             return True
+
+    async def _only_true(self, say: str, facts: list[str]) -> str:
+        sentences = SENTENCE_BREAK.split(say)
+        holds = await asyncio.gather(*(self._claim_holds(sentence, facts) for sentence in sentences))
+        kept = " ".join(sentence for sentence, true in zip(sentences, holds, strict=True) if true)
+        if not kept:
+            raise LessonError("a Step could not be repaired, and every sentence of its narration disagrees with what running the Lesson's examples computed")
+        return kept
 
     async def _fine_for_child(self, step: dict[str, Any]) -> bool:
         if not self._is_kid or not isinstance(step.get("say"), str):
@@ -445,10 +457,13 @@ class LessonRun:
     async def _salvage(self, brief: Brief, number: int, written: dict[str, Any] | Malformed, last: Checked, scene: Any) -> SettledStep:
         step = last.step or {}
         self._remembered_values.update(last.values)
-        say = _recover_say(step, written, self._remembered_values)
+        recovered = _recover_say(step, written, self._remembered_values)
+        say = await self._only_true(recovered, last.disputed) if last.disputed else recovered
         validator = self._kit.validator
         self._stage.lost_runs = self._stage.lost_runs or ran_something(written)
         answerable = not self._stage.unran_values(step, False)
+        if answerable and last.disputed and "challenge" in step:
+            answerable = await self._claim_holds(_claimed({"say": say, "challenge": step["challenge"]}), last.disputed)
         for kept_fields in (("scene", "challenge"), ("challenge",), ("scene",), ()):
             if "challenge" in kept_fields and not answerable:
                 continue
@@ -466,7 +481,8 @@ class LessonRun:
             if trial.ok:
                 kept_ops.append(operation)
                 verdict = trial
-        outcome = f"kept the narration, dropped fields {sorted(set(step) - set(candidate))} and {len(step.get('do', [])) - len(kept_ops)} operations"
+        dropped_sentences = len(SENTENCE_BREAK.split(recovered)) - len(SENTENCE_BREAK.split(say))
+        outcome = f"kept the narration less {dropped_sentences} sentences the computed facts disprove, dropped fields {sorted(set(step) - set(candidate))} and {len(step.get('do', [])) - len(kept_ops)} operations"
         self._log_repair(number, MAX_REPAIR_TRIES + 1, last.errors, outcome)
         return SettledStep({**candidate, **({"do": kept_ops} if kept_ops else {})}, verdict.scene)
 
