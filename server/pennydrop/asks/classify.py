@@ -121,6 +121,17 @@ class Classifier:
         result = await self._gateway.classify(f"Point: {point}\nNarration: {say}", {"restates": question}, lesson_id=lesson_id)
         return _yes(result.answers["restates"])
 
+    async def claims_agree(self, claimed: str, facts: list[str], lesson_id: str) -> bool:
+        question = YesNo(
+            "The facts were computed by running the Lesson's examples and are correct."
+            " Does every claim the Step makes about those examples agree with the facts, such as a number, which run gives a lower or higher value,"
+            " which job finishes first or sooner, or whether a value drops or rises? A claim about every job, the short jobs or the whole run holds only when the facts show it for each of them,"
+            " and two equal values are neither lower nor sooner. A Challenge's stated answer is a claim. A question, or a claim the facts say nothing about, agrees."
+        )
+        text = "\n".join([*(f"Fact: {fact}" for fact in facts), f"Step: {claimed}"])
+        result = await self._gateway.classify(text, {"agree": question}, lesson_id=lesson_id)
+        return _yes(result.answers["agree"])
+
 
 def _yes(answer) -> bool:
     assert isinstance(answer, YesNoAnswer)

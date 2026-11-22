@@ -4,6 +4,8 @@ import re
 from typing import Any
 
 from ..tracer import ALGORITHMS
+from .directives import DIRECTIVES
+from .directives.simulate import filled_from
 from .directives.trace.code import shown_source
 from .stage import Stage, answer_given_away
 
@@ -18,6 +20,9 @@ NUMBER_WITH_COMMAS = re.compile(r"^-?\d{1,3}(,\d{3})+(\.\d+)?$|^-?\d+(\.\d+)?$")
 
 def mended(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
     step = _with_trace_out_of_scene(step)
+    step = _with_directives_out_of_operations(step)
+    step = _with_until_in_simulation(step)
+    step = _with_simulation_filled(step, stage)
     step = _without_unchanged_restates(step, stage)
     step = _with_numeric_answer(step)
     step = _without_the_answer_said(step, stage)
@@ -211,6 +216,7 @@ CROWDED_STAGE = re.compile(r"too much on stage: (?P<names>[\w, ]+?) fit only")
 UNKNOWN_OBJECT = re.compile(r'unknown object "(?P<name>[^"]+)"; objects in the Scene')
 
 
+EMPTY_STAGE = "nothing is on stage when this Step ends"
 REDUNDANT_OPERATION = re.compile(r"do\[(?P<index>\d+)\] \w+: \w+: (?:the TLB was already looked up|all \d+ levels are walked)")
 
 
@@ -220,7 +226,16 @@ def mended_by_verdict(step: dict[str, Any], errors: list[str], stage: Stage) -> 
     fixed = _without_operations_on_missing(fixed or step, errors) or fixed
     fixed = _without_redundant_operations(fixed or step, errors) or fixed
     fixed = _with_rewritten_operations(fixed or step, errors) or fixed
+    fixed = _with_stage_kept(fixed or step, errors) or fixed
     return fixed
+
+
+def _with_stage_kept(step: dict[str, Any], errors: list[str]) -> dict[str, Any] | None:
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    removed = [name for name, spec in scene.items() if spec is None]
+    if not removed or not any(EMPTY_STAGE in error for error in errors):
+        return None
+    return {**step, "scene": {name: spec for name, spec in scene.items() if spec is not None}}
 
 
 def _with_retired_objects(step: dict[str, Any], errors: list[str], stage: Stage) -> dict[str, Any] | None:
@@ -327,6 +342,30 @@ def _with_rewritten_operations(step: dict[str, Any], errors: list[str]) -> dict[
         if index not in dropped:
             mended_operations.append(operation)
     return {**step, "do": mended_operations}
+
+
+def _with_directives_out_of_operations(step: dict[str, Any]) -> dict[str, Any]:
+    operations = step.get("do")
+    if not isinstance(operations, list):
+        return step
+    written = [operation for operation in operations if isinstance(operation, dict) and operation.get("op") in DIRECTIVES and operation["op"] not in step]
+    directives = {operation["op"]: {key: value for key, value in operation.items() if key not in ("op", "on", "cue")} for operation in written}
+    if len(directives) < len(written):
+        return step
+    return {**step, "do": [operation for operation in operations if not any(operation is moved for moved in written)], **directives}
+
+
+def _with_until_in_simulation(step: dict[str, Any]) -> dict[str, Any]:
+    simulation = step.get("simulate")
+    if "until" not in step or not isinstance(simulation, dict) or "until" in simulation:
+        return step
+    return {**{key: value for key, value in step.items() if key != "until"}, "simulate": {**simulation, "until": step["until"]}}
+
+
+def _with_simulation_filled(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    raw = step.get("simulate")
+    filled = filled_from(raw, stage.simulations)
+    return step if filled is raw else {**step, "simulate": filled}
 
 
 def _with_trace_out_of_scene(step: dict[str, Any]) -> dict[str, Any]:

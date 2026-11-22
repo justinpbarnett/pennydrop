@@ -110,6 +110,9 @@ class Malformed:
 ParsedLine = Header | dict[str, Any] | Malformed
 
 
+EXTRA_SHOWN = 60
+
+
 def parse_line(text: str) -> ParsedLine | None:
     stripped = text.strip()
     if not stripped or stripped.startswith("```"):
@@ -118,8 +121,10 @@ def parse_line(text: str) -> ParsedLine | None:
         value, end = json.JSONDecoder().raw_decode(stripped)
     except json.JSONDecodeError as error:
         return Malformed(stripped, f"the line is not valid JSON: {error}")
-    if stripped[end:].strip(" \t,]}"):
-        return Malformed(stripped, f"the line is not valid JSON: extra text after the object at character {end}")
+    read, value, end = _reopened(stripped, value, end)
+    extra = read[end:].strip(" \t,]}")
+    if extra:
+        return Malformed(stripped, f"the line is not valid JSON: extra text after the object at character {end}, starting {extra[:EXTRA_SHOWN]!r}; write one complete JSON object per line and nothing after it")
     if not isinstance(value, dict):
         return Malformed(stripped, "the line is JSON but not an object")
     if "lesson" in value:
@@ -134,14 +139,31 @@ def parse_line(text: str) -> ParsedLine | None:
     return value
 
 
-def describe(error: ValidationError) -> list[str]:
+STEP_FIELDS = "A Step holds only step, say, scene, do, challenge and its directives"
+
+
+def describe(error: ValidationError, fields: str = STEP_FIELDS) -> list[str]:
     messages = []
     for item in error.errors():
         where = ".".join(str(part) for part in item["loc"])
         if item["type"] == "extra_forbidden":
-            messages.append(f"{where}: unknown field. A Step holds only step, say, scene, do, challenge and its directives")
+            messages.append(f"{where}: unknown field. {fields}" if len(item["loc"]) == 1 else f"{where}: unknown field")
         elif item["type"] == "union_tag_invalid":
             messages.append(f"{where}: unknown challenge type. Use number, choice, click, order or match")
         else:
             messages.append(f"{where}: {item['msg']}")
     return messages
+
+
+
+def _reopened(text: str, value: Any, end: int) -> tuple[str, Any, int]:
+    while isinstance(value, dict) and text[end:].lstrip(" \t,").startswith('"'):
+        joined = text[: end - 1].rstrip() + ", " + text[end:].lstrip(" \t,")
+        try:
+            merged, merged_end = json.JSONDecoder().raw_decode(joined)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(merged, dict) or any(merged.get(key) != kept for key, kept in value.items()):
+            break
+        text, value, end = joined, merged, merged_end
+    return text, value, end

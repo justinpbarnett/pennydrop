@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
-from .directives._support import trace_key
+from .directives import directives_for_labs
+from .directives._support import operation_targets, trace_key
+from .directives.simulate import contradictions, filled_from
 
 SHOWN_TEXT_FIELDS = ("text", "caption", "label", "title")
 LAB_KEY_PREFIX = "lab:"
@@ -29,8 +30,8 @@ def _scalars(value: Any) -> list[str]:
 
 
 def _holds_nothing(spec: dict[str, Any]) -> bool:
-    lists = [value for key, value in spec.items() if key != "parts" and isinstance(value, list)]
-    return bool(lists) and not any(lists)
+    contents = [value for key, value in spec.items() if key != "parts" and isinstance(value, list | dict)]
+    return bool(contents) and not any(contents)
 
 
 FRONTIER_OPERATIONS = ("push", "pop", "relax")
@@ -53,21 +54,10 @@ def _question_without_challenge(step: dict[str, Any]) -> list[str]:
     return []
 
 
-def _simulation_key(raw: Any) -> str:
-    return json.dumps(raw, sort_keys=True, default=str)
-
-
-def _without_addresses(spec: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in spec.items() if key != "addresses"}
-
-
-def _replays(earlier: str, later: Any) -> bool:
-    before = json.loads(earlier)
-    if not isinstance(before, dict) or not isinstance(later, dict):
-        return earlier == _simulation_key(later)
-    first, second = before.get("addresses"), later.get("addresses")
-    prefix = isinstance(first, list) and isinstance(second, list) and second[: len(first)] == first
-    return _without_addresses(before) == _without_addresses(later) and (before == later or prefix)
+def _how_to_fill(lab: str) -> str:
+    if directives_for_labs((lab,)).get(lab) == "simulate":
+        return f'carry a "simulate" directive for the {lab} Lab in this Step instead, which draws the figure; to show it before the run starts, give that simulation "until": 0'
+    return "fill it with its data, or let a directive fill it, or remove it"
 
 
 class Stage:
@@ -79,16 +69,15 @@ class Stage:
         self.in_flight: set[str] = set()
         self.lost_runs = False
         self.drawn_labs: set[str] = set()
-        self.simulations: set[str] = set()
+        self.played: list[tuple[str, dict[str, Any]]] = []
         self.retired: dict[str, dict[str, Any]] = {}
+        self.simulations: dict[str, dict[str, Any]] = {}
         for thing in (snapshot or {}).get("objects", []):
             key = str(thing.get("defKey", ""))
             if key.startswith(LAB_KEY_PREFIX):
                 self.labs[thing["id"]] = key.removeprefix(LAB_KEY_PREFIX)
 
     def remember_trace(self, written: Any, settled: dict[str, Any]) -> None:
-        if isinstance(written, dict) and "simulate" in written:
-            self.simulations.add(_simulation_key(written["simulate"]))
         key = trace_key(written.get("trace")) if isinstance(written, dict) else None
         if key is None:
             return
@@ -98,13 +87,13 @@ class Stage:
             if counters:
                 self.trace_counters[name] = {str(counter) for counter in counters}
 
-    def errors_in_written(self, written: Any) -> list[str]:
-        return self._graph_played_by_hand(written) + self._simulation_replayed(written) + self._counters_owned_by_trace(written)
+    def remember_simulation(self, written: Any) -> None:
+        raw = written.get("simulate") if isinstance(written, dict) else None
+        if isinstance(raw, dict) and isinstance(raw.get("lab"), str):
+            self.simulations[raw["lab"]] = filled_from(raw, self.simulations)
 
-    def _simulation_replayed(self, written: Any) -> list[str]:
-        if not isinstance(written, dict) or "simulate" not in written or not any(_replays(earlier, written["simulate"]) for earlier in self.simulations):
-            return []
-        return ["simulate: this exact simulation already played in an earlier Step, so it would only repeat it; to show the next part of the story, change what the simulation starts from (for a TLB, an earlier miss then the same address with its page now in the TLB entries), or leave out \"simulate\" and talk over the finished run"]
+    def errors_in_written(self, written: Any) -> list[str]:
+        return self._graph_played_by_hand(written) + self._counters_owned_by_trace(written)
 
     def _graph_played_by_hand(self, written: Any) -> list[str]:
         if not isinstance(written, dict) or "trace" in written:
@@ -142,6 +131,7 @@ class Stage:
 
     def settle(self, step: dict[str, Any]) -> None:
         self.attach_parts(step)
+        self._remember_play(step)
         self.in_flight -= {name for name, spec in (step.get("scene") or {}).items() if not isinstance(spec, dict) or name in self.specs}
         for operation in step.get("do", []):
             targets = operation.get("on")
@@ -162,6 +152,11 @@ class Stage:
             else:
                 self.labs.pop(name, None)
 
+    def _remember_play(self, step: dict[str, Any]) -> None:
+        restated = set(step.get("scene") or {})
+        self.played = [entry for entry in self.played if entry[0] not in restated]
+        self.played += [(target, operation) for operation in step.get("do", []) if isinstance(operation, dict) for target in sorted(operation_targets(operation))]
+
     def attach_parts(self, step: dict[str, Any]) -> None:
         for operation in step.get("do", []):
             if operation.get("op") == "found" and operation.get("on", [None])[0] in self.specs:
@@ -169,12 +164,12 @@ class Stage:
                 self.specs[name] = {**self.specs[name], "parts": operation.get("parts", [])}
 
     def errors_in(self, step: dict[str, Any], ran: bool = False) -> list[str]:
-        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + _question_without_challenge(step) + self.unran_values(step, ran)
+        return answer_given_away(step) + self._insert_already_shown(step) + self._empty_figures(step) + _question_without_challenge(step) + self.unran_values(step, ran) + contradictions(step, self.labs, self.played)
 
     def _empty_figures(self, step: dict[str, Any]) -> list[str]:
         scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
         empty = [name for name, spec in scene.items() if isinstance(spec, dict) and isinstance(spec.get("lab"), str) and _holds_nothing(spec)]
-        return [f"step {step.get('step')} scene: {name} is a {scene[name]['lab']} Lab figure with nothing in it; fill it with its data, or let a directive fill it, or remove it" for name in empty]
+        return [f"step {step.get('step')} scene: {name} is a {scene[name]['lab']} Lab figure with nothing in it; {_how_to_fill(scene[name]['lab'])}" for name in empty]
 
     def unran_values(self, step: dict[str, Any], ran: bool) -> list[str]:
         challenge = step.get("challenge")
@@ -215,10 +210,15 @@ def answer_given_away(step: dict[str, Any]) -> list[str]:
     if len(token) < (4 if isinstance(answer, str) else 2):
         return []
     shown = [step.get("say", ""), *_shown_texts(step.get("scene"))]
-    pattern = re.compile(STANDS_ALONE.format(re.escape(token)), re.IGNORECASE)
-    if not any(isinstance(text, str) and pattern.search(text) for text in shown):
+    choices = challenge.get("choices") if isinstance(challenge.get("choices"), list) else []
+    offered = [str(choice) for choice in choices if str(choice) != token]
+    if not any(isinstance(text, str) and _names(token, text) and not (offered and all(_names(choice, text) for choice in offered)) for text in shown):
         return []
     return [f'the Challenge answer "{token}" appears in this Step\'s narration or text; a Challenge Step asks the question and never states or hints at the answer, so reword "say" and any text without "{token}", and let the next Step reveal it']
+
+
+def _names(token: str, text: str) -> bool:
+    return re.search(STANDS_ALONE.format(re.escape(token)), text, re.IGNORECASE) is not None
 
 
 def _shown_texts(value: Any) -> list[Any]:

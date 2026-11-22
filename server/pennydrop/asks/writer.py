@@ -36,7 +36,7 @@ Rules
 - When no Lab fits the Ask, build the explanation from primitives and the generic verbs.
 - Never write coordinates, pixel sizes or colors. Place objects with "at" relations and color with roles.
 - A Step's "scene" sets or replaces the objects it names, and null removes one. Every other object stays. A Step with no "scene" keeps the Scene as it was.
-- Keep at most about three objects on stage at once, because a Scene that fits only below 60% size fails. Remove what a Step no longer talks about (null in "scene") before it adds a big panel such as a code trace or a simulation, and never show the same Lab twice.
+- Keep at most about three objects on stage at once, because a Scene that fits only below 60% size fails. Remove what a Step no longer talks about (null in "scene") before it adds a big panel such as a code trace or a simulation, and never show the same Lab twice, except where a directive's notes say it shows runs side by side.
 - An object's "scene" entry creates it, or resets it to the state of that entry when it is already on stage. A Step that continues an object leaves it out of "scene" and only adds "do" entries on it, and a "do" entry never names an object that is not on stage yet.
 - Put new objects in "scene". Use the generic verb "create" only for an object that must appear on a spoken Cue, and then always with "spec" holding the full object spec.
 - "do" runs after "scene". Each entry's "cue" is a word or phrase copied exactly from that Step's "say", and cues appear in the order they are spoken.
@@ -56,7 +56,7 @@ Rules
 - Every number that comes from running code or from arithmetic comes from a directive, never from you. A directive is a field of the Step that the server runs before the Step plays.
 - A Lab whose operations are steps of one process (address, scheduler, threads, hash, shapes) accepts them only in the order its catalog example shows, and each operation needs what the earlier ones built: copy the example's order, start from its first operation, and write in a Step only the operations its narration says.
 - A trace owns its object's counters and the code object's lines and variables: a later Step never changes those counters, and never traces the same code and input again. Show the end state by leaving the object on stage, and let the narration use the trace's own numbers.
-- When a directive can play your example on a Lab (trace for the array, code and graph Labs, simulate for the scheduler, threads and address Labs), always use that directive for it, and never write by hand the operations it writes, even though the Lab's catalog entry shows them. The directive plays the whole run inside one Step, so give that Step enough narration for it, and put the intro of the run in Steps before it.
+- When a directive can play your example on a Lab (trace for the array, code and graph Labs, simulate for the scheduler, threads and address Labs), always use that directive for it, and never write by hand the operations it writes, even though the Lab's catalog entry shows them. A trace plays its whole run inside one Step, so give that Step enough narration for it, and put the intro of the run in Steps before it. A simulation can tell its run in stages: repeat the same simulation in each Step of the story, give every Step but the last a later "until", leave "until" out of the last Step, and let each Step's narration talk only about the part that Step plays.
 - When "say" brings in a new example, number, list or object, that same Step's "scene" sets it, so the stage always shows what the narration talks about.
 - A Learner who is a kid gets words a young child knows, and a warm, playful voice. The kid rules below say more.
 - A Learner level of beginner, intermediate or advanced sets how much you assume.
@@ -115,7 +115,7 @@ class Brief:
 
 WRITER_EFFORT = "low"
 WRITER_HEDGE_SECONDS = 2.0
-NO_THINKING = "Reply straight away without extended thinking: this task needs none."
+ANSWER_AT_ONCE = "Latency-sensitive; begin your visible answer immediately."
 
 
 class Writer:
@@ -127,7 +127,7 @@ class Writer:
         system = await self._system()
         stopwatch.mark("writer_started")
         buffer = ""
-        async for item in self._gateway.stream(brief.plan.tier.job, brief.text(), system=system, lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS):
+        async for item in self._gateway.stream(brief.plan.tier.job, f"{brief.text()}\n{ANSWER_AT_ONCE}", system=system, lesson_id=lesson_id, effort=WRITER_EFFORT, hedge_after=WRITER_HEDGE_SECONDS):
             if isinstance(item, CallStats):
                 continue
             stopwatch.mark("writer_first_token")
@@ -149,6 +149,7 @@ class Writer:
             f"The Step as written: {shown}",
             "It failed with:",
             *(f"- {error}" for error in errors),
+            ANSWER_AT_ONCE,
         ])
         completion = await self._gateway.complete(Job.WRITER_FAST, prompt, system=await self._system(), lesson_id=lesson_id, effort=WRITER_EFFORT)
         for line in completion.text.splitlines():
@@ -160,4 +161,4 @@ class Writer:
         return Malformed(completion.text, "the reply held no Step line")
 
     async def _system(self) -> str:
-        return NO_THINKING + "\n\n" + FORMAT_RULES + "\n\n# Catalog\n\n" + (await self._catalog.current()).markdown + "\n\n# Directives, which replace the hand written operations above\n\n" + directive_guides()
+        return FORMAT_RULES + "\n\n# Catalog\n\n" + (await self._catalog.current()).markdown + "\n\n# Directives, which replace the hand written operations above\n\n" + directive_guides()

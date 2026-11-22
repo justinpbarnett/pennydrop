@@ -42,7 +42,7 @@ class TraceSpec(BaseModel):
     on: str | None = None
 
 
-def prepare(step: dict[str, Any]) -> dict[str, Any]:
+def prepare(step: dict[str, Any], _tools: DirectiveTools) -> dict[str, Any]:
     scene = step.get("scene")
     if not isinstance(scene, dict):
         return step

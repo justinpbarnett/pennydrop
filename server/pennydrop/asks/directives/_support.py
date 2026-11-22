@@ -4,6 +4,7 @@ import importlib
 import json
 import re
 import pkgutil
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any, Callable
@@ -32,6 +33,7 @@ class DirectiveTools:
     staged: dict[str, dict[str, Any]] = field(default_factory=dict)
     traced: frozenset[str] = frozenset()
     pictures: dict[str, dict[str, Any]] = field(default_factory=dict)
+    played: tuple[tuple[str, dict[str, Any]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -45,9 +47,25 @@ class TracedRun:
 class Simulation:
     object_id: str
     scene: dict[str, Any]
-    operations: list[dict[str, Any]]
+    timeline: list[tuple[int, dict[str, Any]]]
     values: dict[str, int | float | str]
+    known_at: dict[str, int] = field(default_factory=dict)
     objects: dict[str, Any] = field(default_factory=dict)
+    until: int | None = None
+    stops: dict[int, str] = field(default_factory=dict)
+    run: str | None = None
+    side_by_side: bool = False
+
+    def stop(self, moment: int) -> str:
+        return self.stops.get(moment, str(moment))
+
+    def value_names(self) -> dict[str, str]:
+        return {key: name for name in self.values for key in (f"simulate.{name}", *([f"simulate.{self.run}.{name}"] if self.run else []))}
+
+
+def operation_targets(operation: dict[str, Any]) -> set[str]:
+    targets = operation.get("on")
+    return {str(target).split("[")[0] for target in targets} if isinstance(targets, list) else set()
 
 
 def trace_key(raw: Any) -> str | None:
@@ -70,11 +88,12 @@ def discover(package: ModuleType) -> dict[str, ModuleType]:
     }
 
 
-def parse_spec(model: type[BaseModel], raw: Any, directive: str):
+def parse_spec(model: type[BaseModel], raw: Any, directive: str, read_before: tuple[str, ...] = ()):
     try:
         return model.model_validate(raw)
     except ValidationError as error:
-        raise DirectiveError(f"{directive} directive: " + "; ".join(describe(error))) from None
+        fields = f"The {directive} directive takes only {', '.join([*read_before, *model.model_fields])}"
+        raise DirectiveError(f"{directive} directive: " + "; ".join(describe(error, fields))) from None
 
 
 SHOWN_DECIMALS = 6
@@ -102,7 +121,7 @@ def plain_output(text: str) -> str:
 
 
 def fill_values(step: dict[str, Any], values: dict[str, int | float | str]) -> dict[str, Any]:
-    shown = {"{" + name + "}": plain_text(value) for name, value in values.items()}
+    shown = {"{" + name + "}": plain_text(value) for name, value in {**_bare_names(values), **values}.items()}
     filled = _each_text(step, lambda text: _filled(text, shown))
     challenge = filled.get("challenge")
     if isinstance(challenge, dict) and isinstance(challenge.get("answer"), str) and challenge["answer"] in values:
@@ -111,16 +130,67 @@ def fill_values(step: dict[str, Any], values: dict[str, int | float | str]) -> d
 
 
 NOT_PLURALS = {"series", "species"}
+SINGULAR_VERBS = {"were": "was", "are": "is", "have": "has"}
+
+
+def _bare_names(values: dict[str, int | float | str]) -> dict[str, int | float | str]:
+    by_bare: dict[str, list[str]] = {}
+    for name in values:
+        if "." in name:
+            by_bare.setdefault(name.split(".", 1)[1], []).append(name)
+    return {bare: values[names[0]] for bare, names in by_bare.items() if len(names) == 1}
 
 
 def _filled(text: str, shown: dict[str, str]) -> str:
     ones = [token for token, value in shown.items() if value == "1" and token in text]
     if ones:
-        counted = re.compile("(" + "|".join(map(re.escape, ones)) + r")(\s+)([a-z]+s)\b")
-        text = counted.sub(lambda found: found[1] + found[2] + _singular(found[3]), text)
+        counted = re.compile("(" + "|".join(map(re.escape, ones)) + r")(\s+)([a-z]+s)\b(?:(\s+)(were|are|have)\b)?")
+        text = counted.sub(lambda found: found[1] + found[2] + _singular(found[3]) + (found[4] + SINGULAR_VERBS[found[5]] if found[5] else ""), text)
     for token, value in shown.items():
         text = text.replace(token, value)
     return text
+
+
+PLACEHOLDER = re.compile(r"\{(\w+(?:\.\w+)+)\}")
+VALUE_NAME = re.compile(r"\w+(?:\.\w+)+")
+
+
+def unclear_values(step: dict[str, Any], known: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for name in _value_names_in(step):
+        kind, _, rest = name.partition(".")
+        run, _, value = rest.rpartition(".")
+        runs = sorted(key for key in known if key.count(".") == 2 and key.startswith(f"{kind}.") and key.rsplit(".", 1)[1] == value)
+        if run and name not in known and any(key.startswith(f"{kind}.{run}.") for key in known):
+            errors.append(f"{{{name}}} is not known by this Step, because the {run} run has not played far enough to compute it; play that run further in this Step or an earlier one, or leave the number out, and never state another run's value in its place")
+        elif run and name not in known and (played := ", ".join(sorted({key.split(".")[1] for key in known if key.count(".") == 2 and key.startswith(f"{kind}.")}))):
+            errors.append(f"{{{name}}} names no run played by this Step, and the runs played so far are {played}; if the Step means one of those, write that run's name, and otherwise play the {run} run in an earlier Step or leave the number out, but never state another run's value in its place")
+        elif not run and len({str(known[key]) for key in runs}) > 1:
+            listed = ", ".join("{" + key + "}" for key in runs)
+            errors.append(f"{{{name}}} differs between the runs played so far ({listed}), so the Step would give the latest run's number whichever run it means; write the name of the run it means, as in {listed}")
+    return errors
+
+
+def _value_names_in(step: dict[str, Any]) -> list[str]:
+    challenge = step.get("challenge")
+    answer = challenge.get("answer") if isinstance(challenge, dict) else None
+    named = [answer] if isinstance(answer, str) and VALUE_NAME.fullmatch(answer) else []
+    return sorted({*named, *(name for text in _texts_in(step) for name in PLACEHOLDER.findall(text))})
+
+
+def values_used(step: dict[str, Any], names: list[str]) -> list[str]:
+    texts = list(_texts_in(step))
+    challenge = step.get("challenge")
+    answer = challenge.get("answer") if isinstance(challenge, dict) else None
+    return [name for name in names if answer == name or any("{" + name + "}" in text for text in texts)]
+
+
+def _texts_in(value: Any) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list | dict):
+        for item in value.values() if isinstance(value, dict) else value:
+            yield from _texts_in(item)
 
 
 def _singular(noun: str) -> str:

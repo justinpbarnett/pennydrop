@@ -16,7 +16,7 @@ from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
-from .directives import DirectiveError, DirectiveTools, expand_directives
+from .directives import DirectiveError, DirectiveTools, computed_facts, expand_directives, fill_values
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import mended, mended_by_verdict, mended_cues
@@ -29,7 +29,9 @@ LOG = logging.getLogger("pennydrop.asks")
 MAX_MENDS = 3
 MAX_REPAIR_TRIES = 2
 HONOR_CODE_ERROR = "the Step touches project code or an assignment spec; explain the concept on a toy example of your own instead"
-PLACEHOLDER = re.compile(r"\s*\{[^}]*\}")
+MISSING_HINGE = 'no Step so far asks the predict Challenge, and only the last Step comes after this one, so this Step is the hinge: add a "challenge" that the earlier Steps let the learner answer, make "say" ask that question without giving the answer, and keep the scene, because the next Step reveals it'
+PLACEHOLDER = re.compile(r"\{[^}]*\}")
+SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
 SAY_FIELD = re.compile(r'"say"\s*:\s*("(?:[^"\\]|\\.)*")')
 
 
@@ -63,6 +65,7 @@ class PendingStep:
     written: dict[str, Any] | Malformed
     voice: asyncio.Task[Voice | None] | None
     followed: asyncio.Future[bool]
+    before_last: asyncio.Future[bool]
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,7 @@ class Checked:
     step: dict[str, Any] | None
     scene: Any
     advice: list[str] = field(default_factory=list)
+    values: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -98,7 +102,9 @@ class LessonRun:
         self._catalog_labs: set[str] = set()
         self._published = 0
         self._redone_for_child: set[int] = set()
+        self._claims_disagreed: set[int] = set()
         self._remembered_values: dict[str, Any] = {}
+        self._asked_challenge = False
         self._stage = Stage()
         self._refused = False
         self._warm_picture: asyncio.Task[None] | None = None
@@ -147,7 +153,7 @@ class LessonRun:
 
     async def _read(self, brief: Brief, plan: Plan, start_scene: Any, pending: asyncio.Queue[PendingStep | None]) -> None:
         number = 0
-        previous: PendingStep | None = None
+        written: list[PendingStep] = []
         async for line in self._kit.writer.lines(brief, self._stopwatch, self._record.id):
             if isinstance(line, Header):
                 if self._record.header:
@@ -158,13 +164,19 @@ class LessonRun:
                 raise LessonError("the writer's first line was not a lesson header, so the Lesson cannot start")
             number += 1
             self._stopwatch.mark("first_step_parsed")
-            if previous:
-                previous.followed.set_result(True)
-            previous = PendingStep(number, line, self._prevoice(line), asyncio.get_running_loop().create_future())
-            await pending.put(previous)
-        if previous is None:
+            if written:
+                written[-1].followed.set_result(True)
+            if len(written) > 1:
+                written[-2].before_last.set_result(False)
+            loop = asyncio.get_running_loop()
+            written.append(PendingStep(number, line, self._prevoice(line), loop.create_future(), loop.create_future()))
+            await pending.put(written[-1])
+        if not written:
             raise LessonError("the writer finished without writing any Step")
-        previous.followed.set_result(False)
+        written[-1].followed.set_result(False)
+        written[-1].before_last.set_result(False)
+        if len(written) > 1:
+            written[-2].before_last.set_result(True)
         await pending.put(None)
 
     def _request_missing_lab(self, plan: Plan) -> None:
@@ -200,6 +212,7 @@ class LessonRun:
             except PlayerCrash as crash:
                 raise LessonError(f"the player's validator crashed on step {step.number}, and no rewrite can fix that: {crash}") from None
             scene = settled.scene
+            self._asked_challenge = self._asked_challenge or "challenge" in settled.step
             self._stage.settle(settled.step)
             self._stopwatch.mark("first_step_checked")
             await ready.put(ReadyStep(settled.step, self._voice(settled.step["say"])))
@@ -208,10 +221,9 @@ class LessonRun:
     async def _settle_step(self, brief: Brief, pending: PendingStep, scene: Any) -> SettledStep:
         written = pending.written
         for attempt in range(MAX_REPAIR_TRIES + 1):
-            checked = await self._check(written, pending.number, scene, pending.followed)
+            checked = await self._check(written, pending, scene)
             if not checked.errors and not checked.advice:
-                self._stage.remember_trace(written, checked.step)
-                return SettledStep(checked.step, checked.scene)
+                return self._accepted(written, checked)
             if attempt == MAX_REPAIR_TRIES:
                 break
             reasons = checked.errors + checked.advice
@@ -219,13 +231,19 @@ class LessonRun:
             written = await self._kit.writer.repair(brief, scene, written, reasons, self._record.id)
         if not checked.errors:
             self._log_repair(pending.number, MAX_REPAIR_TRIES + 1, checked.advice, "kept as written")
-            self._stage.remember_trace(written, checked.step)
-            return SettledStep(checked.step, checked.scene)
+            return self._accepted(written, checked)
         if HONOR_CODE_ERROR in checked.errors:
             raise LessonError(f"Step {pending.number} still broke the honor code after {MAX_REPAIR_TRIES} rewrites")
         return await self._salvage(pending.number, written, checked, scene)
 
-    async def _check(self, written: dict[str, Any] | Malformed, number: int, scene: Any, followed: asyncio.Future[bool]) -> Checked:
+    def _accepted(self, written: dict[str, Any] | Malformed, checked: Checked) -> SettledStep:
+        self._stage.remember_trace(written, checked.step)
+        self._stage.remember_simulation(written)
+        self._remembered_values.update(checked.values)
+        return SettledStep(checked.step, checked.scene)
+
+    async def _check(self, written: dict[str, Any] | Malformed, pending: PendingStep, scene: Any) -> Checked:
+        number = pending.number
         if isinstance(written, Malformed):
             return Checked([coached(written.reason)], None, scene)
         step = mended({**written, "step": number}, self._stage)
@@ -233,13 +251,19 @@ class LessonRun:
         if owned:
             return Checked(owned, None, scene)
         try:
-            tools = replace(self._kit.directive_tools, lesson_id=self._record.id, young_child=self._is_kid, staged=self._stage.on_stage(), traced=frozenset(self._stage.traces), pictures=dict(self._stage.specs))
-            expanded = mended_cues(await expand_directives(step, tools, self._remembered_values))
-            step = expanded
+            tools = replace(self._kit.directive_tools, lesson_id=self._record.id, young_child=self._is_kid, staged=self._stage.on_stage(), traced=frozenset(self._stage.traces), pictures=dict(self._stage.specs), played=tuple(self._stage.played))
+            expanded, values = await expand_directives(step, tools, self._remembered_values)
+            step = mended_cues(expanded)
         except DirectiveError as error:
             return Checked([coached(str(error))], None, scene)
-        verdict, fine_for_child, keeps_honor_code, restates_point = await asyncio.gather(
-            self._kit.validator.check(step, scene, self._reading), self._fine_for_child(step), self._keeps_honor_code(step), self._restates_point(step, number, followed)
+        facts = computed_facts({**self._remembered_values, **values})
+        verdict, fine_for_child, keeps_honor_code, restates_point, claims_agree, lacks_hinge = await asyncio.gather(
+            self._kit.validator.check(step, scene, self._reading),
+            self._fine_for_child(step),
+            self._keeps_honor_code(step),
+            self._restates_point(step, number, pending.followed),
+            self._claims_agree(step, facts),
+            self._lacks_hinge(step, number, pending.before_last),
         )
         for _ in range(MAX_MENDS):
             if (roomier := mended_by_verdict(step, verdict.errors, self._stage)) is None:
@@ -254,8 +278,18 @@ class LessonRun:
         if not fine_for_child:
             self._redone_for_child.add(number)
             errors.append("say is not fine for a young child; rewrite the narration so it is gentle, true and free of frightening or adult content")
-        advice = [] if restates_point else [f'the last Step must say the Lesson\'s point again in plain words, and this narration does not; the point is "{self._record.header["point"]}"; rewrite "say" so it states that point simply as the close of the story, and keep the Step\'s scene and challenge']
-        return Checked(errors, step, verdict.scene, advice)
+        if not claims_agree:
+            self._claims_disagreed.add(number)
+            errors.append(_claims_disagree(_claimed(step), facts))
+        advice = [] if restates_point or number in self._claims_disagreed else [f'the last Step must say the Lesson\'s point again in plain words, and this narration does not; the point is "{self._record.header["point"]}"; rewrite "say" so it states that point simply as the close of the story, and keep the Step\'s scene and challenge']
+        if lacks_hinge:
+            advice.append(MISSING_HINGE)
+        return Checked(errors, step, verdict.scene, advice, values)
+
+    async def _lacks_hinge(self, step: dict[str, Any], number: int, before_last: asyncio.Future[bool]) -> bool:
+        if number == 1 or self._asked_challenge or "challenge" in step:
+            return False
+        return await before_last
 
     async def _restates_point(self, step: dict[str, Any], number: int, followed: asyncio.Future[bool]) -> bool:
         point = self._record.header.get("point")
@@ -265,6 +299,15 @@ class LessonRun:
             return await self._kit.classifier.restates_point(step["say"], point, self._record.id)
         except GatewayError as error:
             LOG.warning("lesson %s last Step could not be checked against the point: %s", self._record.id, error)
+            return True
+
+    async def _claims_agree(self, step: dict[str, Any], facts: list[str]) -> bool:
+        if not isinstance(step.get("say"), str) or not facts:
+            return True
+        try:
+            return await self._kit.classifier.claims_agree(_claimed(step), facts, self._record.id)
+        except GatewayError as error:
+            LOG.warning("lesson %s Step could not be checked against its computed facts: %s", self._record.id, error)
             return True
 
     async def _fine_for_child(self, step: dict[str, Any]) -> bool:
@@ -280,7 +323,8 @@ class LessonRun:
 
     async def _salvage(self, number: int, written: dict[str, Any] | Malformed, last: Checked, scene: Any) -> SettledStep:
         step = last.step or {}
-        say = _recover_say(step, written)
+        self._remembered_values.update(last.values)
+        say = _recover_say(step, written, self._remembered_values)
         validator = self._kit.validator
         self._stage.lost_runs = self._stage.lost_runs or _ran_something(written)
         answerable = not self._stage.unran_values(step, False)
@@ -375,7 +419,22 @@ def _ran_something(written: dict[str, Any] | Malformed) -> bool:
     return isinstance(written, dict) and any(key in written for key in ("trace", "simulate"))
 
 
-def _recover_say(step: dict[str, Any], written: dict[str, Any] | Malformed) -> str:
+def _claimed(step: dict[str, Any]) -> str:
+    challenge = step.get("challenge")
+    if not isinstance(challenge, dict) or not challenge.get("choices") or not isinstance(challenge.get("answer"), str):
+        return step["say"]
+    return f'{step["say"]} The Challenge asks "{challenge.get("prompt")}", and its answer is "{challenge["answer"]}".'
+
+
+def _claims_disagree(claimed: str, facts: list[str]) -> str:
+    listed = "; ".join(facts)
+    return (
+        f'say: the Step reads "{claimed}", and a claim in it disagrees with what running the Lesson\'s examples computed: {listed}.'
+        " The computed values are right, so keep every number as written and rewrite the claim, in \"say\" or in the Challenge\'s \"answer\", so it says what they show, such as which run is lower or which job finishes sooner, and leave out any claim they do not bear out"
+    )
+
+
+def _recover_say(step: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any]) -> str:
     if isinstance(step.get("say"), str):
         say = step["say"]
     elif isinstance(written, dict) and isinstance(written.get("say"), str):
@@ -383,7 +442,8 @@ def _recover_say(step: dict[str, Any], written: dict[str, Any] | Malformed) -> s
     else:
         found = SAY_FIELD.search(written.text) if isinstance(written, Malformed) else None
         say = json.loads(found.group(1)) if found else ""
-    cleaned = PLACEHOLDER.sub("", say).strip()
+    filled = fill_values({"say": say}, values)["say"]
+    cleaned = " ".join(sentence for sentence in SENTENCE_BREAK.split(filled.strip()) if not PLACEHOLDER.search(sentence))
     if not cleaned:
         raise LessonError("a Step could not be repaired and its narration could not be recovered")
     return cleaned
