@@ -21,9 +21,9 @@ from .directives._support import Runs, operation_targets
 from .directives.curves import graphed_half_way
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
-from .mending import PROMISE_WORDS, mended, mended_by_verdict, mended_cues, retold, with_one_figure_on_stage
+from .mending import PROMISE_WORDS, brings_in_a_figure, mended, mended_by_verdict, mended_cues, retold, with_one_figure_on_stage
 from .stage import Stage, question_without_challenge, ran_something, trace_totals
-from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, event_plays, plot_views, shapes_plays
+from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, card_matches, event_plays, plot_views, shapes_plays, shown_pictures
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
 from .writer import Brief, Writer
@@ -37,6 +37,10 @@ REVEALED_NEXT = '; the last Step says "{say}", so ask what that Step shows that 
 NARRATION_ONLY = 'this Step could not keep its challenge, so it ships without one, and its narration still asks the learner to answer or tap; rewrite "say" alone so it tells this beat of the story over the stage as it stands and asks the learner nothing, and keep every other field as it is'
 TRUE_NARRATION = 'say: this Step could not be repaired, so it ships with the narration you write now, and every sentence of its narration disagrees with what running the Lesson\'s examples computed: {facts}; rewrite "say" alone so it tells this beat of the story with only claims these values bear out, naming the run each value comes from, and keep every other field as it is'
 NARRATION_OFF_STAGE = 'say: this Step plays only this on the stage: {played}; the narration tells a move the stage does not play here, so rewrite "say" to tell the moves this Step plays, in their order, and keep every other field as it is'
+CLOSED_WITHOUT_PICTURE = 'this is the last Step, and it takes {pictures} off the stage, so the point is said without the picture the Lesson is about; keep {pictures} on stage, shown whole, and set anything new beside it, and keep the narration'
+CLOSED_ZOOMED_IN = 'this is the last Step, and it says the point while {pictures} stays zoomed in on one part, so the learner never sees the whole picture again; add an "unzoom" op on {pictures} at the start of "do", cued on the first words of "say", and keep every other field as it is'
+REVEAL_OFF_ANSWER = 'say: the Challenge just before asked "{asked}", and its answer is "{answer}"; this Step is its reveal, so start "say" by naming "{answer}" as the answer and show why, and keep every other field as it is'
+CARD_OFF_STAGE = 'say: the narration points at the meaning card "{named}", while this Step\'s match runs the arrow to the card "{marked}" ("meaning": {index}); make "meaning" the index of the card the narration means, or rewrite "say" to tell the card the arrow reaches, and keep every other field as it is'
 ANSWER_ON_STAGE = 'challenge: a Challenge waits after its Step plays, and by then the stage shows {shown}, so the learner reads the answer off it instead of predicting; ask what a later Step plays that the stage does not show yet: stop this Step\'s run at an earlier "until", or graph the line that settles the answer in the next Step, so the answer is still to come'
 STORY_OFF_LAB = 'the stage holds no Lab figure after this Step, only primitives such as text, shapes or hand-drawn axes, but the Lesson plans the {labs} Lab, where the story is shown rather than told; bring that Lab on stage in this Step, with its directive when it has one, and show on it what "say" tells'
 RUN_ENDS_BEFORE_HINGE = 'this Step plays the run to its end before the Lesson has asked its predict Challenge, and once the run ends the stage shows every result, so nothing is left to predict; give this Step\'s trace an "until" that stops before the turn that settles the answer, so a later Step can ask the Challenge over the unfinished run and the Step after it can play the end'
@@ -381,6 +385,8 @@ class LessonRun:
             self._still_stage(step, written, number, pending.followed),
             self._missing_hinge(step, number, pending.last_after),
             self._narration_off_stage(step, arrays, figures, events),
+            self._card_off_stage(step, scene),
+            self._reveal_off_answer(step),
             self._answer_on_stage(step, written, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines] + [play.told() for play in events]),
             self._answer_told(step),
             self._asks_the_challenge(step),
@@ -388,6 +394,7 @@ class LessonRun:
             _end_told_early(step, plots),
             _challenge_read_off(step, plots),
             self._run_left_unfinished(written, values, pending.followed),
+            _picture_at_close(scene, verdict.scene, pending.followed, self._is_kid and brings_in_a_figure(step, self._stage)),
         )
         errors = [coached(error) for error in verdict.errors] + self._stage.errors_in(step, written, values)
         if asked_at_the_close:
@@ -496,6 +503,33 @@ class LessonRun:
             LOG.warning("lesson %s Step could not be checked against its stage: %s", self._record.id, error)
             return None
         return NARRATION_OFF_STAGE.format(played="; and ".join(filter(None, (moved_arrays, moved_figures, played_events)))) if any(off) else None
+
+    async def _card_off_stage(self, step: dict[str, Any], scene: Any) -> str | None:
+        say = step.get("say")
+        if not isinstance(say, str):
+            return None
+        for match in card_matches(scene, step):
+            try:
+                named = await self._kit.classifier.card_named(say, match.meanings, self._record.id)
+            except GatewayError as error:
+                LOG.warning("lesson %s card match could not be checked against its narration: %s", self._record.id, error)
+                return None
+            if named is not None and named != match.marked:
+                return CARD_OFF_STAGE.format(named=match.meanings[named], marked=match.meanings[match.marked], index=match.marked)
+        return None
+
+    async def _reveal_off_answer(self, step: dict[str, Any]) -> str | None:
+        answers, say = self._stage.answers_to_open_challenge(), step.get("say")
+        if answers is None or not isinstance(say, str) or "challenge" in step:
+            return None
+        try:
+            confirmed = await self._kit.classifier.answer_confirmed(say, answers.asked, answers.options, self._record.id)
+        except GatewayError as error:
+            LOG.warning("lesson %s reveal could not be checked against its Challenge: %s", self._record.id, error)
+            return None
+        if confirmed == answers.right:
+            return None
+        return REVEAL_OFF_ANSWER.format(asked=answers.asked, answer=answers.options[answers.right])
 
     async def _answer_on_stage(self, step: dict[str, Any], written: dict[str, Any], views: list[str]) -> str | None:
         asked = _predicted(step, self._stage.cell_place(step))
@@ -749,6 +783,21 @@ def _claims_disagree(claimed: str, facts: list[str]) -> str:
         " The computed values are right, so rewrite the claim, in \"say\" or in the Challenge\'s \"answer\", so every number and comparison in it matches them, such as which run is lower or which job finishes sooner;"
         " when the facts hold several runs, name the run each value comes from, such as \"with the lock\" or \"in the round robin run\", and leave out any claim they do not bear out"
     )
+
+
+async def _picture_at_close(scene_before: Any, scene_after: Any, followed: asyncio.Future[bool], swapped_for_one_figure: bool) -> str | None:
+    before, after = shown_pictures(scene_before), shown_pictures(scene_after)
+    gone = [] if swapped_for_one_figure else [name for name in before if name not in after]
+    zoomed = [name for name, zoomed_in in after.items() if zoomed_in]
+    if not (gone or zoomed) or await followed:
+        return None
+    if gone:
+        return CLOSED_WITHOUT_PICTURE.format(pictures=_named(gone))
+    return CLOSED_ZOOMED_IN.format(pictures=_named(zoomed))
+
+
+def _named(names: list[str]) -> str:
+    return " and ".join(f'"{name}"' for name in names)
 
 
 async def _asked_at_the_close(step: dict[str, Any], number: int, followed: asyncio.Future[bool]) -> bool:

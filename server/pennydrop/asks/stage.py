@@ -18,6 +18,8 @@ LAB_KEY_PREFIX = "lab:"
 TRACE_TOTAL_PREFIX = "trace."
 STANDS_ALONE = r"(?<![\w.]){}(?![\w]|\.\d)"
 CELL_ANSWER = re.compile(r"([\w-]+)\[(\d+)\]")
+PART_NOT_SHOWN = 'the photo of "{name}" does not show its {part}: the parts found on it are {parts}; tell this Step with those parts, never speak of the {part} as if the picture showed it, and when the Challenge asked about the {part}, ask a question that one of those parts truly answers'
+PART_ANSWER = re.compile(r"^(?P<name>[\w-]+)\[(?P<part>[^\]]+)\]$")
 
 
 STRUCTURE_FIELDS = ("nodes", "values", "items", "edges", "cells", "rows")
@@ -72,6 +74,13 @@ def _how_to_fill(lab: str) -> str:
 
 
 @dataclass(frozen=True)
+class Answers:
+    asked: str
+    options: tuple[str, ...]
+    right: int
+
+
+@dataclass(frozen=True)
 class NextRun:
     contrast: bool
     beside_another: bool
@@ -107,6 +116,7 @@ class Stage:
         self.simulations: dict[str, dict[str, Any]] = {}
         self.setups = PlayedSetups()
         self.hops = PlayedHops(warm_up_only_one=kid)
+        self.open_challenge: dict[str, Any] | None = None
         for thing in (snapshot or {}).get("objects", []):
             key = str(thing.get("defKey", ""))
             if key.startswith(LAB_KEY_PREFIX):
@@ -231,7 +241,20 @@ class Stage:
         return next((raw for lab, raw in self.simulations.items() if raw.get("until") is not None and lab in self.labs.values()), None)
 
     def errors_in_written(self, written: Any) -> list[str]:
-        return self._graph_played_by_hand(written) + self._run_played_by_hand(written) + self._runs_in_do(written) + self._run_taken_off(written) + self._counters_owned_by_trace(written) + self._run_pointed_by_hand(written) + self._declared_again(written) + self._function_plotted(written) + self._left_blank(written) + self._code_for_child(written)
+        return self._graph_played_by_hand(written) + self._run_played_by_hand(written) + self._runs_in_do(written) + self._run_taken_off(written) + self._counters_owned_by_trace(written) + self._run_pointed_by_hand(written) + self._declared_again(written) + self._function_plotted(written) + self._left_blank(written) + self._code_for_child(written) + self._parts_not_shown(written)
+
+    def _parts_not_shown(self, written: Any) -> list[str]:
+        operations = written.get("do") if isinstance(written, dict) and isinstance(written.get("do"), list) else []
+        challenge = written.get("challenge") if isinstance(written, dict) and isinstance(written.get("challenge"), dict) else {}
+        named = [target for operation in operations if isinstance(operation, dict) and isinstance(operation.get("on"), list) for target in operation["on"]] + [challenge.get("answer")]
+        missing: dict[tuple[str, str], tuple[str, ...]] = {}
+        for target in named:
+            found = PART_ANSWER.match(str(target))
+            parts = self.specs.get(found["name"], {}).get("parts") if found else None
+            names = tuple(str(part.get("name")) for part in parts if isinstance(part, dict)) if isinstance(parts, list) else ()
+            if found and names and found["part"] not in names:
+                missing[found["name"], found["part"]] = names
+        return [PART_NOT_SHOWN.format(name=name, part=part, parts=", ".join(names)) for (name, part), names in missing.items()]
 
     def _runs_in_do(self, written: Any) -> list[str]:
         operations = written.get("do") if isinstance(written, dict) and isinstance(written.get("do"), list) else []
@@ -351,6 +374,7 @@ class Stage:
         return {name: self.specs.get(name, {"lab": lab}) for name, lab in self.labs.items() if not _holds_nothing(self.specs.get(name, {"lab": lab}))}
 
     def settle(self, step: dict[str, Any]) -> None:
+        self.open_challenge = step["challenge"] if isinstance(step.get("challenge"), dict) else None
         self.attach_parts(step)
         self._remember_play(step)
         self.setups.remember(step)
@@ -388,6 +412,22 @@ class Stage:
         restated = set(step.get("scene") or {})
         self.played = [entry for entry in self.played if entry[0] not in restated]
         self.played += [(target, operation) for operation in step.get("do", []) if isinstance(operation, dict) for target in sorted(operation_targets(operation))]
+
+    def answers_to_open_challenge(self) -> Answers | None:
+        challenge = self.open_challenge
+        if challenge is None:
+            return None
+        answer = str(challenge.get("answer"))
+        if challenge.get("type") == "choice" and isinstance(challenge.get("choices"), list):
+            options = tuple(map(str, challenge["choices"]))
+        elif challenge.get("type") == "click" and (found := PART_ANSWER.match(answer)):
+            options = tuple(str(part["name"]) for part in self.specs.get(found["name"], {}).get("parts") or [] if isinstance(part, dict) and part.get("name"))
+            answer = found["part"]
+        else:
+            return None
+        if answer not in options or len(options) < 2:
+            return None
+        return Answers(str(challenge.get("prompt", "")), options, options.index(answer))
 
     def attach_parts(self, step: dict[str, Any]) -> None:
         for operation in step.get("do", []):

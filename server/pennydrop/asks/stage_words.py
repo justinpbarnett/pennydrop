@@ -13,6 +13,9 @@ PLOT_LAB = "plot"
 PLOT_DEF = "lab:plot"
 SHAPES_LAB = "shapes"
 SHAPES_DEF = "lab:shapes"
+WORDS_LAB = "words"
+WORDS_DEF = "lab:words"
+PICTURE_DEF = "lab:picture"
 CELL = re.compile(r"^(?P<array>[\w-]+)\[(?P<index>\d+)\]$")
 NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
 SAME_NUMBER_SHARE = 0.005
@@ -324,6 +327,47 @@ def event_plays(scene_before: Any, step: dict[str, Any], op_docs: dict[str, dict
             if labs.get(name) in EVENT_LABS:
                 events.setdefault(name, []).append(_event(operation, op_docs.get(labs[name], {})))
     return [EventPlay(name, labs[name], tuple(played)) for name, played in events.items()]
+
+
+@dataclass(frozen=True)
+class CardMatch:
+    meanings: tuple[str, ...]
+    marked: int
+
+
+def card_matches(scene_before: Any, step: dict[str, Any]) -> list[CardMatch]:
+    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
+    objects = scene_before.get("objects") if isinstance(scene_before, dict) else None
+    cards = {**_cards_on_stage(objects), **_cards_brought_in(scene)}
+    matches: list[CardMatch] = []
+    for operation in step.get("do") or []:
+        if not isinstance(operation, dict) or operation.get("op") != "match" or not isinstance(operation.get("on"), list):
+            continue
+        index = operation.get("meaning")
+        names = {found[0] for target in operation["on"] if (found := OBJECT_NAME.match(str(target)))}
+        matches += [CardMatch(cards[name], index) for name in names if name in cards and isinstance(index, int) and 0 <= index < len(cards[name])]
+    return matches
+
+
+def shown_pictures(scene: Any) -> dict[str, bool]:
+    objects = scene.get("objects") if isinstance(scene, dict) else None
+    return {
+        thing["id"]: isinstance(view := state.get("view"), dict) and view.get("s", 1) < 1
+        for thing in objects or []
+        if isinstance(thing, dict) and thing.get("defKey") == PICTURE_DEF and isinstance(state := thing.get("state"), dict) and state.get("shown")
+    }
+
+
+def _cards_on_stage(objects: Any) -> dict[str, tuple[str, ...]]:
+    return {
+        thing["id"]: tuple(" ".join(map(str, lines)) if isinstance(lines, list) else str(lines) for lines in state["meanings"])
+        for thing in objects or []
+        if isinstance(thing, dict) and thing.get("defKey") == WORDS_DEF and isinstance(state := thing.get("state"), dict) and isinstance(state.get("meanings"), list)
+    }
+
+
+def _cards_brought_in(scene: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    return {name: tuple(map(str, spec["meanings"])) for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") == WORDS_LAB and isinstance(spec.get("meanings"), list)}
 
 
 def _event(operation: dict[str, Any], docs: dict[str, str]) -> str:

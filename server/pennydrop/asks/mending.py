@@ -85,11 +85,16 @@ def _with_planned_arrays_dressed(step: dict[str, Any], stage: Stage) -> dict[str
 
 
 def with_one_figure_on_stage(step: dict[str, Any], stage: Stage) -> dict[str, Any]:
-    scene = step.get("scene") if isinstance(step.get("scene"), dict) else {}
-    if not any(isinstance(spec, dict) and isinstance(spec.get("lab"), str) and name not in stage.labs for name, spec in scene.items()):
+    if not brings_in_a_figure(step, stage):
         return step
+    scene = step["scene"]
     leaving = {name: None for name in stage.specs if name not in scene}
     return {**step, "scene": {**leaving, **scene}} if leaving else step
+
+
+def brings_in_a_figure(step: dict[str, Any], stage: Stage) -> bool:
+    scene = step.get("scene")
+    return isinstance(scene, dict) and any(isinstance(spec, dict) and isinstance(spec.get("lab"), str) and name not in stage.labs for name, spec in scene.items())
 
 
 def mended_cues(step: dict[str, Any]) -> dict[str, Any]:
