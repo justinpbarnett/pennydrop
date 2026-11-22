@@ -29,7 +29,11 @@ export type Challenge =
   | { kind: "predict"; type: "choice"; prompt?: string; choices: string[]; answer: string }
   | { kind: "predict"; type: "click"; prompt?: string; answer: string | string[] }
   | { kind: "predict"; type: "order"; prompt?: string; choices: string[]; answer: string[] }
-  | { kind: "predict"; type: "match"; prompt?: string; pairs: [string, string][]; answer?: [string, string][] };
+  | { kind: "predict"; type: "match"; prompt?: string; pairs: [string, string][]; answer?: [string, string][] }
+  | { kind: "predict"; type: "yesno"; prompt?: string; answer: "yes" | "no" }
+  | { kind: "explain"; type: "words"; prompt?: string };
+
+export type Form = "say" | "applies" | "fresh";
 
 export interface Step {
   step: number;
@@ -38,6 +42,17 @@ export interface Step {
   do?: StepOp[];
   challenge?: Challenge;
   voice?: Voice;
+  form?: Form;
+  direction?: "forward" | "back";
+  case_id?: number;
+}
+
+export interface Practice {
+  rule_id?: number;
+  rule: string;
+  condition: string;
+  slots: string[];
+  items: Step[];
 }
 
 export interface LessonHeader {
@@ -53,25 +68,38 @@ export interface LessonSource {
   id: string;
   lesson: LessonHeader;
   steps: Step[];
+  practice?: Practice;
   done: boolean;
+}
+
+interface PracticeLine {
+  rule: string;
+  condition: string;
+  slots: string[];
+  challenges: Step[];
 }
 
 export function parseJsonl(id: string, text: string): LessonSource {
   let lesson: LessonHeader | null = null;
+  const held: { practice?: PracticeLine } = {};
   const steps: Step[] = [];
   text.split("\n").forEach((line, index) => {
     if (!line.trim()) return;
-    let parsed: { lesson?: LessonHeader } & Partial<Step>;
+    let parsed: { lesson?: LessonHeader; practice?: PracticeLine } & Partial<Step>;
     try {
       parsed = JSON.parse(line);
     } catch (error) {
       fail(`lesson ${id} line ${index + 1} is not valid JSON: ${(error as Error).message}`);
     }
     if (parsed.lesson) lesson = parsed.lesson;
+    else if (parsed.practice) held.practice = parsed.practice;
     else steps.push(parsed as Step);
   });
   if (!lesson) fail(`lesson ${id} has no {"lesson": ...} header line`);
-  return { id, lesson, steps, done: true };
+  const first = (steps.at(-1)?.step ?? 0) + 1;
+  const practice = held.practice;
+  const wire = practice && { rule: practice.rule, condition: practice.condition, slots: practice.slots, items: practice.challenges.map((item, index) => ({ ...item, step: first + index })) };
+  return { id, lesson, steps, ...(wire && { practice: wire }), done: true };
 }
 
 export const SCENE_RULES = [

@@ -8,7 +8,7 @@ import { loadMintedLabs } from "./minted";
 import { Playback } from "./playback";
 import { Recorder } from "./recorder";
 import { StageRenderer } from "./render";
-import { resolveProfileId, listLessons, loadLesson, postAnswer } from "./source";
+import { resolveProfileId, listLessons, loadLesson, submitAnswer } from "./source";
 import { fitStage } from "./stage-fit";
 import { THEMES, type ThemeId } from "./theme";
 import { applyThemeVars } from "./theme-css";
@@ -25,8 +25,12 @@ const playButton = $<HTMLButtonElement>("#play");
 const clock = $("#clock");
 const caption = $("#caption");
 const ticks = $("#ticks");
-const overlay = $("#overlay");
+const challengeSlot = $("#challenge");
+const transport = $(".transport");
+new ResizeObserver(() => challengeSlot.hidden || transport.scrollIntoView({ block: "nearest" })).observe(challengeSlot);
 const status = $("#status");
+const practiceBadge = h("p", { class: "practice-badge", hidden: true });
+$(".stage-frame").append(practiceBadge);
 
 fitStage($(".stage-frame"));
 
@@ -84,32 +88,41 @@ function renderTicks(): void {
   const total = playback.timeline.duration || 1;
   if (tickCount === playback.timeline.steps.length) return;
   tickCount = playback.timeline.steps.length;
+  const practiceStart = playback.timeline.practiceStart;
   ticks.replaceChildren(...playback.timeline.steps.map((span, index) => h("i", {
     class: span.step.challenge ? "tick challenge" : "tick",
     style: `left:${(span.start / total) * 100}%`,
-    title: `Step ${span.step.step}`,
+    title: span.step.form ? `Practice - ${span.step.form}` : `Step ${span.step.step}`,
     "data-index": String(index),
-  })));
+  })), ...(practiceStart === null ? [] : [h("b", { class: "practice-divider", style: `left:${(practiceStart / total) * 100}%` }, h("span", {}, "Practice"))]));
 }
 
-function renderOverlay(): void {
+function renderPracticeBadge(): void {
+  const form = playback.pending?.form ?? playback.timeline.steps[playback.timeline.stepIndexAt(playback.time)]?.step.form;
+  const cardSaysIt = Boolean(playback.pending) && playback.header.reading !== false;
+  practiceBadge.hidden = !form || cardSaysIt;
+  practiceBadge.textContent = form ? `Practice - ${form}` : "";
+}
+
+function renderChallenge(): void {
   const pending = playback.pending;
   if (!pending) {
-    overlay.hidden = true;
+    challengeSlot.hidden = true;
     shownChallenge = -1;
+    challengeView?.dispose();
     challengeView = null;
-    overlay.replaceChildren();
+    challengeSlot.replaceChildren();
     return;
   }
   if (shownChallenge === pending.step) return;
   shownChallenge = pending.step;
   challengeView = buildChallenge(pending.challenge, {
-    onAnswer: (given, correct) => { if (profileId !== null) void postAnswer(lessonId, pending.step, pending.challenge, given, correct, profileId); },
+    onAnswer: (given, correct) => submitAnswer(lessonId, pending, given, correct, profileId),
     onContinue: () => playback.answer(),
-  });
-  overlay.replaceChildren(challengeView.element);
-  overlay.hidden = false;
-  overlay.querySelector<HTMLInputElement>("input")?.focus();
+  }, { reading: playback.header.reading !== false, form: pending.form, say: pending.say });
+  challengeSlot.replaceChildren(challengeView.element);
+  challengeSlot.hidden = false;
+  challengeSlot.querySelector<HTMLElement>("input, textarea")?.focus({ preventScroll: true });
 }
 
 function renderStatus(): void {
@@ -125,7 +138,8 @@ function render(): void {
   renderer.draw(playback.frame(), THEMES[playback.themeId]);
   renderCaption();
   renderTicks();
-  renderOverlay();
+  renderPracticeBadge();
+  renderChallenge();
   renderStatus();
   const duration = playback.timeline.duration;
   scrub.max = String(duration);
@@ -148,6 +162,8 @@ async function open(id: string, beingWritten = false): Promise<void> {
   tickCount = -1;
   captionStep = -1;
   shownChallenge = -1;
+  challengeView?.dispose();
+  challengeView = null;
   playback.subscribe(render);
   applyTheme(themeId);
   const current = playback;
@@ -156,6 +172,7 @@ async function open(id: string, beingWritten = false): Promise<void> {
   await loadLesson(id, {
     header: (header) => { current.setHeader(header); document.title = `${header.title} - Pennydrop`; titlePickerOption(id, header.title); },
     step: (step) => current.addStep(step),
+    practice: (practice) => current.addPractice(practice),
     done: () => current.finishLesson(),
     error: (message) => current.fail(message),
   }, loading.signal).catch((failure: Error) => current.fail(failure.message));
@@ -211,7 +228,7 @@ async function toggleRecording(): Promise<void> {
 }
 
 function wireControls(): void {
-  $(".top").insertBefore(askBar.element, $("#themes"));
+  $(".bar").insertBefore(askBar.element, $("#themes"));
   $(".stage-frame").append(askBar.note);
   playButton.addEventListener("click", () => playback.toggle());
   scrub.addEventListener("input", () => { scrubbing = true; playback.seek(Number(scrub.value)); });
@@ -226,7 +243,7 @@ function wireControls(): void {
   });
   picker.addEventListener("change", () => void open(picker.value));
   document.addEventListener("keydown", (event) => {
-    if (event.target instanceof HTMLInputElement && event.target.type !== "range") return;
+    if (event.target instanceof HTMLTextAreaElement || (event.target instanceof HTMLInputElement && event.target.type !== "range")) return;
     if (event.target instanceof HTMLButtonElement && event.key === " ") return;
     if (event.key === " ") { event.preventDefault(); playback.toggle(); }
     if (event.key === "ArrowRight") playback.seek(playback.time + 5);

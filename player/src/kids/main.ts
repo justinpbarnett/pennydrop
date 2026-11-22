@@ -24,5 +24,6 @@ new KidsApp({
   why: $<HTMLButtonElement>("#why"),
   mic: $<HTMLButtonElement>("#mic"),
   play: $<HTMLButtonElement>("#play"),
+  answers: $("#answers"),
 }, profileId);
 await loadFonts();

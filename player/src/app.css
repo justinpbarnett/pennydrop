@@ -15,13 +15,15 @@ html, body { margin: 0; height: 100%; }
 body { background: var(--ground); color: var(--ink); font-family: var(--font-read); transition: background 0.4s, color 0.4s; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 #app { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; height: 100dvh; padding: 0 16px; }
+#app:has(.challenge-slot:not([hidden])) { grid-template-rows: auto minmax(min(50dvh, calc((100vw - 32px) * 9 / 16)), 1fr) auto; }
 .top, .transport { width: var(--stage-width, 100%); margin-inline: auto; }
 
-.top { display: grid; grid-template-columns: auto 240px minmax(0, 1fr) auto; grid-template-areas: "mark pick ask themes"; align-items: center; gap: 16px; padding: 14px 0 12px; }
-.top .mark { grid-area: mark; }
-.top .picker { grid-area: pick; min-width: 0; }
-.top .ask { grid-area: ask; }
-.top .themes { grid-area: themes; }
+.top { container: top / inline-size; }
+.bar { display: grid; grid-template-columns: auto minmax(140px, 240px) minmax(230px, 1fr) auto; grid-template-areas: "mark pick ask themes"; align-items: center; gap: 16px; padding: 14px 0 12px; }
+.bar .mark { grid-area: mark; }
+.bar .picker { grid-area: pick; min-width: 0; }
+.bar .ask { grid-area: ask; }
+.bar .themes { grid-area: themes; }
 .mark { margin: 0; font: var(--weight-mark) 22px/1 var(--font-mark); letter-spacing: var(--tracking-mark); text-transform: var(--mark-case); display: flex; align-items: center; gap: 10px; }
 .mark { white-space: nowrap; }
 .mark::before { content: ""; flex: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
@@ -36,18 +38,21 @@ body { background: var(--ground); color: var(--ink); font-family: var(--font-rea
 .stage-area { display: grid; place-items: center; min-height: 0; }
 .stage-frame { position: relative; width: var(--stage-width, 100%); aspect-ratio: 16 / 9; border: 1px solid var(--rule); border-radius: min(var(--corner), 20px); overflow: hidden; background: var(--ground); }
 #stage { display: block; width: 100%; height: 100%; }
-.overlay { position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--ground) 62%, transparent); backdrop-filter: blur(3px); padding: 24px; }
-.overlay[hidden], .status[hidden] { display: none; }
+.status[hidden] { display: none; }
 .status { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: var(--fill2); color: var(--ink); border: 1px solid var(--rule); border-radius: min(var(--corner), 20px); padding: 8px 16px; font-size: 14px; }
 .status.error { border-color: var(--fault); color: var(--fault); }
 
-.challenge-card { width: min(560px, 100%); background: var(--fill); border: 1px solid var(--accent); border-radius: min(var(--corner), 20px); padding: 22px 26px 24px; display: grid; gap: 14px; }
+.challenge-card { background: var(--fill); border: 1px solid var(--accent); border-radius: min(var(--corner), 20px); padding: 22px 26px 24px; display: grid; gap: 14px; }
 .challenge-kicker { margin: 0; color: var(--accent); font: var(--weight-mark) 14px var(--font-mark); letter-spacing: 0.14em; text-transform: uppercase; }
 .challenge-prompt { margin: 0; font: var(--weight-mark) 22px/1.35 var(--font-mark); letter-spacing: 0.01em; }
 .challenge-body { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .challenge-hint { margin: 0; color: var(--muted); font-size: 14px; flex-basis: 100%; }
 .challenge-feedback { margin: 0; font: 600 18px var(--font-read); }
-.challenge-feedback:empty { display: none; }
+.challenge-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.challenge-verdict:not(:has(.continue)):has(> .challenge-feedback:empty) { display: none; }
+.challenge-verdict .continue { margin-left: auto; min-width: 160px; }
+.challenge-card:is(.right, .wrong) .challenge-hint { display: none; }
+.challenge-card:is(.right, .wrong) .challenge-body:not(:has(> :not(.challenge-hint))) { display: none; }
 .challenge-card input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 .challenge-card input::-webkit-outer-spin-button, .challenge-card input::-webkit-inner-spin-button { appearance: none; margin: 0; }
 .challenge-feedback.right { color: var(--done); }
@@ -69,6 +74,7 @@ button:focus-visible, select:focus-visible, input[type="range"]:focus-visible { 
 .transport { padding: 12px 0 16px; display: grid; gap: 10px; }
 .caption { margin: 0; min-height: calc(3 * 1.55em); font: 500 20px/1.55 var(--font-read); color: var(--muted); }
 .caption .spoken { color: var(--ink); }
+.challenge-slot[hidden], .transport:has(> .challenge-slot:not([hidden])) > .caption { display: none; }
 .caption .now { color: var(--ink); background: linear-gradient(to top, var(--mark) 0 45%, transparent 45%); }
 .controls { display: flex; align-items: center; gap: 16px; }
 .play { width: 46px; height: 46px; flex: none; border-radius: 50%; border: 1px solid var(--accent); background: var(--accent); color: var(--ground); cursor: pointer; display: grid; place-items: center; }
@@ -93,12 +99,25 @@ button:focus-visible, select:focus-visible, input[type="range"]:focus-visible { 
 @media (max-width: 1260px) {
   .top { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "mark pick themes" "ask ask ask"; row-gap: 10px; }
 }
-@media (max-width: 900px) {
+@container top (width < 1120px) {
+  .swatch { padding: 5px 6px; }
   .swatch .label { display: none; }
 }
+@container top (width < 780px) {
+  .bar { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "mark pick themes" "ask ask ask"; }
+}
+@container top (width < 540px) {
+  .bar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "mark themes" "pick pick" "ask ask"; }
+}
+@container top (width < 420px) {
+  .mark { font-size: 18px; gap: 8px; }
+  .themes { gap: 4px; }
+}
 @media (max-width: 720px) {
-  .top { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "mark themes" "pick pick" "ask ask"; }
   .caption { font-size: 17px; }
+  .controls { flex-wrap: wrap; row-gap: 4px; }
+  .scrub { flex: 1 1 0; min-width: 120px; }
+  .clock { margin-right: auto; min-width: 0; text-align: left; }
 }
 
 .ask { position: relative; min-width: 0; display: flex; align-items: center; gap: 8px; }
@@ -111,11 +130,26 @@ button:focus-visible, select:focus-visible, input[type="range"]:focus-visible { 
 .mic:hover:not(:disabled) { border-color: var(--accent); }
 .mic:disabled, .ask input:disabled { opacity: 0.5; cursor: default; }
 .mic .meter { position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--fault); opacity: 0; transform: scale(calc(0.9 + var(--level, 0) * 0.35)); transition: transform 0.06s linear; }
-.ask.recording .mic { border-color: var(--fault); background: color-mix(in srgb, var(--fault) 22%, var(--fill)); color: var(--fault); animation: recording 1.2s ease-in-out infinite; }
-.ask.recording .mic .meter { opacity: 0.85; }
+.recording .mic { border-color: var(--fault); background: color-mix(in srgb, var(--fault) 22%, var(--fill)); color: var(--fault); animation: recording 1.2s ease-in-out infinite; }
+.recording .mic .meter { opacity: 0.85; }
 @keyframes recording { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--fault) 25%, transparent); } }
 .ask-note { position: absolute; top: 12px; left: 16px; right: 16px; width: fit-content; margin: 0 auto; z-index: 2; max-height: calc(2.8em + 14px); overflow: hidden; pointer-events: none; text-align: center; font: 14px/1.4 var(--font-read); color: var(--muted); background: var(--fill2); border: 1px solid var(--rule); border-radius: min(var(--corner), 12px); padding: 6px 14px; }
 .ask-note[hidden] { display: none; }
 .ask-note.heard { color: var(--ink); }
 .ask-note.error { color: var(--fault); border-color: var(--fault); }
 .status.quiet { background: transparent; border-color: transparent; color: var(--muted); }
+
+.challenge-card textarea { flex: 1 1 100%; min-height: 88px; font: 17px/1.45 var(--font-read); color: var(--ink); background: var(--ground); border: 1px solid var(--rule); border-radius: min(var(--corner), 14px); padding: 12px 14px; resize: vertical; }
+.challenge-card textarea::placeholder { color: var(--muted); }
+.challenge-card textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
+.challenge-body .mic { width: 44px; height: 44px; }
+.challenge-body .primary { margin-left: auto; }
+.challenge-card button.choice:not(.icon) { min-width: 96px; }
+.challenge-detail { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.challenge-detail:empty { display: none; }
+.challenge-feedback:not(.right):not(.wrong):not(:empty) { color: var(--muted); font-weight: 400; }
+
+.practice-badge { position: absolute; top: 12px; left: 16px; z-index: 2; margin: 0; padding: 5px 12px; font: var(--weight-mark) 13px/1 var(--font-mark); letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); background: var(--fill2); border: 1px solid var(--accent); border-radius: min(var(--corner), 12px); pointer-events: none; }
+.practice-badge[hidden] { display: none; }
+.practice-divider { position: absolute; top: -4px; bottom: -4px; width: 0; margin-left: -1px; border-left: 2px dashed var(--ink); pointer-events: none; }
+.practice-divider span { position: absolute; left: 6px; top: -10px; padding: 1px 6px; font: var(--weight-mark) 11px/1.2 var(--font-mark); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ground); background: var(--accent); border-radius: min(var(--corner), 6px); }

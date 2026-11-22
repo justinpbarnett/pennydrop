@@ -1,4 +1,5 @@
-import { type Challenge, type LessonHeader, parseJsonl, type Step } from "./format";
+import { type Challenge, type Form, type LessonHeader, parseJsonl, type Practice, type Step } from "./format";
+import type { PendingChallenge } from "./playback";
 
 export interface LessonListing {
   id: string;
@@ -8,6 +9,7 @@ export interface LessonListing {
 export interface LessonSink {
   header(header: LessonHeader): void;
   step(step: Step): void;
+  practice(practice: Practice): void;
   done(): void;
   error(message: string): void;
 }
@@ -54,6 +56,7 @@ export function streamLesson(id: string, sink: LessonSink, received: () => numbe
     signal?.addEventListener("abort", finish);
     listen("lesson", (data) => sink.header(headerOf(data)));
     listen("step", (data) => sink.step(data as unknown as Step));
+    listen("practice", (data) => sink.practice(data as unknown as Practice));
     listen("done", () => {
       sink.done();
       finish();
@@ -76,6 +79,7 @@ async function loadStatic(id: string, sink: LessonSink): Promise<void> {
   const source = parseJsonl(id, await response.text());
   sink.header(source.lesson);
   source.steps.forEach((step) => sink.step(step));
+  if (source.practice) sink.practice(source.practice);
   sink.done();
 }
 
@@ -117,4 +121,44 @@ export async function postAnswer(lesson: string, step: number, challenge: Challe
   } catch {
     return;
   }
+}
+
+export interface Verdict {
+  correct: boolean;
+  feedback: string;
+}
+
+export interface RuleReview {
+  rule_id: number;
+  rule: string;
+  condition: string;
+  lesson_id: string;
+  lesson_title: string | null;
+  form: Form;
+  direction: "forward" | "back" | null;
+  passed: Form[];
+  held: boolean;
+  schedule: { ease: number; interval_days: number; reps: number; lapses: number };
+  due: string;
+}
+
+export interface PracticeReply extends Verdict {
+  review: RuleReview;
+}
+
+export async function postPracticeAnswer(profile: number, caseId: number, given: unknown, correct: boolean | null): Promise<PracticeReply> {
+  const response = await fetch("/api/practice/answers", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ profile_id: profile, case_id: caseId, answer: given, correct }),
+  });
+  if (!response.ok) throw new Error(`the answer was not saved: the server answered ${response.status}`);
+  return (await response.json()) as PracticeReply;
+}
+
+export async function submitAnswer(lesson: string, pending: PendingChallenge, given: unknown, correct: boolean | null, profile: number | null): Promise<Verdict> {
+  if (pending.caseId !== undefined && profile !== null) return postPracticeAnswer(profile, pending.caseId, given, correct);
+  if (correct === null) throw new Error("there is no Profile to grade this answer for");
+  if (profile !== null && pending.caseId === undefined) await postAnswer(lesson, pending.step, pending.challenge, given, correct, profile);
+  return { correct, feedback: "" };
 }

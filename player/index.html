@@ -9,19 +9,21 @@
   <body>
     <div id="app">
       <header class="top">
-        <h1 class="mark">Pennydrop</h1>
-        <label class="picker"><span class="sr">Lesson</span><select id="lesson"></select></label>
-        <div id="themes" class="themes" role="radiogroup" aria-label="Theme"></div>
+        <div class="bar">
+          <h1 class="mark">Pennydrop</h1>
+          <label class="picker"><span class="sr">Lesson</span><select id="lesson"></select></label>
+          <div id="themes" class="themes" role="radiogroup" aria-label="Theme"></div>
+        </div>
       </header>
       <main class="stage-area">
         <div class="stage-frame">
           <svg id="stage" role="img" aria-label="Lesson stage"></svg>
-          <div id="overlay" class="overlay" hidden></div>
           <div id="status" class="status" role="status" hidden></div>
         </div>
       </main>
       <footer class="transport">
         <p id="caption" class="caption" aria-live="off"></p>
+        <div id="challenge" class="challenge-slot" hidden></div>
         <div class="controls">
           <button id="play" class="play" type="button" aria-label="Play"></button>
           <div class="scrub">

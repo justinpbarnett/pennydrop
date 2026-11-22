@@ -1,4 +1,18 @@
-import type { Challenge } from "../format";
+import type { Step } from "../format";
+import type { RuleReview } from "../source";
+
+export interface CourseRule {
+  rule_id: number;
+  rule: string;
+  condition: string;
+  held: boolean;
+}
+
+export interface CourseLink {
+  lesson_id: string;
+  title: string;
+  rules: [number, number];
+}
 
 export interface CourseTopic {
   id: number;
@@ -8,6 +22,7 @@ export interface CourseTopic {
   subtopics: string[];
   lesson_id: string | null;
   lesson_status: string | null;
+  rules: CourseRule[];
 }
 
 export interface Course {
@@ -17,20 +32,9 @@ export interface Course {
   summary: string;
   honor_code: string;
   topics: CourseTopic[];
-}
-
-export interface ReviewItem {
-  id: number;
-  profile_id: number;
-  lesson_id: string;
-  step_n: number;
-  prompt: Challenge;
-  schedule: { ease: number; interval_days: number; reps: number; lapses: number };
-  due: string;
-  lesson_title: string | null;
-  kind: string | null;
-  type: string;
-  answer_shape: string;
+  rules_held: number;
+  rules_total: number;
+  links: CourseLink[];
 }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -39,16 +43,17 @@ async function getJson<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-export const fetchCourses = () => getJson<Course[]>("/api/courses");
-export const fetchCourse = (reference: string) => getJson<Course>(`/api/courses/${encodeURIComponent(reference)}`);
-export const fetchDue = (profile: number) => getJson<ReviewItem[]>(`/api/review?profile_id=${profile}`);
-export const fetchQueue = (profile: number) => getJson<ReviewItem[]>(`/api/review/queue?profile_id=${profile}`);
-export const fetchLessonDocument = (id: string) => getJson<Record<string, unknown>>(`/api/lessons/${encodeURIComponent(id)}`);
+const forProfile = (profile: number | null) => (profile === null ? "" : `?profile_id=${profile}`);
 
-export async function answerReview(item: number, answer: unknown, correct: boolean): Promise<ReviewItem> {
-  const response = await fetch(`/api/review/${item}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ answer, correct }) });
-  if (!response.ok) throw new Error(`the answer was not saved: the server answered ${response.status}`);
-  return (await response.json()) as ReviewItem;
+export const fetchCourses = (profile: number | null) => getJson<Course[]>(`/api/courses${forProfile(profile)}`);
+export const fetchCourse = (reference: string, profile: number | null) => getJson<Course>(`/api/courses/${encodeURIComponent(reference)}${forProfile(profile)}`);
+export const fetchDue = (profile: number) => getJson<RuleReview[]>(`/api/review?profile_id=${profile}`);
+export const fetchQueue = (profile: number) => getJson<RuleReview[]>(`/api/review/queue?profile_id=${profile}`);
+
+export async function fetchCase(rule: number, profile: number): Promise<Step> {
+  const response = await fetch(`/api/review/${rule}/case`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ profile_id: profile }) });
+  if (!response.ok) throw new Error(`a new case could not be written: the server answered ${response.status}`);
+  return (await response.json()) as Step;
 }
 
 export function comesBack(iso: string, now = new Date()): string {

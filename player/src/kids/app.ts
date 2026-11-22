@@ -1,10 +1,12 @@
 import { AskError, postAsk, type AskOrigin } from "../ask-client";
 import { isCorrect } from "../challenge";
+import { buildChallenge, type ChallengeView } from "../challenge-ui";
 import { h } from "../dom";
-import { Playback } from "../playback";
+import { Endpoint } from "../endpoint";
+import { type PendingChallenge, Playback } from "../playback";
 import { Recorder } from "../recorder";
 import { StageRenderer } from "../render";
-import { loadLesson, postAnswer } from "../source";
+import { loadLesson, submitAnswer, type Verdict } from "../source";
 import { fitStage } from "../stage-fit";
 import { THEMES } from "../theme";
 import { Sounds } from "./sounds";
@@ -13,11 +15,6 @@ import { type Line, SystemVoice, unlockAudio } from "./voice";
 
 type Mood = "idle" | "listen" | "think" | "sad" | null;
 
-const SPEECH_LEVEL = 0.12;
-const QUIET_LEVEL = 0.06;
-const QUIET_SECONDS = 1.4;
-const LONGEST_ASK_SECONDS = 20;
-const MINIMUM_SPEECH_SECONDS = 0.4;
 const NOTICE_SECONDS = 3;
 const WRONG_TAPS_ALLOWED = 3;
 const CONTINUE_AFTER_RIGHT_MS = 1300;
@@ -30,6 +27,7 @@ export interface KidsElements {
   why: HTMLButtonElement;
   mic: HTMLButtonElement;
   play: HTMLButtonElement;
+  answers: HTMLElement;
 }
 
 export class KidsApp {
@@ -50,11 +48,8 @@ export class KidsApp {
   private shownChallenge = -1;
   private tapsWrong = 0;
   private firstTapDone = false;
-  private heardSpeech = false;
-  private speechSeconds = 0;
-  private quietSeconds = 0;
-  private lastLevelAt = 0;
-  private recordingSince = 0;
+  private readonly endpoint = new Endpoint();
+  private answerView: ChallengeView | null = null;
 
   constructor(private readonly ui: KidsElements, private readonly profileId: number | null) {
     this.renderer = new StageRenderer(ui.stage);
@@ -112,6 +107,7 @@ export class KidsApp {
     await loadLesson(id, {
       header: (header) => current.setHeader(header),
       step: (step) => current.addStep(step),
+      practice: (practice) => current.addPractice(practice),
       done: () => current.finishLesson(),
       error: () => this.fail("oops"),
     }, this.loading.signal).catch(() => this.fail("oops"));
@@ -147,17 +143,12 @@ export class KidsApp {
     if (this.recorder.recording) {
       const audio = await this.recorder.stop();
       this.ui.mic.setAttribute("aria-pressed", "false");
-      const spoke = this.speechSeconds >= MINIMUM_SPEECH_SECONDS;
-      if (spoke) await this.ask({ audio });
+      if (this.endpoint.spoke) await this.ask({ audio });
       else this.fail("nothing-heard");
       return;
     }
     this.playback.pause();
-    this.heardSpeech = false;
-    this.speechSeconds = 0;
-    this.quietSeconds = 0;
-    this.lastLevelAt = 0;
-    this.recordingSince = performance.now();
+    this.endpoint.begin(performance.now());
     try {
       await this.recorder.start();
       this.ui.mic.setAttribute("aria-pressed", "true");
@@ -171,19 +162,7 @@ export class KidsApp {
   private onLevel(level: number): void {
     this.ui.mic.style.setProperty("--level", level.toFixed(3));
     if (!this.recorder.recording) return;
-    const now = performance.now();
-    const elapsed = this.lastLevelAt ? (now - this.lastLevelAt) / 1000 : 0;
-    this.lastLevelAt = now;
-    if (level > SPEECH_LEVEL) {
-      this.heardSpeech = true;
-      this.speechSeconds += elapsed;
-      this.quietSeconds = 0;
-    } else if (this.heardSpeech && level < QUIET_LEVEL) {
-      this.quietSeconds += elapsed;
-    }
-    const talkedEnough = this.heardSpeech && this.quietSeconds >= QUIET_SECONDS;
-    const tooLong = (now - this.recordingSince) / 1000 >= LONGEST_ASK_SECONDS;
-    if (talkedEnough || tooLong) void this.toggleRecording();
+    if (this.endpoint.finished(level, performance.now())) void this.toggleRecording();
   }
 
   private tapStage(event: MouseEvent): void {
@@ -194,8 +173,8 @@ export class KidsApp {
       this.sounds.pop();
       return;
     }
-    const correct = isCorrect(pending.challenge, part);
-    if (this.tapsWrong === 0 && this.profileId !== null) void postAnswer(this.lessonId, pending.step, pending.challenge, part, correct, this.profileId);
+    const correct = isCorrect(pending.challenge, part) === true;
+    if (this.tapsWrong === 0) void submitAnswer(this.lessonId, pending, part, correct, this.profileId);
     if (correct) {
       this.sounds.right();
       this.burst(event);
@@ -207,6 +186,34 @@ export class KidsApp {
     this.pulse("wrong");
     this.tapsWrong += 1;
     if (this.tapsWrong >= WRONG_TAPS_ALLOWED) setTimeout(() => this.playback.answer(), CONTINUE_AFTER_RIGHT_MS);
+  }
+
+  private showAnswer(pending: PendingChallenge): void {
+    this.clearAnswer();
+    this.answerView = buildChallenge(pending.challenge, {
+      onAnswer: (given, correct) => this.graded(pending, given, correct),
+      onContinue: () => undefined,
+    }, { reading: false, form: pending.form });
+    this.ui.answers.replaceChildren(this.answerView.element);
+    this.ui.answers.hidden = false;
+  }
+
+  private clearAnswer(): void {
+    this.answerView?.dispose();
+    this.answerView = null;
+    this.ui.answers.hidden = true;
+    this.ui.answers.replaceChildren();
+  }
+
+  private async graded(pending: PendingChallenge, given: unknown, correct: boolean | null): Promise<Verdict> {
+    const saved = submitAnswer(this.lessonId, pending, given, correct, this.profileId);
+    void saved.catch(() => undefined);
+    const verdict = correct === null ? await saved : { correct, feedback: "" };
+    if (verdict.correct) this.sounds.right();
+    else this.sounds.wrong();
+    this.pulse(verdict.correct ? "right" : "wrong");
+    setTimeout(() => this.playback.answer(), CONTINUE_AFTER_RIGHT_MS);
+    return verdict;
   }
 
   private pulse(kind: "right" | "wrong"): void {
@@ -240,19 +247,24 @@ export class KidsApp {
     const frame = this.ui.frame;
     const waitingForTap = playback.state === "challenge" && playback.pending?.challenge.type === "click";
     frame.classList.toggle("awaiting", waitingForTap);
-    if (playback.pending && this.shownChallenge !== playback.pending.step) this.meetChallenge(playback.pending.step, playback.pending.challenge.type);
-    if (!playback.pending) this.shownChallenge = -1;
+    if (playback.pending && this.shownChallenge !== playback.pending.step) this.meetChallenge(playback.pending);
+    if (!playback.pending) {
+      this.shownChallenge = -1;
+      this.clearAnswer();
+    }
+    const answering = this.answerView !== null;
     const playing = playback.state === "playing" || playback.state === "buffering";
     this.ui.play.replaceChildren(playing ? icons.pause() : icons.play());
     this.ui.play.disabled = !this.lessonId || this.asking;
-    this.ui.why.disabled = !this.onScreen() || this.asking || this.recorder.recording;
-    this.ui.mic.disabled = this.asking;
+    this.ui.why.disabled = !this.onScreen() || this.asking || this.recorder.recording || answering;
+    this.ui.mic.disabled = this.asking || answering;
   }
 
-  private meetChallenge(step: number, type: string): void {
-    this.shownChallenge = step;
+  private meetChallenge(pending: PendingChallenge): void {
+    this.shownChallenge = pending.step;
     this.tapsWrong = 0;
-    if (type !== "click") setTimeout(() => this.playback.answer(), 400);
+    if (pending.challenge.type === "yesno" || pending.challenge.type === "words") this.showAnswer(pending);
+    else if (pending.challenge.type !== "click") setTimeout(() => this.playback.answer(), 400);
   }
 
   private enter(mood: Mood): void {

@@ -174,6 +174,10 @@ export class Timeline {
     return this.steps.at(-1)?.end ?? 0;
   }
 
+  get practiceStart(): number | null {
+    return this.steps.find((span) => span.step.form)?.start ?? null;
+  }
+
   get stepStills(): number[] {
     return this.steps.map((span, index) => {
       const next = this.steps[index + 1];

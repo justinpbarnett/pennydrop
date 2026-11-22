@@ -28,6 +28,8 @@ export const icons = {
     ["circle", { cx: 50, cy: 88, r: 8, fill: "currentColor" }],
   ]),
   play: () => drawing("0 0 100 100", [["path", { d: "M32 18 L82 50 L32 82 Z", fill: "currentColor", stroke: "currentColor", "stroke-width": 8, "stroke-linejoin": "round" }]]),
+  tick: () => drawing("0 0 100 100", [["path", { d: "M18 54 L41 77 L83 27", ...STROKE, "stroke-width": 15 }]], "tick"),
+  cross: () => drawing("0 0 100 100", [["path", { d: "M24 24 L76 76 M76 24 L24 76", ...STROKE, "stroke-width": 15 }]], "cross"),
   pause: () => drawing("0 0 100 100", [
     ["rect", { x: 24, y: 18, width: 18, height: 64, rx: 6, fill: "currentColor" }],
     ["rect", { x: 58, y: 18, width: 18, height: 64, rx: 6, fill: "currentColor" }],

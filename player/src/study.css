@@ -57,8 +57,55 @@ body.study { overflow: auto; height: auto; min-height: 100%; }
 .queue td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; font-variant-numeric: lining-nums tabular-nums; }
 .queue td.due { color: var(--ink); font-weight: 700; }
 
+.study .progress { margin: 0 0 16px; font: var(--weight-mark) 18px var(--font-mark); color: var(--accent); }
+.topic { grid-template-areas: "code text badge open" "rules rules rules rules"; }
+.topic > .code { grid-area: code; }
+.topic-text { grid-area: text; }
+.topic > .badge { grid-area: badge; }
+.topic > .open { grid-area: open; }
+.course-rules { grid-area: rules; list-style: none; margin: 4px 0 0; padding: 12px 0 0; border-top: 1px solid var(--rule); display: grid; gap: 8px; }
+.course-rule { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 12px; font-size: 15px; line-height: 1.4; }
+.rule-mark { width: 14px; height: 14px; justify-self: center; border: 2px solid var(--rule); border-radius: 50%; }
+.course-rule.held .rule-mark { border-color: var(--done); background: var(--done); box-shadow: inset 0 0 0 3px var(--fill); }
+.course-rule:not(.held) .rule-name { color: var(--muted); }
+.links { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.link-lesson { display: grid; gap: 4px; padding: 12px 16px; background: var(--fill); border: 1px solid var(--rule); border-left: 3px solid var(--accent); border-radius: min(var(--corner), 14px); }
+.link-title { font-size: 16px; font-weight: 700; }
+.link-rules { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+.rule-lists section { margin-bottom: 32px; }
+.rule-lists[hidden] { display: none; }
+.rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rule-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto 120px 150px; align-items: center; gap: 16px; padding: 14px 16px; background: var(--fill); border: 1px solid var(--rule); border-radius: min(var(--corner), 14px); }
+.rule-text p, .rule-next, .rule-when { margin: 0; }
+.rule-statement { font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
+.rule-condition { margin-top: 3px !important; font-size: 13px; color: var(--muted); }
+.rule-next { display: grid; gap: 2px; font-size: 15px; }
+.rule-next span { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.rule-when { font-size: 13px; color: var(--muted); font-variant-numeric: lining-nums tabular-nums; }
+.rule-row .badge { justify-self: start; }
+.rule-row .primary { justify-self: end; }
+.pips { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; }
+.pip { font-size: 12px; padding: 3px 9px; border: 1px solid var(--rule); border-radius: 999px; color: var(--muted); white-space: nowrap; }
+.pip.on { color: var(--ground); background: var(--done); border-color: var(--done); font-weight: 700; }
+.review-panel .case-say { margin: 0; font: var(--weight-mark) 20px/1.4 var(--font-mark); }
+.review-panel .rule-reveal { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.review-panel .rule-reveal:empty { display: none; }
+.review-panel .rule-reveal strong { color: var(--ink); }
+.writing { display: flex; align-items: center; gap: 16px; padding: 22px 24px; background: var(--fill); border: 1px solid var(--rule); border-radius: min(var(--corner), 20px); }
+.writing p { margin: 0; }
+.writing-title { font: var(--weight-mark) 18px/1.35 var(--font-mark); }
+.writing-note { margin-top: 4px !important; font-size: 14px; color: var(--muted); }
+.spinner { flex: none; width: 22px; height: 22px; border: 3px solid var(--rule); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+
 @media (max-width: 1000px) {
+  .rule-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .rule-row .pips, .rule-row .rule-next, .rule-row .badge, .rule-row .rule-when { grid-column: 1; }
+  .rule-row .primary { grid-column: 2; grid-row: 1; align-self: start; }
+  .topic { grid-template-areas: "code text" "code badge" "code open" "rules rules"; }
+  .topic .open { justify-self: start; }
   .review-work { grid-template-columns: minmax(0, 1fr); }
   .topic { grid-template-columns: 56px minmax(0, 1fr); }
-  .topic .badge, .topic .open { grid-column: 2; }
 }

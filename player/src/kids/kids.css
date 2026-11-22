@@ -69,3 +69,24 @@ html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: non
 .avatar-choice { flex: none; width: clamp(120px, 28vmin, 240px); height: clamp(120px, 28vmin, 240px); padding: 10px; border: 0; border-radius: 50%; background: #fff; cursor: pointer; box-shadow: 0 10px 0 rgba(42, 26, 77, 0.2); }
 .avatar-choice:active { transform: translateY(6px); }
 .avatar-choice svg { width: 100%; height: 100%; overflow: visible; }
+
+.dock:has(.kanswer:not([hidden])) > button { display: none; }
+.kanswer, .kanswer .challenge-card, .kanswer .challenge-body { display: flex; flex-direction: inherit; gap: 22px; align-items: center; justify-content: center; }
+.kanswer[hidden] { display: none; }
+.kanswer button { flex: none; display: grid; place-items: center; width: var(--mid); height: var(--mid); padding: 0; border: 0; border-radius: 50%; color: #fff; cursor: pointer; box-shadow: 0 8px 0 rgba(42, 26, 77, 0.28), inset 0 -6px 0 rgba(42, 26, 77, 0.18); transition: transform 0.08s, box-shadow 0.08s, opacity 0.2s; }
+.kanswer button:active:not(:disabled) { transform: translateY(6px); box-shadow: 0 2px 0 rgba(42, 26, 77, 0.28), inset 0 -3px 0 rgba(42, 26, 77, 0.18); }
+.kanswer button:disabled { opacity: 0.35; cursor: default; }
+.kanswer button.picked, .kanswer button.answer { opacity: 1; }
+.kanswer button.picked:not(.answer) { opacity: 0.35; }
+.kanswer svg { width: 56%; height: 56%; }
+.kanswer .yes { background: var(--done); }
+.kanswer .no { background: var(--fault); }
+.kanswer .mic.big { width: var(--big); height: var(--big); position: relative; background: var(--accent); }
+.kanswer .mic.big[aria-pressed="true"] { background: var(--fault); animation: listening 1.1s ease-in-out infinite; }
+.kanswer .mic.big[aria-pressed="true"]::before { content: ""; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 min(8px, calc(var(--level, 0) * 70px)) color-mix(in srgb, var(--fault) 40%, transparent); transition: box-shadow 0.08s; }
+.kanswer .mic.big:not([aria-pressed="true"]):not(:disabled) { animation: awaiting 1.1s ease-in-out infinite; }
+.kanswer .mic .meter, .kanswer .mic .tick, .kanswer .mic .cross { display: none; }
+.kanswer .wordless.right .mic.big { background: var(--done); animation: none; opacity: 1; }
+.kanswer .wordless.wrong .mic.big { background: var(--fault); animation: none; opacity: 1; }
+.kanswer .wordless.right .mic.big .tick, .kanswer .wordless.wrong .mic.big .cross { display: block; }
+.kanswer .wordless.right .mic.big svg:first-of-type, .kanswer .wordless.wrong .mic.big svg:first-of-type { display: none; }

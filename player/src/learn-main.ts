@@ -34,8 +34,8 @@ await loadFonts();
 document.title = `${section === "review" ? "Review" : "Courses"} - Pennydrop`;
 
 try {
+  const profile = await resolveProfileId(query.has("profile") ? Number(query.get("profile")) : null);
   if (section === "review") {
-    const profile = await resolveProfileId(query.has("profile") ? Number(query.get("profile")) : null);
     if (profile === null) {
       view.replaceChildren(h("p", { class: "none" }, "There is no adult Profile yet, so there is nothing to review. Add one with pd profile add --kind adult."));
     } else {
@@ -44,7 +44,7 @@ try {
       review.start();
     }
   } else {
-    view.replaceChildren(query.has("course") ? await courseDetail(query.get("course")!) : await courseList());
+    view.replaceChildren(query.has("course") ? await courseDetail(query.get("course")!, profile) : await courseList(profile));
   }
 } catch (failure) {
   view.replaceChildren(h("p", { class: "none error" }, (failure as Error).message));

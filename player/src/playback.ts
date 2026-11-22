@@ -1,4 +1,4 @@
-import type { Challenge, LessonHeader, LessonSource, Step } from "./format";
+import type { Challenge, Form, LessonHeader, LessonSource, Practice, Step } from "./format";
 import { prepareStepAssets } from "./assets";
 import { type Frame, renderFrame } from "./frame";
 import { THEMES, type Theme, type ThemeId } from "./theme";
@@ -11,6 +11,9 @@ export type PlaybackState = "idle" | "playing" | "paused" | "challenge" | "buffe
 export interface PendingChallenge {
   step: number;
   challenge: Challenge;
+  say: string;
+  caseId?: number;
+  form?: Form;
 }
 
 const AUDIO_DRIFT_SECONDS = 0.25;
@@ -19,6 +22,7 @@ const LATE_SOUND_SECONDS = 0.25;
 export class Playback {
   timeline = new Timeline();
   header: LessonHeader = { title: "" };
+  practice: Pick<Practice, "rule" | "condition"> | null = null;
   error: string | null = null;
   time = 0;
   state: PlaybackState = "idle";
@@ -67,6 +71,7 @@ export class Playback {
   loadSource(source: LessonSource): void {
     this.setHeader(source.lesson);
     source.steps.forEach((step) => this.addStep(step));
+    if (source.practice) this.addPractice(source.practice);
     if (source.done) this.finishLesson();
   }
 
@@ -79,6 +84,11 @@ export class Playback {
         this.lastTick = performance.now();
       }
     });
+  }
+
+  addPractice(practice: Practice): void {
+    this.practice = { rule: practice.rule, condition: practice.condition };
+    practice.items.forEach((item) => this.addStep(item));
   }
 
   finishLesson(): void {
@@ -145,7 +155,7 @@ export class Playback {
     const gate = this.timeline.steps.find((span) => span.step.challenge && !this.answered.has(span.step.step) && this.time < span.end && target >= span.end);
     if (gate) {
       this.time = gate.end;
-      this.pending = { step: gate.step.step, challenge: gate.step.challenge! };
+      this.pending = { step: gate.step.step, challenge: gate.step.challenge!, say: gate.step.say, caseId: gate.step.case_id, form: gate.step.form };
       this.state = "challenge";
       this.audio.pause();
     } else if (target >= end) {

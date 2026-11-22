@@ -1,22 +1,38 @@
-import type { Challenge } from "./format";
-import { defaultPrompt, describeAnswer, type Given, isCorrect } from "./challenge";
+import { transcribe } from "./ask-client";
+import type { Challenge, Form } from "./format";
+import { describeAnswer, type Given, isCorrect, promptFor } from "./challenge";
 import { h } from "./dom";
+import { Endpoint } from "./endpoint";
+import { icons } from "./kids/svg";
+import { Recorder } from "./recorder";
+import type { Verdict } from "./source";
 
 export interface ChallengeHost {
-  onAnswer(given: Given, correct: boolean): void;
+  onAnswer(given: Given, correct: boolean | null): Promise<Verdict>;
   onContinue(): void;
+}
+
+export interface ChallengeOptions {
+  reading: boolean;
+  form?: Form;
+  say?: string;
 }
 
 export interface ChallengeView {
   element: HTMLElement;
   acceptPart(part: string): void;
+  dispose(): void;
 }
+
+const FORM_LABELS: Record<Form, string> = { say: "Say", applies: "Applies", fresh: "Fresh" };
 
 type ChallengeOf<T extends Challenge["type"]> = Extract<Challenge, { type: T }>;
 
 interface Controls {
   body: HTMLElement;
+  reading: boolean;
   settle(given: Given): void;
+  onDispose(cleanup: () => void): void;
 }
 
 type Builder<C extends Challenge> = (challenge: C, controls: Controls) => ((part: string) => void) | void;
@@ -88,31 +104,135 @@ function buildMatch(challenge: ChallengeOf<"match">, { body, settle }: Controls)
   body.append(line, h("div", { class: "match" }, column(lefts, "left"), column(rights, "right")));
 }
 
+function buildYesNo(challenge: ChallengeOf<"yesno">, { body, reading, settle }: Controls): void {
+  const options = [
+    { value: "yes", word: "Yes", icon: icons.tick },
+    { value: "no", word: "No", icon: icons.cross },
+  ];
+  const buttons = options.map(({ value, word, icon }) => h("button", reading ? { class: "choice" } : { class: `choice icon ${value}`, "aria-label": word }, ...(reading ? [word] : [icon()])));
+  buttons.forEach((button, index) => button.addEventListener("click", () => {
+    button.classList.add("picked");
+    buttons[options.findIndex(({ value }) => value === challenge.answer)]?.classList.add("answer");
+    settle(options[index]!.value);
+  }));
+  body.append(...buttons);
+}
+
+function buildWords(_challenge: ChallengeOf<"words">, { body, reading, settle, onDispose }: Controls): void {
+  const meter = h("i", { class: "meter" });
+  const mic = h("button", { class: "mic", type: "button", "aria-label": "Answer with your voice", "aria-pressed": "false" }, meter);
+  const hint = h("p", { class: "challenge-hint", role: "status" });
+  const endpoint = new Endpoint();
+  let listening = false;
+  const recorder = new Recorder((level) => {
+    mic.style.setProperty("--level", level.toFixed(3));
+    if (listening && endpoint.finished(level, performance.now())) void finishListening();
+  });
+  onDispose(() => recorder.cancel());
+  const field = reading ? h("textarea", { rows: "3", placeholder: "Type it here, or tap the mic and say it", "aria-label": "Your answer" }) : null;
+  const send = () => field && field.value.trim() && settle(field.value.trim());
+
+  async function startListening(): Promise<void> {
+    try {
+      await recorder.start();
+    } catch (failure) {
+      hint.textContent = (failure as Error).message;
+      return;
+    }
+    endpoint.begin(performance.now());
+    listening = true;
+    mic.setAttribute("aria-pressed", "true");
+    body.classList.add("recording");
+    hint.textContent = reading ? "Listening - tap the mic again when you are done." : "";
+  }
+
+  async function finishListening(): Promise<void> {
+    listening = false;
+    mic.setAttribute("aria-pressed", "false");
+    body.classList.remove("recording");
+    const audio = await recorder.stop();
+    if (!reading && !endpoint.spoke) return;
+    hint.textContent = reading ? "Writing down what you said..." : "";
+    mic.disabled = true;
+    try {
+      const text = await transcribe(audio);
+      if (!text) hint.textContent = "Nothing came through. Try again.";
+      else if (field) { field.value = field.value ? `${field.value} ${text}` : text; field.focus(); hint.textContent = ""; }
+      else settle(text);
+    } catch (failure) {
+      hint.textContent = (failure as Error).message;
+    }
+    mic.disabled = false;
+  }
+
+  mic.addEventListener("click", () => void (listening ? finishListening() : startListening()));
+  if (field) {
+    field.addEventListener("keydown", (event) => event.key === "Enter" && (event.metaKey || event.ctrlKey) && send());
+    body.append(field, mic, h("button", { class: "primary", type: "button", onclick: send }, "Send"), hint);
+    return;
+  }
+  mic.classList.add("big");
+  mic.append(icons.mic(), icons.tick(), icons.cross());
+  body.append(mic);
+  void startListening();
+}
+
 const BUILDERS: { [T in Challenge["type"]]: Builder<ChallengeOf<T>> } = {
   number: buildNumber,
   choice: buildChoice,
   click: buildClick,
   order: buildOrder,
   match: buildMatch,
+  yesno: buildYesNo,
+  words: buildWords,
 };
 
-export function buildChallenge(challenge: Challenge, host: ChallengeHost): ChallengeView {
+export function buildChallenge(challenge: Challenge, host: ChallengeHost, { reading, form, say }: ChallengeOptions): ChallengeView {
   const body = h("div", { class: "challenge-body" });
   const feedback = h("p", { class: "challenge-feedback", role: "status" });
-  const panel = h("section", { class: "challenge-card" }, h("p", { class: "challenge-kicker" }, "Predict"), h("p", { class: "challenge-prompt" }, challenge.prompt ?? defaultPrompt(challenge)), body, feedback);
+  const detail = h("p", { class: "challenge-detail" });
+  const verdict = h("div", { class: "challenge-verdict" }, feedback);
+  const kicker = form ? `Practice - ${FORM_LABELS[form]}` : challenge.kind === "explain" ? "Explain" : "Predict";
+  const panel = reading
+    ? h("section", { class: "challenge-card" }, h("p", { class: "challenge-kicker" }, kicker), h("p", { class: "challenge-prompt" }, promptFor(challenge, say)), body, verdict, detail)
+    : h("section", { class: "challenge-card wordless" }, body);
+  const cleanups: (() => void)[] = [];
   let settled = false;
+
+  const controls = () => body.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement>("button, input, textarea");
+  const lock = (locked: boolean) => controls().forEach((control) => (control.disabled = locked));
+  const show = (correct: boolean) => {
+    feedback.className = `challenge-feedback ${correct ? "right" : "wrong"}`;
+    const answer = describeAnswer(challenge);
+    feedback.textContent = correct ? "Right." : `Not quite.${answer ? ` The answer is ${answer}.` : ""}`;
+    panel.classList.add(correct ? "right" : "wrong");
+    if (reading && !verdict.querySelector(".continue")) verdict.append(h("button", { class: "primary continue", type: "button", onclick: () => host.onContinue() }, "Continue"));
+  };
 
   const settle = (given: Given) => {
     if (settled) return;
     settled = true;
-    const correct = isCorrect(challenge, given);
-    host.onAnswer(given, correct);
-    feedback.className = `challenge-feedback ${correct ? "right" : "wrong"}`;
-    feedback.textContent = correct ? "Right." : `Not quite. The answer is ${describeAnswer(challenge)}.`;
-    body.querySelectorAll("button, input").forEach((control) => ((control as HTMLButtonElement).disabled = true));
-    panel.append(h("button", { class: "primary", onclick: () => host.onContinue() }, "Continue"));
+    lock(true);
+    const local = isCorrect(challenge, given);
+    if (local === null) {
+      feedback.className = "challenge-feedback";
+      feedback.textContent = "Checking...";
+    } else show(local);
+    host.onAnswer(given, local).then(
+      (verdict) => {
+        if (local === null) show(verdict.correct);
+        detail.textContent = verdict.feedback;
+      },
+      (failure: Error) => {
+        if (local !== null) return;
+        settled = false;
+        lock(false);
+        feedback.className = "challenge-feedback wrong";
+        feedback.textContent = failure.message;
+      },
+    );
   };
 
-  const acceptPart = (BUILDERS[challenge.type] as Builder<Challenge>)(challenge, { body, settle });
-  return { element: panel, acceptPart: (part) => acceptPart?.(part) };
+  const acceptPart = (BUILDERS[challenge.type] as Builder<Challenge>)(challenge, { body, reading, settle, onDispose: (cleanup) => cleanups.push(cleanup) });
+  return { element: panel, acceptPart: (part) => acceptPart?.(part), dispose: () => cleanups.forEach((cleanup) => cleanup()) };
 }
