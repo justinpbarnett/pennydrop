@@ -16,6 +16,7 @@ from .writer_errors import describe
 LOG = logging.getLogger("pennydrop.asks")
 REQUEST_TIMEOUT_SECONDS = 20.0
 STREAM_LIMIT_BYTES = 16 * 1024 * 1024
+DECLARATION_PROBE = "Here it is."
 
 
 class ValidatorError(RuntimeError):
@@ -57,6 +58,10 @@ class Validator:
                 if attempt == 2:
                     raise
         raise AssertionError("unreachable")
+
+    async def declared(self, name: str, spec: dict[str, Any], reading: bool = True) -> Any:
+        verdict = await self.check({"step": 1, "say": DECLARATION_PROBE, "scene": {name: spec}}, None, reading, replay=True)
+        return next((entry["state"] for entry in verdict.scene["objects"] if entry["id"] == name), None) if verdict.ok else None
 
     async def replay(self, steps: list[dict[str, Any]], reading: bool = True) -> Any:
         scene = None

@@ -81,6 +81,14 @@ class Answers:
 
 
 @dataclass(frozen=True)
+class Redeclared:
+    name: str
+    before: dict[str, Any]
+    now: dict[str, Any]
+    moves: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class NextRun:
     contrast: bool
     beside_another: bool
@@ -241,7 +249,7 @@ class Stage:
         return next((raw for lab, raw in self.simulations.items() if raw.get("until") is not None and lab in self.labs.values()), None)
 
     def errors_in_written(self, written: Any) -> list[str]:
-        return self._graph_played_by_hand(written) + self._run_played_by_hand(written) + self._runs_in_do(written) + self._run_taken_off(written) + self._counters_owned_by_trace(written) + self._run_pointed_by_hand(written) + self._declared_again(written) + self._function_plotted(written) + self._left_blank(written) + self._code_for_child(written) + self._parts_not_shown(written)
+        return self._graph_played_by_hand(written) + self._run_played_by_hand(written) + self._runs_in_do(written) + self._run_taken_off(written) + self._counters_owned_by_trace(written) + self._run_pointed_by_hand(written) + self._function_plotted(written) + self._left_blank(written) + self._code_for_child(written) + self._parts_not_shown(written)
 
     def _parts_not_shown(self, written: Any) -> list[str]:
         operations = written.get("do") if isinstance(written, dict) and isinstance(written.get("do"), list) else []
@@ -294,13 +302,12 @@ class Stage:
         scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
         return [f'scene: {name} is set to null, which takes the {name} run off the stage, but the two runs stay side by side from Step 1 to the last Step, since seeing both is the proof; keep {name} on stage and leave it out of this Step\'s scene' for name in sorted(self.runs.kept_on_stage) if name in scene and scene[name] is None]
 
-    def _declared_again(self, written: Any) -> list[str]:
+    def redeclared(self, written: Any) -> list[Redeclared]:
         scene = written.get("scene") if isinstance(written, dict) and isinstance(written.get("scene"), dict) else {}
         return [
-            f'scene: {name} is declared again with the spec it had before {" and ".join(dict.fromkeys(self.moved[name]))} were played on it, so it would show a state the story has moved past and the narration would contradict the stage; '
-            f'keep {name} on stage and continue it with "do", or give a spec that shows its state now, such as the change those operations made, because a spec sets the object to exactly what it describes'
+            Redeclared(name, _without_counters(self.declared[name]), _without_counters(spec), tuple(dict.fromkeys(self.moved[name])))
             for name, spec in scene.items()
-            if isinstance(spec, dict) and self.moved.get(name) and _without_counters(self.declared.get(name)) == _without_counters(spec)
+            if isinstance(spec, dict) and self.moved.get(name) and name in self.declared
         ]
 
     def _graph_played_by_hand(self, written: Any) -> list[str]:

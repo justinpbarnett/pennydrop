@@ -22,7 +22,7 @@ from .directives.curves import graphed_half_way
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import PROMISE_WORDS, brings_in_a_figure, mended, mended_by_verdict, mended_cues, retold, with_one_figure_on_stage
-from .stage import Stage, question_without_challenge, ran_something, trace_totals
+from .stage import Redeclared, Stage, question_without_challenge, ran_something, trace_totals
 from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, card_matches, event_plays, plot_views, shapes_plays, shown_pictures, stress_marks
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
@@ -67,6 +67,7 @@ STILL_SIMULATION = STILL_OPENING + ', so the learner hears new words over a stil
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
 ANSWERS_CUT_QUESTION = 'say: the Step before could not keep its Challenge, so the learner was never asked "{asked}", yet this narration announces its answer as if they had been; tell this beat as a plain statement over the stage, with no words that answer a question, and keep every other field as it is'
 STRESS_OFF_STAGE = 'say: the narration singles out a different syllable from the one this Step\'s stress marks, "{marked}" ("syllable": {index}) of "{word}", the word on stage; make "syllable" the index of the syllable the narration means, or rewrite "say" to name the syllable the stage marks, and when the narration means a syllable of another word, put that word on stage first; keep every other field as it is'
+DECLARED_AGAIN = 'scene: {name} is declared again in the state it had before {moves} were played on it, so it would show a state the story has moved past and the narration would contradict the stage; keep {name} on stage and continue it with "do", or give a spec that shows its state now, such as the change those operations made, because a spec sets the object to exactly what it describes'
 ASKS_ANOTHER_QUESTION = 'challenge: this Step\'s "say" asks a different question from its Challenge, so the learner hears one question and is asked to answer another; make "say" ask the Challenge prompt\'s own question, for the same form of answer, and keep the Challenge as it is'
 ANSWER_FORMS = {"number": "The learner answers with a number.", "choice": "The learner picks one of: {choices}.", "click": "The learner answers by tapping a thing on the stage.", "order": "The learner puts these in order: {choices}.", "match": "The learner matches pairs."}
 CHALLENGE_FLAW = re.compile(r"^(step \d+ )?challenge:")
@@ -361,7 +362,7 @@ class LessonRun:
             return Checked([coached(written.reason)], None, scene)
         step = written
         too_soon = self._side_run_too_soon(written)
-        owned = self._stage.errors_in_written(written)
+        owned = self._stage.errors_in_written(written) + [error for again in self._stage.redeclared(written) if (error := await self._declared_as_before(again))]
         if owned:
             return Checked(owned, None, scene, too_soon)
         try:
@@ -426,6 +427,12 @@ class LessonRun:
         if number == 1 and not self._refused and isinstance(step.get("say"), str) and len(step["say"].split()) > PROMISE_WORDS:
             advice.append(f"the promise must be one question sentence of at most {PROMISE_WORDS} words, and this one runs longer; cut any setup sentence and keep the concrete example inside the question")
         return Checked(errors, step, verdict.scene, advice, values, [] if claims_agree else facts, still is not None, spoiler.plot_ended if spoiler else None)
+
+    async def _declared_as_before(self, again: Redeclared) -> str | None:
+        before, now = await asyncio.gather(self._kit.validator.declared(again.name, again.before, self._reading), self._kit.validator.declared(again.name, again.now, self._reading))
+        if before is None or before != now:
+            return None
+        return DECLARED_AGAIN.format(name=again.name, moves=" and ".join(again.moves))
 
     async def _missing_hinge(self, step: dict[str, Any], number: int, last_after: asyncio.Future[dict[str, Any] | Malformed | None]) -> str | None:
         if number == 1 or self._asked_challenge or "challenge" in step:
