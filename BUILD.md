@@ -100,7 +100,7 @@ It answers `{lesson_id, transcript}` as soon as the Lesson id exists, before any
 `GET /api/lessons` lists Lessons and hides bench Lessons (`source='bench'`) and Lessons asked from a kid Profile. `GET /api/lessons?profile=<id>` lists that Profile's Lessons.
 `GET /api/profiles/{id}/log` returns each ask with `content_check`: empty for an adult Ask, then `passed`, `redone: step N, M` or `refused: ask a grown up` for a kid Ask.
 `GET /api/lessons/{id}/events` replays what is stored, then streams new events until the Lesson ends: `lesson` (`{id, lesson}`), `step`, `done` with stats, and `error` (`{message}`).
-`done` carries `seconds`, `first_step_seconds`, `steps`, `tier`, `labs`, `cost_usd`, `timings` (named marks in seconds from the Ask), `transcription_seconds` and `repairs`.
+`done` carries `seconds`, `first_step_seconds`, `steps`, `labs`, `cost_usd`, `timings` (named marks in seconds from the Ask), `transcription_seconds` and `repairs`.
 A follow up Lesson (`from` set) has `lesson.start_scene`, the validator's Scene state at the `from` Step. The player starts its Timeline from it.
 Each Step the player receives is the Step JSON plus `voice: {url, duration, words: [{word, start, end}]}`.
 Without `voice` the player estimates timings from the words of `say`.
