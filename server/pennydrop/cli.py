@@ -258,8 +258,9 @@ def _print_comparison(first: str, second: str, comparison: Comparison) -> None:
 
 
 def _tts(services: Services, arguments) -> None:
-    voice = asyncio.run(services.speaker.voice(arguments.text, provider=arguments.provider, voice=arguments.voice))
-    print(f"{'cache hit' if voice.cache_hit else 'synthesized'}: {voice.path}")
+    provider = arguments.provider or services.settings.tts_provider
+    voice = asyncio.run(services.speaker.voice(arguments.text, provider=provider, voice=arguments.voice))
+    print(f"{provider} {'cache hit' if voice.cache_hit else 'synthesized'}: {voice.path}")
     print(f"duration {voice.duration:.2f} s, {len(voice.words)} words")
     for word in voice.words:
         print(f"  {word.start:6.3f} {word.end:6.3f}  {word.word}")
