@@ -213,10 +213,12 @@ def unclear_values(step: dict[str, Any], known: dict[str, Any], on_stage: set[st
         kind, _, rest = name.partition(".")
         run, _, value = rest.rpartition(".")
         runs = sorted(key for key in known if key.count(".") == 2 and key.startswith(f"{kind}.") and key.rsplit(".", 1)[1] == value)
-        if run and name not in known and (run in on_stage or any(key.startswith(f"{kind}.{run}.") for key in known)):
+        played = sorted({key.split(".")[1] for key in known if key.count(".") == 2 and key.startswith(f"{kind}.")})
+        if run and name not in known and played and run not in played:
+            names = ", ".join("{" + f"{kind}.{other}.{value}" + "}" for other in played)
+            errors.append(f"{{{name}}} names a run that has not played by this Step, and the runs played so far give {names}; if the Step means one of those, write it in place of {{{name}}}, and otherwise play the {run} run in this Step or an earlier one, or leave the number out, but never state another run's value in its place")
+        elif run and name not in known and (run in played or run in on_stage):
             errors.append(f"{{{name}}} is not known by this Step, because the {run} run has not played far enough to compute it; play that run further in this Step or an earlier one, or leave the number out, and never state another run's value in its place")
-        elif run and name not in known and (played := ", ".join(sorted({key.split(".")[1] for key in known if key.count(".") == 2 and key.startswith(f"{kind}.")}))):
-            errors.append(f"{{{name}}} names no run played by this Step, and the runs played so far are {played}; if the Step means one of those, write that run's name, and otherwise play the {run} run in an earlier Step or leave the number out, but never state another run's value in its place")
         elif not run and len({str(known[key]) for key in runs}) > 1:
             listed = ", ".join("{" + key + "}" for key in runs)
             errors.append(f"{{{name}}} differs between the runs played so far ({listed}), so the Step would give the latest run's number whichever run it means; write the name of the run it means, as in {listed}")
