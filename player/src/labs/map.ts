@@ -1085,7 +1085,7 @@ export const lab: LabDef<MapSpec, MapState> = {
   reading: "optional",
   catalog: {
     summary:
-      "A real map with true coastlines, for geography and history: places are dots at their real latitude and longitude, routes are drawn between places over time, eras are spans on a timeline and events are dated markers on it. The map fills the whole object until the first era or event, then slides up to make room for the timeline below it. The map zooms itself to fit the places you list. Every op targets the whole map object.",
+      "A real map with true coastlines, for geography and history: places are dots at their real latitude and longitude, routes are drawn between places over time, eras are spans on a timeline and events are dated markers on it. The map sits above a timeline panel that keeps the same size from the first Step, so nothing moves when eras and events arrive. The map zooms itself to fit the places you list. Every op targets the whole map object.",
     spec: {
       places:
         'list of up to 12 {"name": "Rome", "lat": 41.9, "lon": 12.5}, every place the Lesson will use, in real degrees (south latitude and west longitude are negative); the map zooms to fit them all; places stay hidden until a places, routes or events op shows them',
@@ -1130,7 +1130,7 @@ export const lab: LabDef<MapSpec, MapState> = {
       during: (before, after, _op, progress) => [...settle(laidOut(before), laidOut(after), settleShare(progress)), ...growingRoute(laidOut(after), after.routes.length - 1, actShare(progress))],
     },
     eras: {
-      doc: '{"name": "Second Punic War", "from": -218, "to": -201}; a named span grows along the timeline from "from" to "to" (BC is negative); eras that overlap in time stack in two rows; the first era or event makes the map shrink to leave room for the timeline',
+      doc: '{"name": "Second Punic War", "from": -218, "to": -201}; a named span grows along the timeline from "from" to "to" (BC is negative); eras that overlap in time stack in two rows',
       seconds: 1.0,
       apply(state, op) {
         const name = stringArg(op.args, "name", "eras");
