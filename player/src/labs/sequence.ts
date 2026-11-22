@@ -60,6 +60,7 @@ const MIN_PARTICIPANTS = 2;
 const MAX_PARTICIPANTS = 5;
 const MAX_ROWS = 16;
 const ROW_MIN_PITCH = 86;
+const ROW_MAX_PITCH = 120;
 const BOX_MIN_GAP = 24;
 
 const WIDTH = 1480;
@@ -212,7 +213,7 @@ function height(state: SequenceState): number {
 }
 
 function rowPitch(state: SequenceState): number {
-  return (height(state) - HEAD_HEIGHT) / Math.max(1, state.rows.length);
+  return Math.min(ROW_MAX_PITCH, (height(state) - HEAD_HEIGHT) / Math.max(1, state.rows.length));
 }
 
 function rowTop(state: SequenceState, index: number): number {
