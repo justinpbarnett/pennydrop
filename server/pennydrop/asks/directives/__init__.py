@@ -24,7 +24,7 @@ async def expand_directives(step: dict[str, Any], tools: DirectiveTools, remembe
             if inspect.isawaitable(expanded):
                 expanded = await expanded
     known = {**remembered, **values}
-    unclear = unclear_values(expanded, known)
+    unclear = unclear_values(expanded, known, {*tools.staged, *(expanded.get("scene") or {})})
     if unclear:
         raise DirectiveError("; ".join(unclear))
     filled = fill_values(expanded, known)

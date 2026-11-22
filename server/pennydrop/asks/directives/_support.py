@@ -165,13 +165,13 @@ PLACEHOLDER = re.compile(r"\{(\w+(?:\.\w+)+)\}")
 VALUE_NAME = re.compile(r"\w+(?:\.\w+)+")
 
 
-def unclear_values(step: dict[str, Any], known: dict[str, Any]) -> list[str]:
+def unclear_values(step: dict[str, Any], known: dict[str, Any], on_stage: set[str]) -> list[str]:
     errors: list[str] = []
     for name in _value_names_in(step):
         kind, _, rest = name.partition(".")
         run, _, value = rest.rpartition(".")
         runs = sorted(key for key in known if key.count(".") == 2 and key.startswith(f"{kind}.") and key.rsplit(".", 1)[1] == value)
-        if run and name not in known and any(key.startswith(f"{kind}.{run}.") for key in known):
+        if run and name not in known and (run in on_stage or any(key.startswith(f"{kind}.{run}.") for key in known)):
             errors.append(f"{{{name}}} is not known by this Step, because the {run} run has not played far enough to compute it; play that run further in this Step or an earlier one, or leave the number out, and never state another run's value in its place")
         elif run and name not in known and (played := ", ".join(sorted({key.split(".")[1] for key in known if key.count(".") == 2 and key.startswith(f"{kind}.")}))):
             errors.append(f"{{{name}}} names no run played by this Step, and the runs played so far are {played}; if the Step means one of those, write that run's name, and otherwise play the {run} run in an earlier Step or leave the number out, but never state another run's value in its place")
