@@ -3,8 +3,8 @@ import { loadFonts } from "../boot";
 import { loadMintedLabs } from "../minted";
 import { registerModules } from "../registry";
 import { layOutFor } from "../text-metrics";
-import { THEMES } from "../theme";
-import { PERSPECTIVE, project } from "./camera";
+import { type Theme, THEMES } from "../theme";
+import { PERSPECTIVE, project, SCREEN } from "./camera";
 import { buildFilm, type CueRecord, type Film, frameAt, framedRegion, holdEnd, type PlaneFrame, unfilledAt } from "./film";
 import { FILM_FPS, parseFilm } from "./format";
 import { type InkBox, InkRecord } from "./inks";
@@ -37,6 +37,29 @@ declare global {
 }
 
 const LINE_END = 0.99;
+const HOLD_SAMPLE_SECONDS = 0.25;
+
+interface Margins {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+function tightestMargins(current: Film, shot: number, target: PlaneFrame, theme: Theme): Margins | null {
+  let tightest: Margins | null = null;
+  const from = current.shots[shot]!.end;
+  const until = Math.max(from, holdEnd(current, shot) - 1 / FILM_FPS);
+  for (let time = from; time <= until + 0.001; time += HOLD_SAMPLE_SECONDS) {
+    const frame = frameAt(current, Math.min(time, until), theme);
+    const plane = frame.planes.find((candidate) => candidate.id === target.id);
+    const ink = plane && framedRegion(current, shot, frame, plane);
+    if (!ink) continue;
+    const margins = { top: ink.y, bottom: SCREEN.h - ink.y - ink.h, left: ink.x, right: SCREEN.w - ink.x - ink.w };
+    tightest = tightest ? { top: Math.min(tightest.top, margins.top), bottom: Math.min(tightest.bottom, margins.bottom), left: Math.min(tightest.left, margins.left), right: Math.min(tightest.right, margins.right) } : margins;
+  }
+  return tightest;
+}
 
 let film: Film | null = null;
 let view: FilmView | null = null;
@@ -108,13 +131,13 @@ window.film = {
         .filter((plane) => plane.ink)
         .sort((a, b) => Math.hypot(a.ink!.x + a.ink!.w / 2 - 960, a.ink!.y + a.ink!.h / 2 - 540) - Math.hypot(b.ink!.x + b.ink!.w / 2 - 960, b.ink!.y + b.ink!.h / 2 - 540))[0];
       const target = frame.planes.find((plane) => plane.id === shot.subject && plane.ink) ?? nearest;
-      const ink = target && framedRegion(current, index, frame, target);
+      const margins = target ? tightestMargins(current, index, target, theme) : null;
       const depth = target ? project(frame.pose, [target.x + target.w / 2, target.y + target.h / 2, target.z])?.depth : undefined;
       const sizes = (target?.items ?? []).filter((item) => item.kind === "text" && (item.text?.trim() || item.spans?.length)).map((item) => item.size);
       const smallestText = depth && sizes.length ? Math.min(...sizes) * (PERSPECTIVE / depth) : null;
       const laterOps = target ? current.cues.filter((cue) => cue.kind === "do" && cue.object === target.id && cue.opStart > shot.end).map((cue) => cue.opStart) : [];
       const wait = target && laterOps.length && unfilledAt(current, shot.end, theme, target.id) ? Math.min(...laterOps) - shot.end : null;
-      return { shot: index, at: shot.end, object: target?.id ?? null, tilt, top: ink?.y ?? null, bottom: ink ? 1080 - ink.y - ink.h : null, left: ink?.x ?? null, right: ink ? 1920 - ink.x - ink.w : null, smallestText, peeking: frame.planes.filter((plane) => plane.ink && plane.id !== target?.id).map((plane) => plane.id), wait };
+      return { shot: index, at: shot.end, object: target?.id ?? null, tilt, top: margins?.top ?? null, bottom: margins?.bottom ?? null, left: margins?.left ?? null, right: margins?.right ?? null, smallestText, peeking: frame.planes.filter((plane) => plane.ink && plane.id !== target?.id).map((plane) => plane.id), wait };
     });
   },
   regions(time) {

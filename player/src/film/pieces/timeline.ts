@@ -14,8 +14,12 @@ interface TimelineState {
   shown: number;
 }
 
-const SIZE = { w: 3000, h: 1000 };
+const HEIGHT = 1000;
 const MARGIN = 260;
+const YEAR_WIDTH = 420;
+const AXIS_LENGTH = { min: 1100, max: 2480 };
+const YEAR_SIZE = 52;
+const LABEL_SIZE = 72;
 const END_YEAR_GAP = 70;
 const AXIS_Y = 500;
 const LEVEL_STEP = 220;
@@ -23,8 +27,12 @@ const YEAR_OFFSET = 80;
 const LABEL_RISE = 70;
 const MARK_SECONDS = 1;
 
+function axisLength(state: TimelineState): number {
+  return Math.min(AXIS_LENGTH.max, Math.max(AXIS_LENGTH.min, (state.to - state.from) * YEAR_WIDTH));
+}
+
 function xOf(state: TimelineState, year: number): number {
-  return MARGIN + ((year - state.from) / (state.to - state.from)) * (SIZE.w - 2 * MARGIN);
+  return MARGIN + ((year - state.from) / (state.to - state.from)) * axisLength(state);
 }
 
 function markDrawables(state: TimelineState, index: number, opacity: number): Drawable[] {
@@ -37,8 +45,8 @@ function markDrawables(state: TimelineState, index: number, opacity: number): Dr
   return [
     { id: `stem-${index}`, kind: "line", x, y: AXIS_Y, x2: x, y2: yearY - side * 38, stroke: role, strokeWidth: 3, opacity, z: 2 },
     { id: `dot-${index}`, kind: "circle", x, y: AXIS_Y, r: latest ? 24 : 16, fill: role, stroke: "ground", strokeWidth: 4, opacity, z: 4 },
-    { id: `year-${index}`, kind: "text", x, y: yearY, text: String(mark.year), size: 44, font: "mark", fill: "muted", opacity, z: 3 },
-    { id: `label-${index}`, kind: "text", x, y: yearY + side * LABEL_RISE, text: mark.label, size: 64, font: "read", fill: latest ? "ink" : "muted", opacity, z: 3 },
+    { id: `year-${index}`, kind: "text", x, y: yearY, text: String(mark.year), size: YEAR_SIZE, font: "mark", fill: "muted", opacity, z: 3 },
+    { id: `label-${index}`, kind: "text", x, y: yearY + side * LABEL_RISE, text: mark.label, size: LABEL_SIZE, font: "read", fill: latest ? "ink" : "muted", opacity, z: 3 },
   ];
 }
 
@@ -58,7 +66,7 @@ export const primitive: LabDef<Record<string, unknown>, TimelineState> = {
   title: "Timeline",
   reading: "required",
   catalog: {
-    summary: "A line of years with dated moments that appear one by one. The camera can return to it as the story moves on.",
+    summary: "A line of years with dated moments that appear one by one, for moments that fall in different years; moments inside one year belong on a tracker. The camera can return to it as the story moves on.",
     spec: {
       from: "first year on the line",
       to: "last year on the line",
@@ -82,19 +90,19 @@ export const primitive: LabDef<Record<string, unknown>, TimelineState> = {
       during: (_before, after, _op, progress) => (after.shown > 0 ? markDrawables(after, after.shown - 1, clamp01(progress)) : []),
     },
   },
-  size: () => SIZE,
+  size: (state) => ({ w: axisLength(state) + 2 * MARGIN, h: HEIGHT }),
   unfilled: (state) => state.shown === 0,
   draw(state) {
-    const out: Drawable[] = [{ id: "axis", kind: "line", x: MARGIN - 40, y: AXIS_Y, x2: SIZE.w - MARGIN + 40, y2: AXIS_Y, stroke: "edge", strokeWidth: 5, z: 1 }];
+    const end = MARGIN + axisLength(state);
+    const out: Drawable[] = [{ id: "axis", kind: "line", x: MARGIN - 40, y: AXIS_Y, x2: end + 40, y2: AXIS_Y, stroke: "edge", strokeWidth: 5, z: 1 }];
     for (let year = state.from; year <= state.to; year += 1) {
       const major = year % 5 === 0 || year === state.from || year === state.to;
       const x = xOf(state, year);
       out.push({ id: `tick-${year}`, kind: "line", x, y: AXIS_Y - (major ? 22 : 11), x2: x, y2: AXIS_Y + (major ? 22 : 11), stroke: "edge", strokeWidth: 3, z: 1 });
     }
-    out.push(
-      { id: "from-year", kind: "text", x: MARGIN - END_YEAR_GAP, y: AXIS_Y, text: String(state.from), size: 44, font: "mark", anchor: "end", fill: "muted", z: 3 },
-      { id: "to-year", kind: "text", x: SIZE.w - MARGIN + END_YEAR_GAP, y: AXIS_Y, text: String(state.to), size: 44, font: "mark", anchor: "start", fill: "muted", z: 3 },
-    );
+    const markedYears = new Set(state.marks.map((mark) => mark.year));
+    if (!markedYears.has(state.from)) out.push({ id: "from-year", kind: "text", x: MARGIN - END_YEAR_GAP, y: AXIS_Y, text: String(state.from), size: YEAR_SIZE, font: "mark", anchor: "end", fill: "muted", z: 3 });
+    if (!markedYears.has(state.to)) out.push({ id: "to-year", kind: "text", x: end + END_YEAR_GAP, y: AXIS_Y, text: String(state.to), size: YEAR_SIZE, font: "mark", anchor: "start", fill: "muted", z: 3 });
     for (let index = 0; index < state.shown; index += 1) out.push(...markDrawables(state, index, 1));
     return out;
   },
