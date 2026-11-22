@@ -69,6 +69,8 @@ class OpenRouterRoute:
         if request.system is not None:
             messages.insert(0, {"role": "system", "content": request.system})
         body = {"model": model, "stream": True, "usage": {"include": True}, "messages": messages}
+        if "WebSearch" in request.tools:
+            body["plugins"] = [{"id": "web"}]
         usage = Usage()
         headers = {"Authorization": f"Bearer {self._key}"}
         async with httpx.AsyncClient(timeout=request.timeout) as client, client.stream("POST", self.endpoint, headers=headers, json=body) as response:

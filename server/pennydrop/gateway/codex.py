@@ -18,8 +18,11 @@ class CodexRoute:
     async def run(self, request: Request, model: str) -> AsyncIterator[str | Usage]:
         if request.images:
             raise RouteError("codex routes do not take images")
-        argv = [
-            "codex", "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+        argv = ["codex"]
+        if "WebSearch" in request.tools:
+            argv.append("--search")
+        argv += [
+            "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules",
             "--json", "-m", model,
         ]
         cwd = request.cwd or self._neutral_cwd
