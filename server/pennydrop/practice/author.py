@@ -17,7 +17,7 @@ from .check import ItemCheck, PracticeChecker, Standing, case_keys
 
 LOG = logging.getLogger(__name__)
 
-MAX_REDOS = 2
+MAX_REDOS = 3
 BACK_TRIES = 2
 WHY_LENGTH = 200
 
