@@ -125,17 +125,21 @@ WRITER_EFFORT = "low"
 WRITER_HEDGE_SECONDS = 1.5
 ANSWER_AT_ONCE = "Latency-sensitive; begin your visible answer immediately."
 MAX_CONTINUATIONS = 2
+FEWEST_STORY_STEPS = 5
 
 
 def _missing_from_story(brief: Brief, steps: list[dict[str, Any] | Malformed]) -> str | None:
     if not brief.plan.fine_for_young_child:
         return None
     asked = [number for number, step in enumerate(steps, 1) if isinstance(step, dict) and "challenge" in step]
-    if not asked:
-        return "no Step has asked the hinge's predict Challenge yet, so write the Steps still missing from the cause chain, the hinge that asks the Challenge, the reveal, and a last Step that says the point again"
-    if asked[-1] == len(steps):
+    if asked and asked[-1] == len(steps):
         return f"Step {len(steps)} asked the hinge's predict Challenge, so write the reveal that answers it and a last Step that says the point again"
-    return None
+    if len(steps) >= FEWEST_STORY_STEPS:
+        return None
+    told = f"{len(steps)} Step{'s' if len(steps) > 1 else ''}"
+    if asked:
+        return f"the story is only {told} long, so carry its cause chain on to the reveal and a last Step that says the point again"
+    return f"the story is only {told} long and has not asked the hinge's predict Challenge, so write the rest of its cause chain, the hinge that asks the Challenge, the reveal and a last Step that says the point again"
 
 
 def _continuation(brief: Brief, steps: list[dict[str, Any] | Malformed], missing: str) -> str:
