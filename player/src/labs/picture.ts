@@ -32,6 +32,7 @@ interface PictureState {
   view: View;
   pointing: string | null;
   labels: string[];
+  covered: string[];
   history: Mention[];
 }
 
@@ -69,6 +70,7 @@ interface Marks {
   view: View;
   pointing: Weighted[];
   labels: Weighted[];
+  covered: Weighted[];
   pulse: Weighted | null;
 }
 
@@ -545,6 +547,7 @@ function compose(state: PictureState, marks: Marks): Drawable[] {
     });
   }
   if (shown > 0) out.push(...tapTargets(state, view));
+  for (const mark of marks.covered) out.push(...patchDrawables(`patch-${state.parts.indexOf(mark.part)}`, state, view, mark, shown));
   const outlines = new Map<Part, { weight: number; growth: number }>();
   for (const mark of marks.pointing) outlines.set(mark.part, { weight: mark.weight, growth: 0 });
   if (marks.pulse) outlines.set(marks.pulse.part, { weight: 1, growth: marks.pulse.weight });
@@ -552,6 +555,11 @@ function compose(state: PictureState, marks: Marks): Drawable[] {
   for (const mark of marks.pointing) out.push(...pointerDrawables(`point-${state.parts.indexOf(mark.part)}`, state, view, mark));
   for (const mark of marks.labels) out.push(...labelDrawables(`label-${state.parts.indexOf(mark.part)}`, state, view, mark));
   return out;
+}
+
+function patchDrawables(id: string, state: PictureState, view: View, mark: Weighted, shown: number): Drawable[] {
+  const visible = visiblePart(state, inFrame(state, view, mark.part.box));
+  return visible ? [boxDrawable(id, visible, { fill: "fill", stroke: "rule", strokeWidth: 2, opacity: mark.weight * shown, z: 1.5 })] : [];
 }
 
 function tapTargets(state: PictureState, view: View): Drawable[] {
@@ -600,6 +608,7 @@ function during(before: PictureState, after: PictureState, op: LabOp, progress: 
     view: mixView(before.view, after.view, progress),
     pointing: crossfade(DROPS_POINTER.has(op.name) && before.pointing !== after.pointing ? [] : weigh(before, before.pointing === null ? [] : [before.pointing]), weigh(after, after.pointing === null ? [] : [after.pointing]), progress),
     labels: crossfade(weigh(before, before.labels), weigh(after, after.labels), progress),
+    covered: crossfade(weigh(before, before.covered), weigh(after, after.covered), progress),
     pulse: pulsing ? { part: partOf(after, op), weight: Math.abs(Math.sin(2 * Math.PI * progress)) } : null,
   });
 }
@@ -660,10 +669,20 @@ const ops: Record<string, OpDef<PictureState>> = {
     },
     during,
   },
+  hide: {
+    doc: '{"on": ["pic[petals]"]}; lays a plain patch over that part so it can no longer be seen, for a case where the part is missing or hidden; clear lifts every patch',
+    seconds: 0.8,
+    apply(state, op) {
+      requireShown(state, op);
+      const part = partOf(state, op);
+      return state.covered.includes(part.name) ? state : { ...state, covered: [...state.covered, part.name] };
+    },
+    during,
+  },
   clear: {
-    doc: "no args; removes the pointer, outline and labels",
+    doc: "no args; removes the pointer, outline, labels and patches",
     seconds: 0.5,
-    apply: (state) => ({ ...state, pointing: null, labels: [], history: [] }),
+    apply: (state) => ({ ...state, pointing: null, labels: [], covered: [], history: [] }),
     during,
   },
 };
@@ -713,6 +732,7 @@ export const lab: LabDef<Record<string, unknown>, PictureState> = {
       view: FULL_VIEW,
       pointing: null,
       labels: [],
+      covered: [],
       history: [],
     };
   },
@@ -725,6 +745,7 @@ export const lab: LabDef<Record<string, unknown>, PictureState> = {
       view: state.view,
       pointing: weigh(state, state.pointing === null ? [] : [state.pointing]),
       labels: weigh(state, state.labels),
+      covered: weigh(state, state.covered),
       pulse: null,
     }),
 };
