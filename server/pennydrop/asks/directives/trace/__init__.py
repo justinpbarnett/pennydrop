@@ -12,12 +12,13 @@ from . import _stages as stages
 from . import code
 from ._stages import Window
 from .code import shown_source
-from .._support import MAX_STEP_OPERATIONS, DirectiveError, DirectiveTools, TracedRun, discover, limit_operations, operation_targets, parse_spec, trace_key, values_said, with_answer_from
+from .._support import MAX_STEP_OPERATIONS, DirectiveError, DirectiveTools, TracedRun, discover, limit_operations, operation_targets, parse_spec, trace_key, values_said, with_answer_from, with_nested_trace_lifted
 
 TRACE_TOTALS = ("comparisons", "swaps", "writes")
 RUN_LABS = ("array", "code")
 RUN_OPERATIONS = ("compare", "swap", "set", "line", "call", "return", "print")
 ALGORITHM_MOVES = ("compare", "swap")
+CODE_ONLY = ("two_pointers_pair_sum", "sliding_window_max_sum")
 TARGETS = discover(sys.modules[__name__])
 
 BRIEF = 'The trace directive plays the {lab} Labs whenever a library algorithm or a short function of your own fits the Ask, and it writes every operation of the run: compare, swap and set on an array, line, call, set, return and print on code, and visit, push, pop and relax on a graph search. Then carry the same trace in every Step that moves the run, each with a later "until", and write none of those operations yourself, even though the Catalog lists them. When none fits, such as a tree you build by hand, show the idea with plain objects and operations.'
@@ -39,7 +40,7 @@ GUIDE = "\n".join([
     'For your own code, `code` is the whole source text of one function, such as `"def grow(balance, years):\\n    for _ in range(years):\\n        balance = balance * 1.05\\n    return balance"`, never a bare function name that is not in the library list',
     "Write the `input` with exactly the keys named above, such as `{\"array\": [2, 7, 11, 15], \"target\": 9}` for two_pointers_pair_sum, and never `arr` or other short names.",
     "For binary_search leave `target` out of the input: the directive searches for the array's last value, which takes the most halvings, since a search that finds its target at the first middle shows none. So the narration names the last value as the target, such as thirteen in `[1, 3, 5, 7, 9, 11, 13]`, and never a value from the middle.",
-    "Keep the input small, 3 to 6 numbers. A Step plays at most 40 operations, so stage a longer run with `until`.",
+    "When the brief outlines a real run of a library algorithm, use exactly that input in every Step, whatever the examples above show; its turns say what each `until` plays. For any other input, keep it small, 3 to 6 numbers. A Step plays at most 40 operations, so stage a longer run with `until`.",
 ])
 
 
@@ -77,11 +78,7 @@ def _require_trace_for_runs(step: dict[str, Any], tools: DirectiveTools) -> None
 
 
 def _with_nested_trace_lifted(step: dict[str, Any]) -> dict[str, Any]:
-    raw = step.get("trace")
-    nested = raw.get("trace") if isinstance(raw, dict) else None
-    if not isinstance(nested, dict):
-        return step
-    return {**step, "trace": {**nested, **{key: value for key, value in raw.items() if key != "trace"}}}
+    return {**step, "trace": with_nested_trace_lifted(step["trace"])} if "trace" in step else step
 
 
 def _with_library_source(spec: Any) -> Any:
@@ -305,6 +302,12 @@ def _entry_point(source: str) -> str:
     if not functions:
         raise DirectiveError(f"trace directive: `code` is neither a library algorithm ({', '.join(ALGORITHMS)}) nor Python source with a top level function")
     return functions[0]
+
+
+def outline_lab(algorithm: str) -> str:
+    if algorithm in TARGETS["graph"].LIBRARY:
+        return "graph"
+    return "code" if algorithm in CODE_ONLY else "array"
 
 
 def _plays(lab: str, code: str) -> bool:

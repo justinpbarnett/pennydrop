@@ -16,11 +16,12 @@ from ..tts import Speaker, TtsError, Voice
 from .catalog import Catalog
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
+from .directives.trace._outline import run_outline
 from .directives import DirectiveError, DirectiveTools, as_promise, computed_facts, directive_briefs, expand_directives, fill_values, staged_directives, with_sources
 from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import mended, mended_by_verdict, mended_cues, with_one_figure_on_stage
-from .stage import TRACE_TOTAL_PREFIX, Stage, question_without_challenge, ran_something
+from .stage import Stage, question_without_challenge, ran_something, trace_totals
 from .stage_words import ArrayPlay, PlotView, array_plays, plot_views
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
@@ -159,7 +160,8 @@ class LessonRun:
         self._record = replace(self._record, tier=plan.tier.value)
         start_scene = await kit.validator.replay(self._ask.earlier_steps, self._reading) if plan.follow_up else None
         self._stage = Stage(start_scene)
-        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, photo_search)
+        outline = await run_outline(plan.algorithm, kit.directive_tools.tracer) if plan.algorithm else None
+        brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, photo_search, outline)
         pending: asyncio.Queue[PendingStep | None] = asyncio.Queue()
         ready: asyncio.Queue[ReadyStep | None] = asyncio.Queue()
         async with asyncio.TaskGroup() as group:
@@ -347,7 +349,7 @@ class LessonRun:
     async def _ends_before_hinge(self, step: dict[str, Any], values: dict[str, Any], plots: list[PlotView], followed: asyncio.Future[bool]) -> str | None:
         if self._asked_challenge or "challenge" in step:
             return None
-        if any(name.startswith(TRACE_TOTAL_PREFIX) for name in values):
+        if trace_totals(values):
             until = self._stage.trace_until
             advice = RUN_ENDS_AFTER_STOP.format(until=until) if isinstance(until, int) and until > 0 else RUN_ENDS_BEFORE_HINGE
         elif finished := next((view for view in plots if view.graphed and not view.unfinished), None):

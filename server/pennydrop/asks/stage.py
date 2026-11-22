@@ -4,8 +4,9 @@ import re
 from typing import Any
 
 from .directives import directives_for_labs
-from .directives._support import operation_targets, trace_key
+from .directives._support import operation_targets, trace_key, with_nested_trace_lifted
 from .directives.simulate import contradictions, filled_from
+from .directives.trace import TRACE_TOTALS
 from .played_setups import PlayedSetups
 
 SHOWN_TEXT_FIELDS = ("text", "caption", "label", "title")
@@ -85,6 +86,7 @@ class Stage:
                 self.labs[thing["id"]] = key.removeprefix(LAB_KEY_PREFIX)
 
     def filled_trace(self, raw: Any) -> Any:
+        raw = with_nested_trace_lifted(raw)
         if not isinstance(raw, dict):
             return raw
         on = raw.get("on")
@@ -103,14 +105,14 @@ class Stage:
         self.trace_until = raw.get("until")
         if "until" not in raw:
             self.finished_traces.add(key)
-        self.shown_totals = _trace_totals(values)
+        self.shown_totals = trace_totals(values)
         for name, spec in (settled.get("scene") or {}).items():
             counters = spec.get("counters") if isinstance(spec, dict) else None
             if counters:
                 self.trace_counters[name] = {str(counter) for counter in counters}
 
     def run_left_unfinished(self, written: Any, values: dict[str, Any]) -> bool:
-        if not self.traces or self.finished_traces or self.shown_totals or _trace_totals(values):
+        if not self.traces or self.finished_traces or self.shown_totals or trace_totals(values):
             return False
         raw = self.filled_trace(written.get("trace")) if isinstance(written, dict) else None
         return not (isinstance(raw, dict) and "until" not in raw)
@@ -201,7 +203,7 @@ class Stage:
         answer = challenge.get("answer") if isinstance(challenge, dict) and challenge.get("kind") == "predict" else None
         if isinstance(answer, bool) or not isinstance(answer, int | float):
             return []
-        shown = _trace_totals(values) if isinstance(written, dict) and "trace" in written else self.shown_totals
+        shown = trace_totals(values) if isinstance(written, dict) and "trace" in written else self.shown_totals
         named = [name for name, total in shown.items() if total == answer]
         if not named:
             return []
@@ -244,8 +246,8 @@ def ran_something(written: Any) -> bool:
     return isinstance(written, dict) and any(key in written for key in ("trace", "simulate"))
 
 
-def _trace_totals(values: dict[str, Any]) -> dict[str, Any]:
-    return {name: value for name, value in values.items() if name.startswith(TRACE_TOTAL_PREFIX)}
+def trace_totals(values: dict[str, Any]) -> dict[str, Any]:
+    return {name: value for name, value in values.items() if name.startswith(TRACE_TOTAL_PREFIX) and name.removeprefix(TRACE_TOTAL_PREFIX) in TRACE_TOTALS}
 
 
 def answer_given_away(step: dict[str, Any]) -> list[str]:

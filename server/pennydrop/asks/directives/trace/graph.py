@@ -14,7 +14,7 @@ LIBRARY = ("breadth_first_search", "depth_first_search", "dijkstra", "tree_preor
 
 GUIDE = "\n".join([
     "The `graph` Lab plays a graph or tree traversal: nodes light up in the order the real run visits them.",
-    "Name a library algorithm in `code` with its `input`, and write no traced code of your own: " + ", ".join(LIBRARY) + ".",
+    "Name a library algorithm in `code` with its `input`, and write no traced code of your own: " + ", ".join(LIBRARY) + ". The inputs below show the shape; use the brief's input when it outlines the run.",
     'Set one object `{"lab":"graph"}` in the Step. The directive fills in `nodes`, `edges`, `root`, `directed`, `layout`, `frontier` and `distances` from the input, and writes every visit, push, pop and relax operation from the real run.',
     'BFS: `"trace": {"code": "breadth_first_search", "input": {"graph": {"A": ["B", "C"], "B": ["A", "D", "E"], "C": ["A", "F"], "D": ["B"], "E": ["B"], "F": ["C"]}, "start": "A"}}`',
     'DFS: `"trace": {"code": "depth_first_search", "input": {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A", "E"], "D": ["B"], "E": ["C", "F"], "F": ["E"]}, "start": "A"}}`',

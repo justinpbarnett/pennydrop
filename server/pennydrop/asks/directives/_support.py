@@ -69,6 +69,13 @@ def operation_targets(operation: dict[str, Any]) -> set[str]:
     return {str(target).split("[")[0] for target in targets} if isinstance(targets, list) else set()
 
 
+def with_nested_trace_lifted(raw: Any) -> Any:
+    nested = raw.get("trace") if isinstance(raw, dict) else None
+    if not isinstance(nested, dict):
+        return raw
+    return {**nested, **{key: value for key, value in raw.items() if key != "trace"}}
+
+
 def trace_key(raw: Any) -> str | None:
     if not isinstance(raw, dict):
         return None

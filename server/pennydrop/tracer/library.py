@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -9,10 +10,14 @@ class Algorithm:
     entry: str
     source: str
     input_help: str
+    summary: str
+    example: Any
     pointers: tuple[str, ...] = ()
 
 
 TREE_INPUT = 'an object like {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [null, "I"], "A": [null, null], "D": [null, null], "I": [null, null]}, "root": "F"}: every node maps to [left child, right child], null for none'
+
+TREE_EXAMPLE = {"tree": {"F": ["B", "G"], "B": ["A", "D"], "G": [None, "I"], "A": [None, None], "D": [None, None], "I": [None, None]}, "root": "F"}
 
 
 ALGORITHMS = {algorithm.name: algorithm for algorithm in [
@@ -24,7 +29,7 @@ def bubble_sort(a):
             if a[j] > a[j + 1]:
                 a[j], a[j + 1] = a[j + 1], a[j]
     return a
-''', "a list of numbers"),
+''', "a list of numbers", 'bubble sort, which swaps neighbors that are out of order, pass after pass', [5, 2, 4, 1, 3]),
     Algorithm("selection_sort", "selection_sort", '''
 def selection_sort(a):
     n = len(a)
@@ -36,7 +41,7 @@ def selection_sort(a):
         if smallest != i:
             a[i], a[smallest] = a[smallest], a[i]
     return a
-''', "a list of numbers"),
+''', "a list of numbers", 'selection sort, which picks the smallest remaining value and swaps it into place', [5, 2, 4, 1, 3]),
     Algorithm("insertion_sort", "insertion_sort", '''
 def insertion_sort(a):
     for i in range(1, len(a)):
@@ -47,7 +52,7 @@ def insertion_sort(a):
             j -= 1
         a[j + 1] = key
     return a
-''', "a list of numbers"),
+''', "a list of numbers", 'insertion sort, which slides each value left into the sorted part before it', [5, 2, 4, 1, 3]),
     Algorithm("merge_sort", "merge_sort", '''
 def merge_sort(a):
     sort_range(a, 0, len(a))
@@ -80,7 +85,7 @@ def sort_range(a, low, high):
         a[k] = right[j]
         j += 1
         k += 1
-''', "a list of numbers"),
+''', "a list of numbers", 'merge sort, which splits the list in halves, sorts each and merges them', [5, 2, 4, 1, 3]),
     Algorithm("quick_sort", "quick_sort", '''
 def quick_sort(a):
     sort_range(a, 0, len(a) - 1)
@@ -99,7 +104,7 @@ def sort_range(a, low, high):
     a[boundary], a[high] = a[high], a[boundary]
     sort_range(a, low, boundary - 1)
     sort_range(a, boundary + 1, high)
-''', "a list of numbers", ("boundary", "j")),
+''', "a list of numbers", 'quicksort, the whole sort: it partitions around a pivot, then sorts each side the same way', [5, 2, 8, 1, 9, 3, 7, 4], ("boundary", "j")),
     Algorithm("partition", "partition", '''
 def partition(a):
     pivot = a[-1]
@@ -110,7 +115,7 @@ def partition(a):
             boundary += 1
     a[boundary], a[-1] = a[-1], a[boundary]
     return a
-''', "a list of numbers whose last value is the pivot", ("boundary", "j")),
+''', "a list of numbers whose last value is the pivot", 'one quicksort partition around a pivot, a single pass and not the whole sort', [5, 2, 8, 1, 9, 3, 7, 4], ("boundary", "j")),
     Algorithm("binary_search", "binary_search", '''
 def binary_search(array, target):
     low, high = 0, len(array) - 1
@@ -123,7 +128,7 @@ def binary_search(array, target):
         else:
             high = middle - 1
     return -1
-''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with a sorted array; leave "target" out and the directive searches for the last value, which takes the most halvings'),
+''', 'an object like {"array": [1, 3, 5, 7, 9, 11, 13]} with a sorted array; leave "target" out and the directive searches for the last value, which takes the most halvings', 'binary search, which finds a value in a sorted array by checking the middle and halving the range', {"array": [1, 3, 5, 7, 9, 11, 13]}),
     Algorithm("two_pointers_pair_sum", "pair_sum", '''
 def pair_sum(array, target):
     left, right = 0, len(array) - 1
@@ -136,7 +141,7 @@ def pair_sum(array, target):
         else:
             right -= 1
     return None
-''', 'an object like {"array": [1, 2, 4, 7], "target": 9} with a sorted array'),
+''', 'an object like {"array": [1, 2, 4, 7], "target": 9} with a sorted array', 'two pointers pair sum, which finds two values in a sorted array that add up to a target by moving a pointer from each end', {"array": [1, 2, 4, 7], "target": 9}),
     Algorithm("sliding_window_max_sum", "max_window_sum", '''
 def max_window_sum(array, k):
     window = sum(array[0:k])
@@ -146,7 +151,7 @@ def max_window_sum(array, k):
         if window > best:
             best = window
     return best
-''', 'an object like {"array": [2, 1, 5, 1, 3], "k": 3}'),
+''', 'an object like {"array": [2, 1, 5, 1, 3], "k": 3}', 'a sliding window, which finds the largest sum of k neighbors in an array', {"array": [2, 1, 5, 1, 3], "k": 3}),
     Algorithm("breadth_first_search", "bfs", '''
 def bfs(graph, start):
     seen = {start}
@@ -171,7 +176,7 @@ def push(node):
 
 def pop(node):
     return node
-''', 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}: every node maps to the list of its neighbors, and an edge listed both ways is one undirected edge'),
+''', 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}: every node maps to the list of its neighbors, and an edge listed both ways is one undirected edge', 'breadth first search, which visits a graph level by level using a queue', {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}),
     Algorithm("depth_first_search", "dfs", '''
 def dfs(graph, start):
     order = []
@@ -189,7 +194,7 @@ def explore(graph, node, order):
 
 def visit(node):
     return node
-''', 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}: every node maps to the list of its neighbors'),
+''', 'an object like {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}: every node maps to the list of its neighbors', 'depth first search, which follows one path of a graph as deep as it goes before backing up', {"graph": {"A": ["B", "C"], "B": ["A", "D"], "C": ["A"], "D": ["B"]}, "start": "A"}),
     Algorithm("dijkstra", "dijkstra", '''
 def dijkstra(graph, start):
     best = {start: 0}
@@ -223,7 +228,7 @@ def pop(node):
 
 def relax(source, target, distance):
     return distance
-''', 'an object like {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}: every node maps to its [neighbor, weight] pairs, listed from both ends of an undirected edge'),
+''', 'an object like {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}: every node maps to its [neighbor, weight] pairs, listed from both ends of an undirected edge', "Dijkstra's shortest paths, which finds the cheapest route to every node of a weighted graph", {"graph": {"A": [["B", 4], ["C", 1]], "B": [["A", 4], ["D", 1]], "C": [["A", 1], ["B", 2], ["D", 5]], "D": [["B", 1], ["C", 5]]}, "start": "A"}),
     Algorithm("tree_preorder", "preorder", '''
 def preorder(tree, root):
     order = []
@@ -242,7 +247,7 @@ def walk(tree, node, order):
 
 def visit(node):
     return node
-''', TREE_INPUT),
+''', TREE_INPUT, 'tree pre-order traversal, which visits a node before its subtrees', TREE_EXAMPLE),
     Algorithm("tree_inorder", "inorder", '''
 def inorder(tree, root):
     order = []
@@ -261,7 +266,7 @@ def walk(tree, node, order):
 
 def visit(node):
     return node
-''', TREE_INPUT),
+''', TREE_INPUT, 'tree in-order traversal, which visits the left subtree, then the node, then the right subtree', TREE_EXAMPLE),
     Algorithm("tree_postorder", "postorder", '''
 def postorder(tree, root):
     order = []
@@ -280,5 +285,5 @@ def walk(tree, node, order):
 
 def visit(node):
     return node
-''', TREE_INPUT),
+''', TREE_INPUT, 'tree post-order traversal, which visits both subtrees before the node', TREE_EXAMPLE),
 ]}

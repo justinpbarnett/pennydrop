@@ -6,9 +6,11 @@ from enum import StrEnum
 
 from ..gateway import Answer, Choice, ChoiceAnswer, Gateway, Question, Score, ScoreAnswer, YesNo, YesNoAnswer
 from ..pictures import subject_phrases
+from ..tracer import ALGORITHMS
 from ..settings import Job
 from ..store import Profile, ProfileKind
 from .catalog import LabEntry
+from .directives.trace import TARGETS, outline_lab
 
 STRONG_TIER_FROM_SCORE = 1.5
 LAB_QUESTION_PREFIX = "lab_"
@@ -44,6 +46,7 @@ FOLLOW_UP = "follow_up"
 NEW_TOPIC = "new_topic"
 PICTURE_LAB = "picture"
 NO_SUBJECT = "none"
+NO_ALGORITHM = "none"
 
 
 class Tier(StrEnum):
@@ -70,6 +73,7 @@ class Plan:
     fine_for_young_child: bool
     graded_assignment: bool
     photo_subject: str | None
+    algorithm: str | None = None
 
 
 class Classifier:
@@ -107,6 +111,11 @@ class Classifier:
                 "Which words name the one real, physical thing a photo for this Ask should show, as plainly as a child would name it?",
                 {phrase: f'a photo of "{phrase}"' for phrase in phrases} | {NO_SUBJECT: "no real thing a photo could show"},
             )
+        if not is_kid and any(lab.id in TARGETS for lab in labs):
+            questions["algorithm"] = Choice(
+                "Which one of these algorithms does the Ask ask about, how it works or why it behaves as it does? Answer none when the Ask is about anything else, such as a data structure, an operating system idea or a network.",
+                {name: algorithm.summary for name, algorithm in ALGORITHMS.items()} | {NO_ALGORITHM: "none of these algorithms"},
+            )
         if is_kid:
             questions["young_child_ok"] = YesNo("Is this question fine for a young child to learn about?")
         result = await self._gateway.classify(_state(ask, profile, viewing), questions, lesson_id=lesson_id)
@@ -115,13 +124,17 @@ class Classifier:
         assert isinstance(depth, ScoreAnswer)
         relation = answers.get("relation")
         subject = answers.get("photo_subject")
+        chosen = answers.get("algorithm")
+        fitting_labs = tuple(lab.id for lab in labs if _yes(answers[LAB_QUESTION_PREFIX + lab.id]))
+        algorithm = chosen.choice if isinstance(chosen, ChoiceAnswer) and chosen.choice in ALGORITHMS and outline_lab(chosen.choice) in fitting_labs else None
         return Plan(
             follow_up=isinstance(relation, ChoiceAnswer) and relation.choice == FOLLOW_UP,
-            labs=tuple(lab.id for lab in labs if _yes(answers[LAB_QUESTION_PREFIX + lab.id])),
+            labs=fitting_labs,
             tier=Tier.STRONG if depth.score >= STRONG_TIER_FROM_SCORE else Tier.FAST,
             fine_for_young_child=_yes(answers["young_child_ok"]) if is_kid else True,
             graded_assignment=_yes(answers["graded_assignment"]),
             photo_subject=subject.choice if isinstance(subject, ChoiceAnswer) and subject.choice in phrases else None,
+            algorithm=algorithm,
         )
 
     async def fine_for_young_child(self, say: str, lesson_id: str) -> bool:

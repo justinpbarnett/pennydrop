@@ -90,6 +90,7 @@ class Brief:
     watching_title: str | None = None
     course: CourseContext | None = None
     photo_search: str | None = None
+    outline: str | None = None
 
     def course_lines(self) -> list[str]:
         if not self.course:
@@ -107,6 +108,8 @@ class Brief:
             if self.plan.labs else "No Lab fits this Ask: build the explanation from primitives."
         )
         lines.extend(directive_briefs(self.plan.labs))
+        if self.outline:
+            lines.append(self.outline)
         if self.photo_search:
             lines.append(f"A photo search for \"{self.photo_search}\" is already running: use the images directive with exactly that query for the Ask's main subject. You still choose freely for any other subject.")
         if self.plan.follow_up:
@@ -150,6 +153,7 @@ class Writer:
             REPAIR_INSTRUCTIONS,
             brief.text().split("\n")[0],
             *brief.course_lines(),
+            *([brief.outline] if brief.outline else []),
             f"Scene before this Step (JSON): {json.dumps(scene)}",
             f"The Step as written: {shown}",
             "It failed with:",
