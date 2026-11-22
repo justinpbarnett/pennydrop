@@ -28,6 +28,7 @@ const ease = (value: number) => clamp01(value) ** 2 * (3 - 2 * clamp01(value));
 const whole = (value: number) => Math.floor(value + 1e-9);
 const fmt = (value: number) => String(Math.round(value * 100) / 100);
 const isWhole = (value: number) => Math.abs(value - Math.round(value)) < 1e-9;
+const mean = (values: number[]) => values.reduce((total, value) => total + value, 0) / values.length;
 const range = (count: number) => Array.from({ length: count }, (_, index) => index);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const mix = (from: Point, to: Point, t: number): Point => ({ x: lerp(from.x, to.x, t), y: lerp(from.y, to.y, t) });
@@ -55,10 +56,13 @@ function arc(center: Point, radius: number, degrees: number, samples: number): n
 interface BlocksState extends Base {
   figure: "blocks";
   count: number;
-  columns: number;
+  columns: number | null;
   counted: number;
   groupSize: number | null;
+  joined: number | null;
 }
+
+const MAX_BLOCKS = 100;
 
 const BLOCK = 64;
 const BLOCK_GAP = 14;
@@ -69,6 +73,10 @@ const BLOCKS_BOTTOM = 90;
 const BLOCKS_MAX_WIDTH = 1000;
 const BLOCKS_MIN_WIDTH = 520;
 const GROUP_COLUMNS = 5;
+const DEFAULT_COLUMNS = 10;
+const LIFT = 0.5 * BLOCK;
+
+const columnsOf = (state: BlocksState) => state.columns ?? Math.min(state.count, DEFAULT_COLUMNS);
 
 interface Outline {
   id: string;
@@ -84,7 +92,8 @@ function gridExtent(count: number, columns: number): Size {
 }
 
 function blockLayout(state: BlocksState): { slots: Point[]; outlines: Outline[]; size: Size } {
-  const { count, columns, groupSize } = state;
+  const { count, groupSize } = state;
+  const columns = columnsOf(state);
   let slots: Point[];
   let outlines: Outline[] = [];
   let content: Size;
@@ -133,13 +142,14 @@ function drawBlocks(state: BlocksState, shown: number): Drawable[] {
   const lit = whole(shown);
   const pulse = shown - lit > 1e-9 ? Math.sin(Math.PI * (shown - lit)) : 0;
   const out: Drawable[] = [];
-  layout.slots.forEach((slot, index) => {
+  layout.slots.forEach((at, index) => {
     const isLit = index < lit;
     const scale = index === lit ? 1 + 0.2 * pulse : 1;
-    out.push(boxAt(`b${index}`, slot.x, slot.y, BLOCK * scale, BLOCK * scale, {
-      fill: isLit ? "accent" : "fill2", stroke: isLit || scale > 1 ? "accent" : "edge", strokeWidth: 2, radius: 0.28, z: 2, part: `${state.objectId}[${index}]`,
+    const joined = state.joined !== null && index >= state.joined;
+    out.push(boxAt(`b${index}`, at.x, at.y, BLOCK * scale, BLOCK * scale, {
+      fill: isLit ? "accent" : joined ? "fill" : "fill2", stroke: isLit || scale > 1 ? "accent" : joined ? "swap" : "edge", strokeWidth: joined && !isLit ? 4 : 2, radius: 0.28, z: 2, part: `${state.objectId}[${index}]`,
     }));
-    if (state.reading) out.push(textDrawable(`n${index}`, String(index + 1), slot, { size: 30, fill: "ground", z: 3, opacity: isLit ? 1 : 0 }));
+    if (state.reading) out.push(textDrawable(`n${index}`, String(index + 1), at, { size: 30, fill: "ground", z: 3, opacity: isLit ? 1 : 0 }));
   });
   for (const outline of layout.outlines) out.push(boxAt(outline.id, outline.x, outline.y, outline.w, outline.h, { fill: "none", stroke: outline.role, strokeWidth: 3, radius: 0.5, z: 1 }));
   if (state.reading) out.push(textDrawable("total", String(lit), { x: layout.size.w / 2, y: 54 }, { size: 76, z: 3, opacity: lit > 0 ? 1 : 0 }));
@@ -147,26 +157,80 @@ function drawBlocks(state: BlocksState, shown: number): Drawable[] {
   return out;
 }
 
+function regrownBlocks(before: BlocksState, after: BlocksState, progress: number): Drawable[] {
+  const was = new Map(drawBlocks(before, before.counted).map((drawable) => [drawable.id, drawable]));
+  const will = drawBlocks(after, after.counted);
+  const landing = new Set(will.map((drawable) => drawable.id));
+  const shared = will.filter((drawable) => was.has(drawable.id));
+  const drift = {
+    x: mean(shared.map((drawable) => drawable.x - was.get(drawable.id)!.x)),
+    y: mean(shared.map((drawable) => drawable.y - was.get(drawable.id)!.y)),
+  };
+  const kept = Math.min(before.count, after.count);
+  const changed = Math.abs(after.count - before.count);
+  const moving = (drawable: Drawable, offset: Point, arriving: boolean): Drawable => {
+    const moved = staggered(progress, Number(drawable.id.slice(1)) - kept, changed, 0.4);
+    const present = arriving ? moved : 1 - moved;
+    const shrink = drawable.kind === "rect" ? 1 - present : 0;
+    const w = drawable.w ?? 0;
+    const h = drawable.h ?? 0;
+    return {
+      ...drawable,
+      x: drawable.x + offset.x + (w * shrink) / 2,
+      y: drawable.y + offset.y + (h * shrink) / 2 - (1 - present) * LIFT,
+      ...(drawable.kind === "rect" ? { w: w * present, h: h * present } : {}),
+      opacity: (drawable.opacity ?? 1) * present,
+    };
+  };
+  return [
+    ...shared.map((drawable) => ({ ...drawable, x: lerp(was.get(drawable.id)!.x, drawable.x, progress), y: lerp(was.get(drawable.id)!.y, drawable.y, progress) })),
+    ...will.filter((drawable) => !was.has(drawable.id)).map((drawable) => moving(drawable, { x: -drift.x * (1 - progress), y: -drift.y * (1 - progress) }, true)),
+    ...[...was.values()].filter((drawable) => !landing.has(drawable.id)).map((drawable) => moving(drawable, { x: drift.x * progress, y: drift.y * progress }, false)),
+  ];
+}
+
 const blocks: Figure<BlocksState> = {
   spec: {
-    count: "how many blocks, 1 to 100",
+    count: `how many blocks, 1 to ${MAX_BLOCKS}`,
     columns: "optional blocks per row, 1 to 20, default 10 or fewer",
   },
   init(spec, objectId, reading) {
-    const count = integerField(spec, "count", 0, 1, 100, objectId);
-    const columns = integerField(spec, "columns", Math.min(count, 10), 1, 20, objectId);
-    return { figure: "blocks", objectId, reading, count, columns, counted: 0, groupSize: null };
+    const count = integerField(spec, "count", 0, 1, MAX_BLOCKS, objectId);
+    const columns = spec.columns === undefined ? null : integerField(spec, "columns", DEFAULT_COLUMNS, 1, 20, objectId);
+    return { figure: "blocks", objectId, reading, count, columns, counted: 0, groupSize: null, joined: null };
   },
   ops: {
     count: {
-      doc: 'lights the blocks one by one while the count ticks up; optional "to": n counts up to n, default all',
+      doc: 'lights the blocks one by one while the count ticks up; it counts on from the blocks already counted, or counts again from one once every block is counted; optional "to": n counts up to n, default all',
       seconds: 2.6,
       apply(state, op) {
         const to = integerArg(op.args, "to", op.name, 1, state.count, state.count);
-        if (to <= state.counted) fail(`op "count" on ${state.objectId}: already counted to ${state.counted}; "to" must be from ${state.counted + 1} to ${state.count}`);
         return { ...state, counted: to };
       },
-      during: (before, after, _op, progress) => drawBlocks(after, lerp(before.counted, after.counted, progress)),
+      during: (before, after, _op, progress) => drawBlocks(after, lerp(after.counted > before.counted ? before.counted : 0, after.counted, progress)),
+    },
+    add: {
+      doc: '{"by": n} drops n more blocks onto the end of the pile, outlined apart until they are counted, so two groups make one pile; a "count" after it counts on',
+      seconds: 1.8,
+      apply(state, op) {
+        if (state.groupSize !== null) fail(`op "add" on ${state.objectId}: the blocks are in groups; use op "ungroup" first`);
+        if (state.count >= MAX_BLOCKS) fail(`op "add" on ${state.objectId}: the pile already holds ${MAX_BLOCKS} blocks, the most it can`);
+        const by = integerArg(op.args, "by", op.name, 1, MAX_BLOCKS - state.count);
+        return { ...state, count: state.count + by, joined: state.count };
+      },
+      during: (before, after, _op, progress) => regrownBlocks(before, after, progress),
+    },
+    take: {
+      doc: '{"by": n} lifts the last n blocks off the pile, so fewer are left; a "count" after it counts what is left',
+      seconds: 1.8,
+      apply(state, op) {
+        if (state.groupSize !== null) fail(`op "take" on ${state.objectId}: the blocks are in groups; use op "ungroup" first`);
+        if (state.count < 2) fail(`op "take" on ${state.objectId}: one block is all there is; make a pile with "count" of at least 2`);
+        const by = integerArg(op.args, "by", op.name, 1, state.count - 1);
+        const count = state.count - by;
+        return { ...state, count, counted: Math.min(state.counted, count), joined: state.joined !== null && state.joined < count ? state.joined : null };
+      },
+      during: (before, after, _op, progress) => regrownBlocks(before, after, progress),
     },
     group: {
       doc: '{"size": k} slides the blocks into groups of k and counts the groups; a short last group is marked as left over',
@@ -950,7 +1014,7 @@ export const lab: LabDef<SpecFields, ShapesState> = {
   title: "Numbers and shapes",
   reading: "optional",
   catalog: {
-    summary: "Counting, number lines, fractions, area and right triangles, from a first count to Pythagoras. One object is one figure, chosen by \"figure\"; every number (counts, areas, side lengths) is computed here. In a Lesson with reading false, for a small child, every figure reads from pictures alone: to add or take away, the hopper stands on the first number and a click Challenge asks the child to tap the spot where the next hops will land, which the next Step hops to. Parts are named: a block pile[0], a spot on a line line[7], a side of a triangle tri[a].",
+    summary: "Counting, number lines, fractions, area and right triangles, from a first count to Pythagoras. One object is one figure, chosen by \"figure\"; every number (counts, areas, side lengths) is computed here. In a Lesson with reading false, for a small child, every figure reads from pictures alone: to add or take away, the hopper stands on the first number and a click Challenge asks the child to tap the spot where the next hops will land, which the next Step hops to. A pile of blocks shows a sum as one pile: \"add\" drops the second group onto it and \"count\" counts on, and \"take\" lifts blocks off. Parts are named: a block pile[0], a spot on a line line[7], a side of a triangle tri[a].",
     spec: {
       figure: `one of ${FIGURE_NAMES.join(", ")}`,
       ...Object.fromEntries(Object.entries(FIGURES).map(([name, figure]) => [`figure "${name}"`, Object.entries(figure.spec).map(([field, doc]) => `${field}: ${doc}`).join("; ")])),
