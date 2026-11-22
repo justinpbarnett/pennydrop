@@ -138,3 +138,5 @@ An arrow that carries a whole block's value to the next step starts at the centr
 A connector, pointer or dot uses a Theme role that stays clearly visible on the panel behind it, with a stroke of at least 2, from the moment it appears until it is removed.
 Never fade a mark down to near the background.
 Content inside a panel is centred in it both ways, or the panel is sized to its content, so a panel never shows a blank band on one side of its content.
+Nothing on stage moves unless the Step changed it: an axis, baseline or panel keeps one position while content arrives, and rows are placed around it for the most content the Lab can hold, so the first Step and the last Step share the same layout.
+An area or region fill is one path per outline, never cut into strips or tiles, and keeps the same drawable id in every state, so a transition blends it with itself; a fill drawn with an offset is given a `clip` of the box it belongs to.
