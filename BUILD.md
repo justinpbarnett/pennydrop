@@ -8,13 +8,13 @@ The goal and the design live outside the repo, in the workshop initiative `penny
 
 | # | Condition | State |
 |---|---|---|
-| M1 | Player, format and Themes: bubble sort, page table walk and Pythagoras play, seek deterministically, switch live between four Themes, tailnet link pushed | open |
-| M2 | Writer, classification, validator, TTS: ten typed or spoken Asks, first Step about 4 s, done about 15 s, seconds and cost logged, JEV classifies | open |
-| M3 | Tracer, code stepper, array, graph and tree, scheduler, address translation, threads and locks, each in a generated Lesson | open |
-| M4 | Kids mode on the iPad home screen over the tailnet: voice in and out, nothing to read, the first kids Profile, content check, lesson log, picture explainer, numbers and shapes, physics | open |
-| M5 | The Mint mints and promotes nine Labs, a CS 6200 Course, Challenge answers in the review queue | open |
-| M6 | Two pilot Films to MP4 at about -14 LUFS with fact check log and Cue offset check, voice A/B minute, TTS by config, ElevenLabs adapter | open |
-| 7 | Judging pass over a frame from every Lab and frames and audio from both Films, with fixes | open |
+| M1 | Player, format and Themes: bubble sort, page table walk and Pythagoras play, seek deterministically, switch live between four Themes, tailnet link pushed | met; the push reached the Mac's terminal, and the phone leg needs Remote Control on |
+| M2 | Writer, classification, validator, TTS: ten typed or spoken Asks, first Step about 4 s, done about 15 s, seconds and cost logged, JEV classifies | met for the ten Asks, logging and JEV; first Step p50 3.9 s, done p50 40 s, so the speed targets wait, eased 2026-11-22 |
+| M3 | Tracer, code stepper, array, graph and tree, scheduler, address translation, threads and locks, each in a generated Lesson | met |
+| M4 | Kids mode on the iPad home screen over the tailnet: voice in and out, nothing to read, the first kids Profile, content check, lesson log, picture explainer, numbers and shapes, physics | met at iPad size over the tailnet; no iPad is on the tailnet yet, so the home screen install waits for a real device |
+| M5 | The Mint mints and promotes nine Labs, a CS 6200 Course, Challenge answers in the review queue | met |
+| M6 | Two pilot Films to MP4 at about -14 LUFS with fact check log and Cue offset check, voice A/B minute, TTS by config, ElevenLabs adapter | met |
+| 7 | Judging pass over a frame from every Lab and frames and audio from both Films, with fixes | met |
 
 ## Environment
 
@@ -239,28 +239,38 @@ It ends with the four measures the design asks of each pilot: render minutes by 
 
 ## Work board
 
+Every slice below is committed and pushed; the build session closed on 2026-11-22 at `45f2994`.
+
 | Task | Owner | State |
 |---|---|---|
-| Player core, four Themes, array Lab, bubble sort Lesson, validate, catalog and frames tools | Sonnet agent | done, `267932f` |
-| Server core: config, gateway, JEV, store, TTS seam with Kokoro, intake, tracer, API, CLI | Sonnet agent | done, `ec669f0` |
-| Player fixes and polish, the Ask UI with mic, streaming Steps and follow-ups, the kids PWA and lesson log | player core agent | done, `d1eaaea` and `0b36d8e` |
-| M2 Ask pipeline (server): catalog, JEV classify, streamed writer, directives, validator with redo, TTS per Step, live events, timing and cost, `pd ask`, `pd bench` | M2 agent | committed through `4163faf`; uncommitted: `asks/{coaching,mending,stage}.py`, voice gate, writer hedge at 2.0 s, a one sentence Step 1, mechanical repairs for crowded stages, ops on missing objects and fuzzy Cues, the lines only trace tier keeping call and variables; bench 23: first Step 1.94 to 4.68 s (p50 3.13 s), two Asks over 15 s done; since then a warm spare `claude -p` in the gateway (first token p50 1.12 s cold to 0.39 s), up to three verdict driven mends, retired objects restored, in-flight sends settled, a Challenge answer said in the narration dropped, placeholder coaching; running: the hash collisions first Step split, the four remaining repair causes, a trace that opens on its result (heap Lesson `9fdb8a97bc25`), spares dying with the server; two benches wait for load under 12 |
-| Picture Lab server half: `images` and `locate` directives, `/media` cache, prefetch on classify, `vision_choose` | images agent | uncommitted, commits with M2; running: picture search off Step 1's critical path (whale first Step 7.7 s), a smaller `vision_choose` |
-| Stage ink model against the browser's real boxes, `typeset` failing loudly on transforms it cannot compose, shapes `size()` as the true drawn extent, the 41 shapes and pythagoras `mint-check --builtin` findings | shapes agent | built and measured (text ink within 0.3 px of the browser, `typeset` equal to `getBBox()`, 0 shapes findings); running: three review fixes, then the commit |
-| `whisper-server` outlives every stopped `pd serve` (16 orphans at 600 MB each, killed); tie its life to the server however it dies, and look for other children that leak | shapes agent | running after the review fixes |
-| Stream every Lesson, voice Steps ahead, mark the Challenge answer, hold three caption lines | build session | done, `4ed8a98` |
-| A Step that moves objects on stage and brings new ones in fades the new ones in over the still moving ones (P3L5 `766860908218` at 24.5 s); the moves lead the Cue the way exits do | transition agent | running |
-| CS 6200 Course quality: the latest Lesson per topic against the current validator; P1L2 `6ab8669d14dd` and P3L1 `8179373d7fa1` crowded (made before the crowded check), P2L3 `e2ed2cc0f8a2` never shows the shared counter, P3L5 `766860908218` never shows a device or an interrupt | build session | redo those four with `pd course pregen cs6200 --topics ... --redo` after the M2 commit |
-| Math with stretched delimiters, the typesetter path transforms | build session | done, `f0aec33` and `0afd43b` |
-| `address`, `shapes`, `code`, `graph`, `scheduler`, `threads` Labs with their Lessons | Sonnet agents | done, `8e51db5`, `8fcb470`, `14c8338`, `fe03ae5`, `a93f995`, `4cc3bcf` |
-| Layout by ink, replaced objects fade, exits before arrivals, frames cache, each Lab sized to its stage, 20 px text floor | shapes and refactor agents | done, `bb36c8c`, `c22867d`, `b74a8e4`, `0fad63f` |
-| Contract refactor: reading per kind, one ops table per Lab, one segment progress, the review fixes of `b9114ad` | refactor agent | done, `cd61ea1`, `33d33b5`, `e684394` to `9afbde5` |
-| M4 `physics` and `picture` Labs | Sonnet agents | done; the picture Lab's real photos `60ecb69` |
-| Profiles and the lesson log | Sonnet agent | done, `1140ed2` |
-| M5 Mint: codex through the gateway, checks and visual judge, minted Labs at runtime, Lab requests, promotion | Mint agent | runtime and `pd mint` done, `f56b00e` and `4a863f0`; re-mint from a failed attempt and real coastlines, `77988c6`; the judge confirms each finding on a second look and carries earlier rounds (`dc0cdcf`); an install refusal is a repair finding (`e88581c`); all nine Labs minted and promoted: plot, memory, bits, words, sequence, map, circuit, music, hash; the judge now checks continuous fills and a layout that does not shift, and a seeded run keeps its history when killed; final checks pass (`tsc`, `mint-check --builtin` 0 findings, `frames --check` on every example Lesson); music needs the `tone` dependency in `player/package.json`; open: the live player does not call a Lab's `sound()` hook yet |
-| M6 Films: format, renderer, sound kit, mix, `pd film render` and `pd film check`, both pilots | Film agent | done: both pilots rendered at -14.10 LUFS (page table walk 7:57, Napoleon 8:46), Cue offsets 5 ms, Kokoro and Qwen3 minute compared; Film slice waits for the build session's commit |
-| M6 open local voice: `qwen3` provider, `pd voice ab`; ElevenLabs adapter | voice and M2 agents | done, `a4a6183` (Kokoro RTF 0.114, Qwen3 RTF 0.394, both WER 0) |
-| Next: M1 close (Chrome check, tailnet push), M3 Lessons regenerated after M2, M4 kids end to end, M5 Course pregen and review queue in Chrome, the judging pass | build session | waiting on the slices above |
+| Player core, four Themes, the format, validate, catalog and frames tools | Sonnet agents | done |
+| Server core: config, gateway, JEV, store, TTS seam, intake, tracer, API, CLI | Sonnet agents | done |
+| Ask pipeline: catalog, JEV classify, streamed writer, directives, validator with mends, TTS per Step, timing and cost, `pd ask`, `pd bench` | M2 agent and build session | done |
+| CS Labs: code, array, graph and tree, scheduler, address, threads | Sonnet agents | done |
+| Kids mode: PWA, voice in and out, Profiles, content check, lesson log, picture, shapes, physics | Sonnet agents and build session | done |
+| The Mint and its nine promoted Labs, the CS 6200 Course, Practice and the review queue | Mint agent and build session | done |
+| Films: format, renderer, sound kit, mix, both pilots, Kokoro and Qwen3 minute, ElevenLabs adapter | Film and voice agents | done |
+| Judging pass over every Lab and both Films, with fixes | build session | done |
+
+### Open follow-ups
+
+- Speed: first Step p50 3.9 s with a 6.8 s max, and done p50 40 s against the eased 15 s target; the first Step is slowest under load.
+- Story craft: the parts of a flower Lesson still scores 3 of 10, and the transistor and sky blue Lessons score 5.
+- A kids Ask with no fitting Lab, such as why magnets stick to a fridge, draws plain unlabeled boxes.
+- The words Ask sometimes writes plain text instead of using the words Lab.
+- Practice lines often keep their faults after the one redo, and the fresh item sometimes changes two slots.
+- The judge calls the music `tempo` op a no-op though it plays the roll, and music Lessons still carry some tempo filler.
+- The map Lab crowds its labels, the picture Lab's truck box sits loose, and the shapes stroke reads thin at kids size.
+- The plot Lab rarely holds its reveal back for the hinge.
+- The memory Lab's heap shows at most two blocks.
+- The words Lab spaces its dots unevenly.
+- The non-reading kids stage shows dots that carry no meaning.
+- The hash Lab's note and the "checks out" mark read as filler.
+- Trace counters change without narration in some array Lessons.
+- The review view's reveal has only been checked over the API, not in a browser.
+- 13 older stored Lessons predate the current validator and skip ops when played.
+- Kokoro mispronounces Sieyès; espeak-ng is not installed for its fallback.
+- Stray Napoleon v1 and v2 backups sit in `data/films/napoleon-rise` and wait for a decision before deletion.
 
 ### Server facts for later work
 
@@ -273,8 +283,82 @@ It ends with the four measures the design asks of each pilot: render minutes by 
 - JEV wire format: `questions` is an object keyed by name, score `criteria` is a list of anchor strings, answers come back keyed by name.
 - `.venv` adds 952 MB, torch is 566 MB of it.
 - The player posts Challenge answers with the server's names `{profile_id, lesson_id, step, prompt, answer, correct}`.
-- Open: Store methods for courses, topics, films, lesson_log, lab_requests and minted_labs come with M4, M5 and M6.
 
 ## Evidence log
 
-Commands that prove each condition, with the output that proved it, are added here as each milestone closes.
+Commands that proved each condition on 2026-11-22, with the output that proved it.
+Scripts named here live in the session scratchpad; the server commands run from the repo.
+
+### M1
+
+`bun m1-live.ts https://macbook.tail7a3807.ts.net:8443` plays each Lesson over the tailnet, switches Themes while it plays, then seeks away and back and hashes the stage markup.
+
+```
+bubble-sort: live theme switch while playing: pattern 2.5s->3.4s | film 3.5s->4.4s | kids 4.5s->5.4s | plain 5.5s->6.5s
+  87.3s svg a5bbb5f7a4, same frame, largest pixel difference 6/255 | 24.9s svg d2ef27d306, same frame, 1/255 | 105.7s svg 9402b68891, same frame, 0/255
+page-table-walk: 102.3s svg 06e1f9b1d4, same frame, 0/255 | 29.2s svg 20e3134d03, same frame, 0/255 | 120.0s svg bb5dd02f38, same frame, 0/255
+pythagoras: 96.5s svg 51300e760a, same frame, 1/255 | 27.6s svg e3d2112e1b, same frame, 1/255 | 118.0s svg cf7c2a8d38, same frame, 0/255
+problems: none
+```
+
+The push notification with `https://macbook.tail7a3807.ts.net:8443` reported "Terminal notification sent. Mobile push not sent (Remote Control inactive)."
+
+### M2
+
+`PENNYDROP_CONFIG=dev-config.toml pd bench` ran five typed and five spoken Asks.
+
+```
+first Step s   p50    3.920   p90    6.309   max    6.751
+done s         p50   40.046   p90   47.836   max   48.948
+cost $         p50    0.235   p90    0.258   max    0.293
+```
+
+`sqlite3 data/pennydrop.db` over those ten Lessons shows `first_step_seconds`, `done_seconds` and `cost_usd` on each row, and `model_calls` holds `classify:jev:typesafe/jev-1.14` and `writer:claude:claude-sonnet-5-5` for every one.
+
+### M3
+
+Generated Lessons per Lab in the store, with the newest: code 321 (`0a1ac4cf0451`), array 469 (`af441eaab0ec`), graph 127 with 55 in the tree layout (`837b571ed2b0`), scheduler 144 (`4c376756d75b`), address 148 (`ba4999211b85`), threads 125 (`3966fbfa42bb`).
+The tracer drove `094d1bf8ee3a`, `4f1ad82b9068`, `5ee13841501e` and `6b4f281af190`.
+
+### M4
+
+`bun kid-e2e.ts https://macbook.tail7a3807.ts.net:8443 kid-ask.wav` speaks an Ask into a fake mic on an iPad-sized page.
+
+```
+idle text []
+listening
+stopped listening on its own when the speech ended
+visible text while playing []
+media plays 8
+posts ["/api/asks 200 {\"lesson_id\":\"58ae3364cae1\",\"transcript\":\"Why do magnets stick to the fridge?\"}"]
+```
+
+That Lesson took 0.55 s to transcribe, 3.9 s to the first Step and 17.8 s to done, and its `lesson_log` row reads `passed`.
+The kids Profile's log holds 319 Lessons, among them shapes 133, array 65, picture 46 and physics 40, with `refused: ask a grown up` and `redone: step 3` among the content checks.
+`/kids` serves `manifest.webmanifest` with `display: standalone` and an apple touch icon.
+
+### M5
+
+`pd mint list` shows hash, sequence, memory, bits, plot, map, words, music and circuit all `promoted`.
+`pd course list` shows `cs6200  16 Topics  16 ready`.
+`python review_flow.py` answered the Pythagoras hinge, which enrolled Rule 54, then served new cases 645 to 649 with voice, and `/api/review/queue` and `/api/practice/rates` returned the Rule; a bad answer returned 422.
+
+### M6
+
+`pd film check` on each MP4:
+
+```
+page-table-walk.mp4 522.2 s  -14.10 LUFS, -1.70 dBTP  cue offset max 5.0 ms over 154 cues  WER 1.42%
+napoleon-rise.mp4   513.9 s  -14.10 LUFS, -1.60 dBTP  cue offset max 5.0 ms over 100 cues  WER 2.28%
+minute-kokoro.mp4    60.5 s  -14.10 LUFS              cue offset max 5.0 ms over 12 cues   WER 1.16%
+minute-qwen3.mp4     82.8 s  -14.00 LUFS              cue offset max 5.0 ms over 12 cues   WER 1.73%
+```
+
+`data/films/*/fact-check.md` holds 173 rows for the page table walk (30 corrected, 2 removed) and 228 for Napoleon (16 corrected, 17 removed).
+`pd voice ab` gave Kokoro RTF 0.069, Qwen3 0.515 and ElevenLabs 0.616, all at 0% WER.
+`pd tts` under `config.toml` spoke with `kokoro`, and under a copy with `provider = "elevenlabs"` with ElevenLabs.
+
+### 7
+
+`pd judge` scored 25 Lessons, one or more per Lab, with a mean of 5.72 out of 10, then re-scored the weakest after fixes: music 5 to 7, words 2 to 6, circuit 4 to 5, shapes 5 to 6.
+Fixes from the pass: the words hinge and stress claim, the transistor model, the map summary, mark fonts keeping their case, still Steps that only highlight, highlights that change nothing, and the kids mascot centering.
