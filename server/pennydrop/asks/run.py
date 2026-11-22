@@ -416,6 +416,7 @@ class LessonRun:
     async def _narration_off_stage(self, step: dict[str, Any], arrays: list[ArrayPlay], figures: list[FigurePlay], events: list[EventPlay]) -> str | None:
         say = step.get("say")
         moved_arrays = "; and ".join(play.told() for play in arrays if play.moves)
+        looking_arrays = "; and ".join(play.told() for play in arrays if play.looks)
         moved_figures = "; and ".join(play.told() for play in figures if play.moves)
         played_events = "; and ".join(play.told() for play in events)
         if not isinstance(say, str) or not (moved_arrays or moved_figures or played_events):
@@ -424,6 +425,7 @@ class LessonRun:
         try:
             off = await asyncio.gather(
                 *([classifier.tells_other_moves(moved_arrays, say, self._record.id)] if moved_arrays else []),
+                *([classifier.tells_other_looks(looking_arrays, say, self._record.id)] if looking_arrays else []),
                 *([classifier.misnumbers_figures(moved_figures, say, self._record.id)] if moved_figures else []),
                 *([classifier.tells_other_events(played_events, say, self._record.id)] if played_events else []),
             )
@@ -679,7 +681,8 @@ async def _asked_at_the_close(step: dict[str, Any], number: int, followed: async
 
 
 def _plays_something(step: dict[str, Any], written: dict[str, Any] | Malformed) -> bool:
-    return bool(step.get("do") or step.get("scene") or "challenge" in step) or (isinstance(written, dict) and carries_directive(written))
+    shown = [step, *([written] if isinstance(written, dict) else [])]
+    return any(source.get("do") or source.get("scene") or "challenge" in source for source in shown) or (isinstance(written, dict) and carries_directive(written))
 
 
 def _recover_say(step: dict[str, Any], written: dict[str, Any] | Malformed, values: dict[str, Any]) -> str:

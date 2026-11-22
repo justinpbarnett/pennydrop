@@ -136,11 +136,11 @@ class PlayedHops:
         piles = self._piles_after(step)
         brought = [name for name in step.get("scene") or {} if name in piles]
         if brought and self._play(step):
-            return [f'step {step.get("step")}: the pile {brought[0]} comes in before the Challenge while the sum\'s number line is on stage, so the child sees two pictures of the sum before predicting it; leave {brought[0]} out of this Step\'s "scene", keep only the line until the Challenge\'s reveal, and bring the pile in after it, if at all']
+            return [f'step {step.get("step")}: the blocks {brought[0]} come in before the Challenge while the sum\'s number line is on stage, so the child sees two pictures of the sum before predicting it; leave {brought[0]} out of this Step\'s "scene", keep only the line until the Challenge\'s reveal, and bring the pile in after it, if at all']
         summed = next((target for operation in step.get("do") or [] if isinstance(operation, dict) and operation.get("op") in PILE_SUMS for target in operation.get("on") or [] if target in piles), None)
         if summed is None:
             return []
-        return [f'step {step.get("step")}: the pile {summed} plays the sum before the child predicts it, so the child counts the answer instead of predicting where it lands; tell the sum on a number line first: in this Step\'s "scene" set {summed} to null and bring in {{"lab": "{SHAPES_LAB}", "figure": "{LINE_FIGURE}", "from": 0, "to": 10, "start": <the first number of the sum>}}, play at most one hop of one, and show the pile only after the Challenge\'s reveal']
+        return [f'step {step.get("step")}: the blocks {summed} play the sum before the child predicts it, so the child counts the answer instead of predicting where it lands; tell the sum on a number line first: in this Step\'s "scene" set {summed} to null and bring in {{"lab": "{SHAPES_LAB}", "figure": "{LINE_FIGURE}", "from": 0, "to": 10, "start": <the first number of the sum>}}, play at most one hop of one, narrate only the line coming in on that number and that hop, with no blocks dropped or counted, and show the blocks only after the Challenge\'s reveal']
 
     def _block_tapped(self, step: dict[str, Any]) -> list[str]:
         challenge = step.get("challenge")

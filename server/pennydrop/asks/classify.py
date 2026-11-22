@@ -51,6 +51,10 @@ OTHER_MOVES_QUESTIONS = {
     "contradicts": YesNo("Does the narration state a move, a swap or a resting place that contradicts the moves listed for the stage? Leaving moves out is not a contradiction."),
 }
 OTHER_MOVES_CONFIDENCE = 0.7
+OTHER_LOOKS_QUESTIONS = {
+    "elsewhere": YesNo("Does the narration say this Step checks or looks at a value that no pointer points at in this Step?"),
+    "stale": YesNo("Does the narration tell a check whose value differs from every value the pointers point at in this Step, as if the narration were one Step behind the stage?"),
+}
 OTHER_EVENTS_QUESTIONS = {
     "other": YesNo("Does the narration say that something happens now, in this Step, that is not among the events the stage plays in this Step? Background about what earlier Steps showed, and anything the narration only asks about or says will come later, does not count."),
     "contradicts": YesNo("Does the narration state an event whose parties, values or order differ from the events the stage plays in this Step? Leaving events out is not a contradiction."),
@@ -177,6 +181,10 @@ class Classifier:
     async def tells_other_moves(self, played: str, say: str, lesson_id: str) -> bool:
         result = await self._gateway.classify(f"Stage in this Step: {played}.\nNarration: {say}", OTHER_MOVES_QUESTIONS, lesson_id=lesson_id)
         return _mean_yes(result.answers[name] for name in OTHER_MOVES_QUESTIONS) >= OTHER_MOVES_CONFIDENCE
+
+    async def tells_other_looks(self, played: str, say: str, lesson_id: str) -> bool:
+        result = await self._gateway.classify(f"Stage in this Step: {played}.\nNarration: {say}", OTHER_LOOKS_QUESTIONS, lesson_id=lesson_id)
+        return _mean_yes(result.answers[name] for name in OTHER_LOOKS_QUESTIONS) >= OTHER_MOVES_CONFIDENCE
 
     async def tells_other_events(self, played: str, say: str, lesson_id: str) -> bool:
         result = await self._gateway.classify(f"Stage in this Step: {played}.\nNarration: {say}", OTHER_EVENTS_QUESTIONS, lesson_id=lesson_id)

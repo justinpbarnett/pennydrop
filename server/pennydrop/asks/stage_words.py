@@ -14,7 +14,7 @@ SHAPES_DEF = "lab:shapes"
 CELL = re.compile(r"^(?P<array>[\w-]+)\[(?P<index>\d+)\]$")
 NUMBER = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
 SAME_NUMBER_SHARE = 0.005
-MOVES = ("compare", "swap", "set", "pointer")
+MOVES = ("compare", "swap", "set", "pointer", "window")
 
 
 class StagePlay(Protocol):
@@ -32,6 +32,7 @@ class ArrayPlay:
     before: tuple[Any, ...]
     after: tuple[Any, ...]
     moves: tuple[str, ...]
+    looks: bool
 
     def told(self) -> str:
         change = f"stays {list(self.before)}" if self.before == self.after else f"goes from {list(self.before)} to {list(self.after)}"
@@ -195,6 +196,7 @@ def array_plays(scene_before: Any, step: dict[str, Any]) -> list[ArrayPlay]:
     before = {name: values for name, values in {**_arrays_on_stage(scene_before), **_arrays_brought_in(scene)}.items() if not (name in scene and scene[name] is None)}
     after = {name: list(values) for name, values in before.items()}
     moves: dict[str, list[str]] = {name: [] for name in before}
+    looking: set[str] = set()
     for operation in step.get("do") or []:
         if not isinstance(operation, dict) or operation.get("op") not in MOVES:
             continue
@@ -205,7 +207,9 @@ def array_plays(scene_before: Any, step: dict[str, Any]) -> list[ArrayPlay]:
         indexes = [int(found["index"]) for found in cells]
         if all(index < len(after[name]) for index in indexes):
             moves[name].append(_move(operation, after[name], indexes))
-    return [ArrayPlay(name, tuple(values), tuple(after[name]), tuple(moves[name])) for name, values in before.items()]
+            if operation["op"] == "pointer":
+                looking.add(name)
+    return [ArrayPlay(name, tuple(values), tuple(after[name]), tuple(moves[name]), name in looking) for name, values in before.items()]
 
 
 def _move(operation: dict[str, Any], values: list[Any], indexes: list[int]) -> str:
@@ -221,6 +225,9 @@ def _move(operation: dict[str, Any], values: list[Any], indexes: list[int]) -> s
         unchanged = values[index] == operation.get("value")
         values[index] = operation.get("value")
         return f"{values[index]} stays at index {index}" if unchanged else f"{values[index]} moves to index {index}"
+    if kind == "window":
+        first, last = min(indexes), max(indexes)
+        return f"the window brackets only {values[first]} at index {first}" if first == last else f"the window brackets {values[first]} through {values[last]}, index {first} to {last}"
     pointer = f"the {operation['name']} pointer" if isinstance(operation.get("name"), str) else "a pointer"
     return f"{pointer} points at {values[indexes[0]]} at index {indexes[0]}"
 

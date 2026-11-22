@@ -52,16 +52,21 @@ def prepare(step: dict[str, Any], tools: DirectiveTools) -> dict[str, Any]:
 
 def with_scene_figure_as_simulation(step: dict[str, Any], staged: dict[str, dict[str, Any]]) -> dict[str, Any]:
     scene = step.get("scene")
-    if "simulate" in step or not isinstance(scene, dict):
+    if not isinstance(scene, dict):
         return step
-    figures = [(name, spec) for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") in TARGETS]
-    if len(figures) != 1:
+    figures = {name: spec for name, spec in scene.items() if isinstance(spec, dict) and spec.get("lab") in TARGETS}
+    restated = {name for name, spec in figures.items() if staged.get(name, {}).get("lab") == spec["lab"]}
+    drawn = [name for name in figures if name not in restated]
+    if "simulate" in step or len(drawn) != 1:
+        return _with_scene(step, {name: spec for name, spec in scene.items() if name not in restated})
+    name = drawn[0]
+    return {**_with_scene(step, {other: spec for other, spec in scene.items() if other not in restated and other != name}), "simulate": {**figures[name], "on": name, "until": 0}}
+
+
+def _with_scene(step: dict[str, Any], scene: dict[str, Any]) -> dict[str, Any]:
+    if scene == step.get("scene"):
         return step
-    name, spec = figures[0]
-    rest = {key: value for key, value in scene.items() if key != name}
-    if staged.get(name, {}).get("lab") == spec["lab"]:
-        return {key: value for key, value in {**step, "scene": rest}.items() if key != "scene" or rest}
-    return {**step, "scene": rest, "simulate": {**spec, "on": name, "until": 0}}
+    return {**{key: value for key, value in step.items() if key != "scene"}, **({"scene": scene} if scene else {})}
 
 
 async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -91,7 +96,8 @@ async def expand(step: dict[str, Any], raw: Any, tools: DirectiveTools) -> tuple
         raise DirectiveError(_nothing_new(raw["until"], simulation.stop(timeline[0][0])))
     reached = {key: simulation.values[name] for key, name in simulation.value_names().items() if simulation.known_at.get(name, 0) <= reach}
     _require_values_reached(step, simulation, reach)
-    drawn = {} if shown else {object_id: {**(scene.get(object_id) or {}), **simulation.scene}, **simulation.objects}
+    written_figure = scene.get(object_id) if isinstance(scene.get(object_id), dict) and scene[object_id].get("lab") == raw["lab"] else {}
+    drawn = {} if shown else {object_id: {**written_figure, **simulation.scene}, **simulation.objects}
     expanded = {**step, "scene": {**scene, **drawn}, "do": [*step.get("do", []), *limit_operations("simulate", played)]}
     later = {key: simulation.values[name] for key, name in simulation.value_names().items() if key not in reached}
     return with_answer_from(expanded, later), reached
