@@ -12,9 +12,16 @@ SPOT = re.compile(r"^(?P<line>[\w-]+)\[(?P<spot>-?\d+)\]$")
 
 @dataclass(frozen=True)
 class Hopper:
-    start: int
+    base: int
     at: int
-    hopped: int
+    landed: tuple[tuple[int, int], ...]
+
+    def hopped(self, by: int, each: int, step: int) -> Hopper:
+        spots = range(self.at + each, self.at + by + each, each) if by > 0 else range(self.at - each, self.at + by - each, -each)
+        return replace(self, at=self.at + by, landed=self.landed + tuple((spot, step) for spot in spots))
+
+    def landed_on(self, spot: int) -> int | None:
+        return next((step for landed, step in self.landed if landed == spot), None)
 
 
 @dataclass(frozen=True)
@@ -34,7 +41,8 @@ class PlayedHops:
         revealed = self._asked
         self._hoppers = self._play(step)
         if revealed and revealed.line in self._hoppers:
-            self._hoppers[revealed.line] = replace(self._hoppers[revealed.line], hopped=0)
+            settled = self._hoppers[revealed.line]
+            self._hoppers[revealed.line] = Hopper(settled.at, settled.at, ())
         self._asked = _landing_asked(step, self._hoppers)
 
     def errors_in(self, step: dict[str, Any]) -> list[str]:
@@ -49,7 +57,7 @@ class PlayedHops:
             return []
         left = f"leaves the hopper on {hopper.at}" if hopper else f"takes {asked.line} off the stage"
         by = asked.spot - asked.standing
-        return [f'step {step.get("step")}: Step {asked.asked_in} asked the learner to tap where the hopper lands, and its answer is {asked.spot}; this Step is the reveal and {left}. Keep {asked.line} as it was in Step {asked.asked_in}, with the hopper on {asked.standing}, and hop it {by} from there with {{"op": "{HOP}", "on": ["{asked.line}"], "by": {by}, "each": 1}} so it lands on {asked.spot}, and let the narration tell where it lands']
+        return [f'step {step.get("step")}: Step {asked.asked_in} asked the learner to tap where the hopper lands, and its answer is {asked.spot}; this Step is the reveal and {left}. Keep {asked.line} on stage as it was, with the hopper on {asked.standing}, and play the asked hops from there with {{"op": "{HOP}", "on": ["{asked.line}"], "by": {by}, "each": 1}} so it lands on {asked.spot}, and let the narration tell where it lands']
 
     def _challenge_errors(self, step: dict[str, Any]) -> list[str]:
         hoppers = self._play(step)
@@ -57,29 +65,37 @@ class PlayedHops:
         if asked is None:
             return []
         hopper = hoppers[asked.line]
-        stand_back = f'stand the hopper back on {hopper.start} in this Step, with {asked.line} in its "scene" and "start": {hopper.start}, and make the answer the spot the asked hops from {hopper.start} land on'
+        prefix = f"step {step.get('step')} challenge:"
+        if hopper.at != hopper.base:
+            back = hopper.base - hopper.at
+            return [f'{prefix} the sum starts with the hopper on {hopper.base}, but when the Challenge waits it stands on {hopper.at}, after the hops played so far, so the learner predicts only the last few hops instead of the sum. Add {{"op": "{HOP}", "on": ["{asked.line}"], "by": {back}, "each": {abs(back)}}} to the end of this Step\'s "do" so the hopper is back on {hopper.base}, say that it goes back, and make the answer the spot the asked hops from {hopper.base} land on']
         if asked.spot == hopper.at:
-            return [f'step {step.get("step")} challenge: the hopper already stands on {asked.spot} when the Challenge waits, so the learner taps where it is instead of predicting where it lands; {stand_back}']
-        if hopper.hopped >= abs(asked.spot - hopper.at):
-            return [f'step {step.get("step")} challenge: the Steps up to this Challenge already hopped {hopper.hopped} along {asked.line}, and the hops it asks about are only {abs(asked.spot - hopper.at)} from {hopper.at}, so the learner counts on from what they watched instead of predicting. Before the Challenge, hop at most a smaller sum than the one it asks about, such as one hop, then {stand_back}']
+            return [f"{prefix} the hopper already stands on {asked.spot} when the Challenge waits, so the learner taps where it is instead of predicting where it lands; ask where it lands after the hops the Ask is about, and make that spot the answer"]
+        if (seen := hopper.landed_on(asked.spot)) is not None:
+            return [f"{prefix} the hopper already landed on {asked.spot} in Step {seen}, so the learner remembers the spot instead of predicting it; the Steps before the Challenge must hop only a smaller sum that stops short of {asked.spot}, so rewrite the hops before the Challenge to stop short of it and hop back to {hopper.base}"]
         return []
 
     def _play(self, step: dict[str, Any]) -> dict[str, Hopper]:
         hoppers = dict(self._hoppers)
+        brought: set[str] = set()
         for name, spec in (step.get("scene") or {}).items():
             if isinstance(spec, dict) and spec.get("lab") == SHAPES_LAB and spec.get("figure") == LINE_FIGURE:
                 start = _whole(spec.get("start"), _whole(spec.get("from"), 0))
-                earlier = hoppers.get(name)
-                hoppers[name] = Hopper(earlier.start if earlier else start, start, earlier.hopped if earlier else 0)
-            elif isinstance(spec, dict) and "lab" not in spec and name in hoppers and "start" in spec:
-                hoppers[name] = replace(hoppers[name], at=_whole(spec["start"], hoppers[name].at))
-            elif name in hoppers and not (isinstance(spec, dict) and "lab" not in spec):
-                hoppers.pop(name)
+                if name in hoppers:
+                    hoppers[name] = replace(hoppers[name], at=start)
+                else:
+                    hoppers[name] = Hopper(start, start, ())
+                    brought.add(name)
+            else:
+                hoppers.pop(name, None)
         for operation in step.get("do") or []:
             targets = operation.get("on") if isinstance(operation, dict) and operation.get("op") == HOP else None
-            if isinstance(targets, list) and len(targets) == 1 and targets[0] in hoppers and (by := _whole(operation.get("by"), 0)):
-                hopper = hoppers[targets[0]]
-                hoppers[targets[0]] = replace(hopper, at=hopper.at + by, hopped=hopper.hopped + abs(by))
+            by = _whole(operation.get("by"), 0) if targets else 0
+            if isinstance(targets, list) and len(targets) == 1 and targets[0] in hoppers and by:
+                each = abs(_whole(operation.get("each"), by)) or abs(by)
+                hoppers[targets[0]] = hoppers[targets[0]].hopped(by, each, step.get("step", 0))
+        for name in brought:
+            hoppers[name] = replace(hoppers[name], base=hoppers[name].at)
         return hoppers
 
 

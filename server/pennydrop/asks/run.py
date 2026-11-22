@@ -21,7 +21,7 @@ from .lesson_format import Header, Malformed
 from .live import LiveLesson
 from .mending import PROMISE_WORDS, mended, mended_by_verdict, mended_cues, with_one_figure_on_stage
 from .stage import Stage, question_without_challenge, ran_something, trace_totals
-from .stage_words import PlotView, StagePlay, array_plays, plot_views, shapes_plays
+from .stage_words import ArrayPlay, FigurePlay, PlotView, StagePlay, array_plays, plot_views, shapes_plays
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
 from .writer import Brief, Writer
@@ -48,6 +48,7 @@ END_TOLD_EARLY = 'say: the narration gives {value}, where the {line} line ends, 
 STILL_SIDE_RUN = "; the contrast run is not played yet, so carry its trace in this Step exactly as the brief gives it, and play it here"
 STILL_RUN = 'this Step plays nothing on the stage and asks nothing: its "{directive}" repeats the stop of the Step before, so the learner hears new words over a still picture; give "until" the next stop after that one, or leave "until" out to play the rest of the run, write no "do" entries for the run, and keep "say" telling only the part this Step plays'
 PLACEHOLDER = re.compile(r"\{[^}]*\}")
+CHALLENGE_FLAW = re.compile(r"^(step \d+ )?challenge:")
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
 QUOTED = re.compile(r'"[^"]*"')
 SAY_FIELD = re.compile(r'"say"\s*:\s*("(?:[^"\\]|\\.)*")')
@@ -288,7 +289,8 @@ class LessonRun:
             return Checked([coached(str(error))], None, scene)
         known = {**self._remembered_values, **values}
         facts = computed_facts(known)
-        plays: list[StagePlay] = [*array_plays(scene, step), *shapes_plays(scene, step)]
+        arrays, figures = array_plays(scene, step), shapes_plays(scene, step)
+        plays: list[StagePlay] = [*arrays, *figures]
         plots = plot_views(scene, step)
         verdict, fine_for_child, keeps_honor_code, restates_point, claims_agree, *further_advice = await asyncio.gather(
             self._kit.validator.check(step, scene, self._reading),
@@ -297,7 +299,7 @@ class LessonRun:
             self._restates_point(step, number, pending.followed),
             self._claims_agree(step, written, known, facts),
             self._missing_hinge(step, number, pending.last_after),
-            self._narration_off_stage(step, plays),
+            self._narration_off_stage(step, arrays, figures),
             self._answer_on_stage(step, [play.shown() for play in plays] + [view.shown() for view in plots if view.lines]),
             self._answer_told(step),
             self._story_off_lab(step, number),
@@ -377,16 +379,22 @@ class LessonRun:
             return STILL_RUN.format(directive=staged)
         return STILL_STAGE + STILL_SIDE_RUN if self._stage.side_run_unplayed() else STILL_STAGE
 
-    async def _narration_off_stage(self, step: dict[str, Any], plays: list[StagePlay]) -> str | None:
-        played = "; and ".join(play.told() for play in plays if play.moves)
-        if not played or not isinstance(step.get("say"), str):
+    async def _narration_off_stage(self, step: dict[str, Any], arrays: list[ArrayPlay], figures: list[FigurePlay]) -> str | None:
+        say = step.get("say")
+        moved_arrays = "; and ".join(play.told() for play in arrays if play.moves)
+        moved_figures = "; and ".join(play.told() for play in figures if play.moves)
+        if not isinstance(say, str) or not (moved_arrays or moved_figures):
             return None
+        classifier = self._kit.classifier
         try:
-            off = await self._kit.classifier.tells_other_moves(played, step["say"], self._record.id)
+            off = await asyncio.gather(
+                *([classifier.tells_other_moves(moved_arrays, say, self._record.id)] if moved_arrays else []),
+                *([classifier.misnumbers_figures(moved_figures, say, self._record.id)] if moved_figures else []),
+            )
         except GatewayError as error:
             LOG.warning("lesson %s Step could not be checked against its stage: %s", self._record.id, error)
             return None
-        return NARRATION_OFF_STAGE.format(played=played) if off else None
+        return NARRATION_OFF_STAGE.format(played="; and ".join(filter(None, (moved_arrays, moved_figures)))) if any(off) else None
 
     async def _answer_on_stage(self, step: dict[str, Any], views: list[str]) -> str | None:
         asked = _predicted(step)
@@ -464,7 +472,7 @@ class LessonRun:
         say = await self._true_say(brief, step, recovered, last.disputed, scene) if last.disputed else recovered
         validator = self._kit.validator
         self._stage.lost_runs = self._stage.lost_runs or ran_something(written)
-        answerable = not self._stage.unran_values(step, False)
+        answerable = not self._stage.unran_values(step, False) and not any(CHALLENGE_FLAW.match(error) for error in last.errors + last.advice)
         if answerable and last.disputed and "challenge" in step:
             answerable = await self._claim_holds(_claimed({"say": say, "challenge": step["challenge"]}), last.disputed)
         for kept_fields in (("scene", "challenge"), ("challenge",), ("scene",), ()):

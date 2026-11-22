@@ -47,6 +47,10 @@ OTHER_MOVES_QUESTIONS = {
     "contradicts": YesNo("Does the narration state a move, a swap or a resting place that contradicts the moves listed for the stage? Leaving moves out is not a contradiction."),
 }
 OTHER_MOVES_CONFIDENCE = 0.7
+FIGURE_NUMBERS_QUESTIONS = {
+    "number": YesNo("Does the narration say the hopper stands on, hops to or lands on a number that is not where the stage puts it in this Step, or say the pile holds a number of blocks it does not hold? Numbers the narration only asks about, or says will come later, do not count."),
+    "count": YesNo("Does the narration count out or name more or fewer hops, or more or fewer blocks, than the stage plays in this Step? A sum the narration only restates, such as two plus five is seven, does not count."),
+}
 FOLLOW_UP = "follow_up"
 NEW_TOPIC = "new_topic"
 PICTURE_LAB = "picture"
@@ -165,6 +169,10 @@ class Classifier:
     async def tells_other_moves(self, played: str, say: str, lesson_id: str) -> bool:
         result = await self._gateway.classify(f"Stage in this Step: {played}.\nNarration: {say}", OTHER_MOVES_QUESTIONS, lesson_id=lesson_id)
         return _mean_yes(result.answers[name] for name in OTHER_MOVES_QUESTIONS) >= OTHER_MOVES_CONFIDENCE
+
+    async def misnumbers_figures(self, played: str, say: str, lesson_id: str) -> bool:
+        result = await self._gateway.classify(f"Stage in this Step: {played}.\nNarration: {say}", FIGURE_NUMBERS_QUESTIONS, lesson_id=lesson_id)
+        return _mean_yes(result.answers[name] for name in FIGURE_NUMBERS_QUESTIONS) >= 0.5
 
     async def answer_on_stage(self, shown: str, challenge: str, lesson_id: str) -> bool:
         result = await self._gateway.classify(f"Stage now: {shown}.\nChallenge: {challenge}", ANSWER_ON_STAGE_QUESTIONS, lesson_id=lesson_id)
