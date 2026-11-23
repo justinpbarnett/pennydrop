@@ -45,7 +45,7 @@ async def _voice_with(settings: Settings, transcriber: Transcriber, text: str, n
     engine = PROVIDERS[name](settings, settings.tts_sections.get(name, {}))
     await asyncio.to_thread(engine.warm)
     started = time.monotonic()
-    synthesis = await engine.synthesize(text, engine.default_voice)
+    synthesis = await engine.synthesize(text, engine.default_voice, 1.0)
     seconds = time.monotonic() - started
     raw = out_dir / f"{name}.raw.{synthesis.extension}"
     raw.write_bytes(synthesis.audio)

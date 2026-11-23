@@ -28,7 +28,7 @@ class Qwen3Provider(Provider):
         with self._busy:
             self._loaded()
 
-    async def synthesize(self, text: str, voice: str) -> Synthesis:
+    async def synthesize(self, text: str, voice: str, pace: float) -> Synthesis:
         return await asyncio.to_thread(self._synthesize_blocking, text, voice)
 
     def _loaded(self):

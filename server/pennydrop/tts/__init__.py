@@ -42,15 +42,17 @@ class Speaker:
     def warm(self) -> None:
         self._provider(self._settings.tts_provider).warm()
 
-    async def voice(self, text: str, *, provider: str | None = None, voice: str | None = None) -> Voice:
+    async def voice(self, text: str, *, provider: str | None = None, voice: str | None = None, pace: float = 1.0) -> Voice:
         engine = self._provider(provider or self._settings.tts_provider)
+        if pace != 1.0 and not engine.paces:
+            raise TtsError(f"tts provider '{engine.name}' speaks at one pace, so it cannot speak at pace {pace}")
         voice_name = voice or engine.default_voice
         spoken = engine.speakable(text)
-        stem = self._cache_stem(engine, voice_name, spoken)
+        stem = self._cache_stem(engine, voice_name, spoken, pace)
         cached = self._read_cached(stem)
         if cached:
             return cached
-        synthesis = await engine.synthesize(spoken, voice_name)
+        synthesis = await engine.synthesize(spoken, voice_name, pace)
         return await self._store(stem, text, respelled(text), synthesis)
 
     def _provider(self, name: str) -> Provider:
@@ -60,9 +62,12 @@ class Speaker:
             self._providers[name] = PROVIDERS[name](self._settings, self._settings.tts_sections.get(name, {}))
         return self._providers[name]
 
-    def _cache_stem(self, engine: Provider, voice: str, text: str) -> str:
-        identity = json.dumps([engine.name, voice, engine.section, text], sort_keys=True)
-        return hashlib.sha256(identity.encode()).hexdigest()
+    def _cache_stem(self, engine: Provider, voice: str, text: str, pace: float) -> str:
+        identity = [engine.name, voice, engine.section, text]
+        if pace != 1.0:
+            # A natural pace keeps the key it had before pace existed, so audio cached then stays valid.
+            identity.append(pace)
+        return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
     def _read_cached(self, stem: str) -> Voice | None:
         timings_path = self._settings.tts_cache_dir / f"{stem}.json"

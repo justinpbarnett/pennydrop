@@ -23,6 +23,7 @@ class Synthesis:
 
 class Provider(ABC):
     name: ClassVar[str]
+    paces: ClassVar[bool] = False
 
     def __init__(self, settings: Settings, section: dict):
         self.settings = settings
@@ -39,5 +40,5 @@ class Provider(ABC):
         return respelled(text)
 
     @abstractmethod
-    async def synthesize(self, text: str, voice: str) -> Synthesis: ...
+    async def synthesize(self, text: str, voice: str, pace: float) -> Synthesis: ...
 

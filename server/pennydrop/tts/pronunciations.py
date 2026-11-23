@@ -15,7 +15,7 @@ KOKORO_NAMES = {
     "Fructidor": "fɹˌʌktidˈɔɹ",
     "Formio": "fˈɔɹmjO",
     "Kleber": "klAbˈɛɹ",
-    "Sieyes": "sjAˈjɛs",
+    "Sieyes": "sˌiAˈjɛs",
     "Fouche": "fuʃˈA",
     "Brumaire": "bɹumˈɛɹ",
     "Aboukir": "ˌɑbukˈiɹ",
@@ -29,6 +29,10 @@ KOKORO_NAMES = {
     "Lucien": "lyˈsjɛn",
     "Joubert": "ʒubˈɛɹ",
     "Maximilien": "mˌɑksimiljˈɛn",
+    "Berthier": "bˌɛɹtjˈA",
+    "Junot": "ʒunˈO",
+    "Marmont": "mɑɹmˈɔn",
+    "Saint-Cloud": "sæn klˈu",
 }
 SIBILANTS = ("s", "z", "ʃ", "ʒ", "ʧ", "ʤ")
 VOICELESS = ("p", "t", "k", "f", "θ")

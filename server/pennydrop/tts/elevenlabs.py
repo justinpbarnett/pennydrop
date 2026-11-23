@@ -17,7 +17,7 @@ PCM_SAMPLE_WIDTH_BYTES = 2
 class ElevenLabsProvider(Provider):
     name = "elevenlabs"
 
-    async def synthesize(self, text: str, voice: str) -> Synthesis:
+    async def synthesize(self, text: str, voice: str, pace: float) -> Synthesis:
         key = self.settings.secret("ELEVENLABS_API_KEY")
         if not key:
             raise TtsError("ELEVENLABS_API_KEY is not set in .env, so the elevenlabs voice cannot speak yet")

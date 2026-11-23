@@ -5,8 +5,15 @@ from pathlib import Path
 
 from ..tts import Speaker, TtsError, Voice
 
-VOICES: dict[str, dict[str, str]] = {
-    "narrator-low": {"kokoro": "am_onyx", "qwen3": "Ryan"},
+
+@dataclass(frozen=True)
+class Narrator:
+    voice: str
+    pace: float = 1.0
+
+
+VOICES: dict[str, dict[str, Narrator]] = {
+    "narrator-low": {"kokoro": Narrator("am_onyx", pace=0.85), "qwen3": Narrator("Ryan")},
 }
 
 
@@ -24,5 +31,5 @@ async def speak_film(speaker: Speaker, provider: str, voice_id: str, says: list[
         raise TtsError(f"unknown film voice '{voice_id}', known voices: {', '.join(VOICES)}")
     if provider not in VOICES[voice_id]:
         raise TtsError(f"film voice '{voice_id}' has no voice for tts provider '{provider}'")
-    name = VOICES[voice_id][provider]
-    return [SpokenLine(await speaker.voice(say, provider=provider, voice=name)) for say in says]
+    narrator = VOICES[voice_id][provider]
+    return [SpokenLine(await speaker.voice(say, provider=provider, voice=narrator.voice, pace=narrator.pace)) for say in says]

@@ -19,6 +19,7 @@ ESPEAK_INIT = threading.Lock()
 
 class KokoroProvider(Provider):
     name = "kokoro"
+    paces = True
 
     def __init__(self, settings, section):
         super().__init__(settings, section)
@@ -30,7 +31,7 @@ class KokoroProvider(Provider):
         pipelines = [self._borrow() for _ in range(self.section["workers"])]
         try:
             for pipeline in pipelines:
-                self._speak_with(pipeline, "Ready.", self.default_voice)
+                self._speak_with(pipeline, "Ready.", self.default_voice, 1.0)
         finally:
             for pipeline in pipelines:
                 self._pipelines.put(pipeline)
@@ -38,8 +39,8 @@ class KokoroProvider(Provider):
     def speakable(self, text: str) -> str:
         return kokoro_names(phonemized(text))
 
-    async def synthesize(self, text: str, voice: str) -> Synthesis:
-        return await asyncio.to_thread(self._synthesize_blocking, text, voice)
+    async def synthesize(self, text: str, voice: str, pace: float) -> Synthesis:
+        return await asyncio.to_thread(self._synthesize_blocking, text, voice, pace)
 
     def _borrow(self):
         pipeline = self._pipelines.get()
@@ -56,22 +57,22 @@ class KokoroProvider(Provider):
             self._pipelines.put(None)
             raise
 
-    def _speak_with(self, pipeline, text: str, voice: str) -> tuple[list, list[WordTiming], float]:
+    def _speak_with(self, pipeline, text: str, voice: str, pace: float) -> tuple[list, list[WordTiming], float]:
         chunks = []
         words: list[WordTiming] = []
         offset_seconds = 0.0
-        for result in pipeline(text, voice=voice, speed=self.section["speed"]):
+        for result in pipeline(text, voice=voice, speed=self.section["speed"] * pace):
             chunks.append(result.audio.numpy())
             words += _words_from(result.tokens, offset_seconds)
             offset_seconds += len(result.audio) / SAMPLE_RATE
         return chunks, words, offset_seconds
 
-    def _synthesize_blocking(self, text: str, voice: str) -> Synthesis:
+    def _synthesize_blocking(self, text: str, voice: str, pace: float) -> Synthesis:
         import numpy
 
         pipeline = self._borrow()
         try:
-            chunks, words, offset_seconds = self._speak_with(pipeline, text, voice)
+            chunks, words, offset_seconds = self._speak_with(pipeline, text, voice, pace)
         finally:
             self._pipelines.put(pipeline)
         if not chunks:
