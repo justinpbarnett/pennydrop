@@ -246,20 +246,20 @@ A walk or entrance ends standing unless it names a pose, keeping a bearing that 
 A `map` draws places, journeys, marching armies and clashes inside a tight region, and refuses a layout whose names have no room.
 The plan check holds a Film to acting: every line but the last has an op on a stage, a map or a Lab, at most one line in four adds a card, and a person takes one op per word.
 It also refuses a stage left empty for more than 3 seconds while the narration goes on, once someone has acted on it.
-The film page `player/film.html` draws a pure function of (film, time, Theme) through `window.film` with `load`, `seek` and `regions`.
-`bun player/tools/film.ts render` draws 1920x1080 frames at 30 fps in parallel headless pages, pipes them to ffmpeg as H.264 yuv420p, writes `<out>.manifest.json`, and reports frames per second.
-`pd film render <film> [--out]` voices each line through the TTS seam, builds a seeded sound kit and a bed ducked under speech, normalizes to -14 LUFS with true peak at most -1.5 dBTP through a limiter with a 0.3 dB margin, and muxes into the MP4.
-Rendered media goes under the gitignored `data/films/<thread>/`.
 Something is always happening on screen and someone is always speaking: the check refuses a shot where nothing in view moves for more than 3 seconds, and a silence of more than 1.5 seconds before the first word, between lines or before the credits.
 Figures breathe on an idle loop, so stillness is read from the timeline, where an op, an entrance, an exit or a camera flight counts as motion, not from pixels.
 It refuses a camera move that leaves less than 1.5 seconds after the one before it lands, because the viewer never sees that shot at rest.
 `pd film revise <thread>` hands the current Film and its problems back to the planner, instead of planning the Film again from the script.
+The film page `player/film.html` draws a pure function of (film, time, Theme) through `window.film` with `load`, `seek` and `regions`.
+`bun player/tools/film.ts render` draws 1920x1080 frames at 30 fps in parallel headless pages, pipes them to ffmpeg as H.264 yuv420p, writes `<out>.manifest.json`, and reports frames per second.
+`pd film render <film> [--out]` voices each line through the TTS seam, builds a seeded sound kit and a bed ducked under speech, normalizes to -14 LUFS with true peak at most -1.5 dBTP through a limiter with a 0.3 dB margin, and muxes into the MP4.
+Rendered media goes under the gitignored `data/films/<thread>/`.
 `pd film check <mp4>` reports loudness, true peak, and for every Cue the offset in ms between the heard word and the op start, with max and mean against the 33 ms bar, plus the delay until pixels change in the op's region.
+It fails on dead air: any silence over 1.5 seconds in the heard narration, from the first frame to the credits, placed by where each line is actually heard in the mix.
 It ends with the four measures the design asks of each pilot: render minutes by stage (voice, draw, mix, written into the render manifest), tokens by stage and review minutes (read from `data/films/<thread>/measures.json`, which the session that wrote the Film fills in), and fact check catches (the rows of `data/films/<thread>/fact-check.md` whose verdict is `corrected` or `removed`).
 `bun player/tools/film.ts plan` prints the estimated duration, `audit` prints the camera table with tilt, margins and the smallest text in pixels at 1080p per shot (keep it at 26 or more), and `stills` writes a frame per shot; a Film runs about 0.74 of its plan estimate.
 
 ## Work board
-It fails on dead air: any silence over 1.5 seconds in the heard narration, from the first frame to the credits, placed by where each line is actually heard in the mix.
 
 Every slice below is committed and pushed; the build session closed on 2026-11-22 at `45f2994`.
 
