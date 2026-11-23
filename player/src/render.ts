@@ -24,6 +24,10 @@ function setAttributes(element: Element, attributes: Record<string, string | num
 
 const paintCss = (paint: Painted["fill"]) => (paint ? cssRgba(paint) : "none");
 
+const haloOf = (item: Painted) => item.stroke
+  ? { stroke: paintCss(item.stroke), "stroke-width": item.strokeWidth, "paint-order": "stroke", "stroke-linejoin": "round" }
+  : { stroke: null, "stroke-width": null, "paint-order": null, "stroke-linejoin": null };
+
 function place(parent: SVGElement, child: SVGElement, index: number): void {
   if (parent.children[index] !== child) parent.insertBefore(child, parent.children[index] ?? null);
 }
@@ -145,7 +149,7 @@ const DRAWABLE_KINDS: Record<DrawableKind, KindRenderer> = {
     create: () => svg("text", { "dominant-baseline": "central" }),
     update(element, item) {
       element.textContent = item.text ?? "";
-      setAttributes(element, { x: item.x, y: item.y, ...fontOf(item), fill: paintCss(item.fill) });
+      setAttributes(element, { x: item.x, y: item.y, ...fontOf(item), fill: paintCss(item.fill), ...haloOf(item) });
       element.style.fontVariantNumeric = "lining-nums tabular-nums";
     },
   },
