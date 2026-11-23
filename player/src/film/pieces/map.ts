@@ -56,6 +56,7 @@ const CLASH_SECONDS = 1.6;
 const SURRENDER_SECONDS = 2;
 const ICON_OPS = new Set(["clash", "surrender"]);
 const ICON_ROOM = 0.3;
+const FLUTTER = 0.5;
 const OLD_OPACITY = 0.5;
 const HALO = 12;
 const ARMY_PAINT: Record<Allegiance, Paint> = { lead: "accent", foe: "muted" };
@@ -503,7 +504,8 @@ function drawMap(state: MapState, now: Running<MapState>[], clock: number): Draw
     if (marked > 0) out.push(...sabres(`sabres-${index}`, s, icon(0), marked * opacity));
     if (state.surrenders.includes(index)) {
       const u = yielding.get(index) ?? 1;
-      const ripple = Math.sin(clock * 7) * (1 - u);
+      const wind = (Math.sin(clock * 2.6 + index) + 0.35 * Math.sin(clock * 5.3 + index * 3)) / 1.35;
+      const ripple = Math.sin(clock * 7) * (1 - u) + FLUTTER * wind * u;
       out.push(...whiteFlag(`flag-${index}`, s, icon(Number(state.clashes.includes(index))), ease(clamp01((u - ICON_ROOM) / 0.15)), ease(clamp01((u - ICON_ROOM - 0.1) / 0.55)), ripple, opacity));
     }
   }
