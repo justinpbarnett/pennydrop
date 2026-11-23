@@ -252,6 +252,7 @@ The plan check holds a Film to acting: every line but the last has an op on a st
 It also refuses a stage left empty for more than 3 seconds while the narration goes on, once someone has acted on it.
 Something is always happening on screen and someone is always speaking: the check refuses a shot where nothing in view moves for more than 3 seconds, and a silence of more than 1.5 seconds before the first word, between lines or before the credits.
 Figures breathe on an idle loop, so stillness is read from the timeline, where an op, an entrance, an exit or a camera flight counts as motion, not from pixels.
+So an op that would change nothing on screen is refused: a pulse, trace or swap on a stage or map, which draw themselves as they act, and a pose, turn, light, hold or go that repeats what is already there.
 It refuses a camera move that leaves less than 1.5 seconds after the one before it lands, because the viewer never sees that shot at rest.
 `pd film revise <thread>` hands the current Film and its problems back to the planner, instead of planning the Film again from the script.
 The film page `player/film.html` draws a pure function of (film, time, Theme) through `window.film` with `load`, `seek` and `regions`.
