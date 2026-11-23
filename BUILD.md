@@ -252,7 +252,8 @@ Every person and crowd is kept inside the 2400 x 1350 stage, and every set drawi
 A walk or entrance ends standing unless it names a pose, keeping a bearing that carries through a walk, such as a hand in the coat.
 A `map` draws places, journeys, marching armies and clashes inside a tight region, and refuses a layout whose names have no room.
 It refuses a march that takes an army straight back to the place it just left, unless a battle where it stands came between.
-Once a plan passes every other check, a second model on the factcheck route reads the narration and each map event in plain words, and every event the narration does not tell goes back to the planner, so a plan or a report is never drawn as a march.
+Once a plan passes every other check, a second model on the factcheck route reads the narration and each map event in plain words, naming every place a journey's route runs through, and every event the narration does not tell goes back to the planner, so a plan, a report or a surrender is never drawn as a march.
+It gives a verdict on every event, and an event it calls told must quote the narration that tells it word for word, so an answer that skims past an event is refused and asked again instead of passing it.
 The plan check holds a Film to acting: every line but the last has an op on a stage, a map or a Lab, at most one line in four adds a card, and a person takes one op per word.
 It also refuses a stage left empty for more than 3 seconds while the narration goes on, once someone has acted on it.
 Something is always happening on screen and someone is always speaking: the check refuses a shot where nothing in view moves for more than 3 seconds, and a silence of more than 1.5 seconds before the first word, between lines or after the last word.
