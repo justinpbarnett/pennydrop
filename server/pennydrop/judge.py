@@ -7,6 +7,7 @@ from typing import Any
 
 from .gateway import Gateway, GatewayError
 from .lessons import LessonLibrary
+from .levels import LEVELS_GUIDE, lesson_level
 from .settings import Job
 
 JUDGE_EFFORT = "medium"
@@ -25,16 +26,19 @@ CRITERIA = {
     "near_miss_one_condition": "The practice's applies item is a near miss: it differs from the worked example by exactly one condition, the one the Rule holds under, so the Rule does not apply to it.",
     "fresh_changes_one_slot": "The practice's fresh item changes exactly one slot of the Rule from the worked example, with an input no Step used, and its answer is something the learner can work out from the Rule.",
     "on_point": "No Step is off the point: every Step moves the story toward it, with no filler operation, no Step that only talks over an unchanged stage and no Step pulsing objects for nothing.",
+    "pitched_to_level": "The whole Lesson, practice included, fits its Learner's level as the Levels below define it: it assumes what that level knows and no more, uses only the words it allows, starts from its world, takes the mechanism as far as it says, and its Rule and practice items match its Practice line. It fails when it would fit the level above or below better, and the reason names the Steps and words that miss.",
 }
 
-SYSTEM = f"""You judge Pennydrop Lessons: short narrated animated Lessons that teach one idea, one Step after another. A good Lesson is a story that proves one point, built on Kenn Adams's story spine: the normal case, the break, a cause chain, the reveal, and a last Step that says the point again. A Step holds narration ("say"), the objects it puts on stage ("scene"), operations that animate them ("do"), and sometimes a predict Challenge. A Learner who is a kid has nothing to read, so everything is shown and spoken.
+SYSTEM = f"""You judge Pennydrop Lessons: short narrated animated Lessons that teach one idea, one Step after another. A good Lesson is a story that proves one point, built on Kenn Adams's story spine: the normal case, the break, a cause chain, the reveal, and a last Step that says the point again. A Step holds narration ("say"), the objects it puts on stage ("scene"), operations that animate them ("do"), and sometimes a predict Challenge. A Learner who is a kid has nothing to read, so everything is shown and spoken, and the player draws no text on that Learner's stage: a counter, a label or any other words a scene names never show, so judge that stage by its shapes, its motion and the narration. Each Lesson names its Learner's level, defined under Levels below.
 
 Judge only what the Lesson shows. Be strict and specific: a criterion passes only when the Lesson clearly does it, and every reason names the Step numbers behind it.
 
 The criteria:
 {chr(10).join(f"- {name}: {text}" for name, text in CRITERIA.items())}
 
-Reply with one JSON object and nothing else."""
+Reply with one JSON object and nothing else.
+
+{LEVELS_GUIDE}"""
 
 SCORE_SHAPE = '{"criteria": {"<criterion>": {"pass": true, "reason": "one short sentence"}, ...}, "overall": <integer 0 to 10: how well the Lesson tells a story that proves its point>}'
 PAIR_SHAPE = '{"criteria": {"<criterion>": {"better": "A" or "B" or "tie", "reason": "one short sentence"}, ...}, "overall": {"better": "A" or "B" or "tie", "reason": "one short sentence"}}'
@@ -123,7 +127,7 @@ def _lesson_text(header: dict[str, Any], steps: list[dict[str, Any]], practice: 
     lines = [f"Title: {header.get('title', '')}", f"Goal: {header.get('goal', '')}"]
     if with_point:
         lines.append(f"Stated point: {header['point']}" if header.get("point") else "Stated point: none was written, so infer what the Lesson proves from its Steps and judge it against that.")
-    lines.append(f"Learner: {'kid, nothing to read' if header.get('reading') is False else 'reads along'}")
+    lines.append(f"Learner: level {lesson_level(header).value}, {'nothing to read' if header.get('reading') is False else 'reads along'}")
     lines.extend(f"Step {step['step']}: " + json.dumps({key: value for key, value in step.items() if key not in ("step", "voice")}, separators=(",", ":")) for step in steps)
     if practice:
         lines.append(f"Practice line, played after the last Step. Rule: {practice['rule']} (holds when {practice['condition']}; slots: {', '.join(practice['slots'])})")

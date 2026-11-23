@@ -75,14 +75,18 @@ def _traced_list(arguments: Any) -> list | None:
 
 def _with_counters(array: dict[str, Any], changing: list[str]) -> dict[str, Any]:
     counters = array.get("counters", [])
-    still = lambda name: name in COUNTED_EVENTS and name not in changing
+    def still(name: str) -> bool:
+        return name in COUNTED_EVENTS and name not in changing
+
     if isinstance(counters, dict):
         return {**array, "counters": {**{name: 0 for name in changing}, **{name: value for name, value in counters.items() if not still(name)}}}
     return {**array, "counters": [*(name for name in counters if not still(name)), *(name for name in changing if name not in counters)]}
 
 
 def operations_by_event(run: TracedRun, array_id: str) -> list[tuple[int, list[dict[str, Any]]]]:
-    cell = lambda index: f"{array_id}[{index}]"
+    def cell(index: int) -> str:
+        return f"{array_id}[{index}]"
+
     values = list(_traced_list(run.input) or [])
     pointed: dict[str, int] = {}
     framed: tuple[int, int] | None = None

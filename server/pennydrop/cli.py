@@ -32,7 +32,7 @@ from .mint import cli as mint_cli
 from .practice import cli as practice_cli
 from .services import Services
 from .settings import Job
-from .store import ProfileKind
+from .store import Level, ProfileKind
 from .tracer import ALGORITHMS, TraceError
 from .tts import TtsError
 from .tts.ab import compare
@@ -121,7 +121,7 @@ def _parser() -> argparse.ArgumentParser:
     add.add_argument("--kind", choices=[kind.value for kind in ProfileKind], required=True)
     add.add_argument("--born", help="YYYY-MM, for a kid only")
     add.add_argument("--theme", required=True)
-    add.add_argument("--level", default="beginner")
+    add.add_argument("--level", choices=[level.value for level in Level if level is not Level.YOUNG_CHILD], help="for an adult only; beginner when left out")
     add.set_defaults(handler=_profile_add)
     listing = profile_commands.add_parser("list")
     listing.set_defaults(handler=_profile_list)
@@ -350,8 +350,10 @@ def _profile_add(services: Services, arguments) -> None:
         raise SystemExit("a kid Profile needs --born YYYY-MM")
     if kind is ProfileKind.ADULT and arguments.born is not None:
         raise SystemExit("an adult Profile takes no --born")
+    if kind is ProfileKind.KID and arguments.level is not None:
+        raise SystemExit("a kid Profile is always young child, so it takes no --level")
     year, month = (int(part) for part in arguments.born.split("-")) if arguments.born else (None, None)
-    profile = services.store.add_profile(arguments.name, kind, year, month, arguments.theme, arguments.level)
+    profile = services.store.add_profile(arguments.name, kind, year, month, arguments.theme, Level(arguments.level) if arguments.level else None)
     print(f"added profile {profile.id}")
 
 

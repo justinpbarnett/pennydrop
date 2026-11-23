@@ -12,6 +12,7 @@ import httpx
 from ..courses import CourseContext
 from ..gateway import GatewayError
 from ..lessons import done_event
+from ..levels import level_of
 from ..pictures import Picture, PictureNotFound
 from ..practice import Rule
 from ..store import LessonRecord, LessonSource, Profile, ProfileKind, Store
@@ -251,7 +252,7 @@ class LessonRun:
         photo_search = plan.photo_subject if "picture" in plan.labs else None
         photo = asyncio.ensure_future(kit.directive_tools.images.find(photo_search, not self._is_kid, self._record.id)) if photo_search else None
         start_scene = (await kit.validator.replay(self._ask.earlier_steps, self._reading)).scene if plan.follow_up else None
-        outline = (await kid_outline(plan.algorithm, kit.directive_tools.tracer) if self._is_kid else await run_outline(plan.algorithm, kit.directive_tools.tracer, plan.shows_code)) if plan.algorithm else None
+        outline = (await kid_outline(plan.algorithm, kit.directive_tools.tracer) if self._is_kid else await run_outline(plan.algorithm, kit.directive_tools.tracer, level_of(self._ask.profile), plan.shows_code)) if plan.algorithm else None
         self._last_scene = start_scene
         self._stage = Stage(start_scene, outline.runs if outline else NO_RUNS, kid=self._is_kid, charts_quantities=plan.charts_quantities)
         self._told_point = outline.point if outline else None
@@ -316,7 +317,7 @@ class LessonRun:
 
     def _open(self, header: Header, start_scene: Any) -> None:
         header = header.model_copy(update={"labs": [lab for lab in header.labs if lab in self._catalog_labs], "start_scene": start_scene, "reading": self._reading, "point": self._told_point or header.point})
-        data = header.model_dump(exclude_none=True)
+        data = {**header.model_dump(exclude_none=True), "level": level_of(self._ask.profile).value}
         self._record = replace(self._record, title=header.title, labs=header.labs, header=data)
         self._kit.store.save_lesson(self._record)
         self._live.publish("lesson", {"id": self._record.id, "lesson": data})

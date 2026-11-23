@@ -276,12 +276,39 @@ SCHEMA = [
     """
     alter table lessons add column writer integer;
     """,
+    """
+    create table profiles_rebuilt (
+        id integer primary key,
+        name text not null unique,
+        kind text not null check (kind in ('adult', 'kid')),
+        born_year integer,
+        born_month integer,
+        level text not null check (level in ('young child', 'beginner', 'intermediate', 'advanced')),
+        theme text not null,
+        created_at text not null,
+        check ((kind = 'kid') = (born_year is not null and born_month is not null)),
+        check ((kind = 'kid') = (level = 'young child'))
+    );
+    insert into profiles_rebuilt (id, name, kind, born_year, born_month, level, theme, created_at)
+        select id, name, kind, born_year, born_month, case when kind = 'kid' then 'young child' else level end, theme, created_at from profiles;
+    drop table profiles;
+    alter table profiles_rebuilt rename to profiles;
+    update lessons set header = json_set(header, '$.level', coalesce((select level from profiles where profiles.id = lessons.profile_id), 'beginner'))
+        where json_extract(header, '$.level') is null;
+    """,
 ]
 
 
 class ProfileKind(StrEnum):
     ADULT = "adult"
     KID = "kid"
+
+
+class Level(StrEnum):
+    YOUNG_CHILD = "young child"
+    BEGINNER = "beginner"
+    INTERMEDIATE = "intermediate"
+    ADVANCED = "advanced"
 
 
 class LessonSource(StrEnum):
@@ -298,7 +325,7 @@ class Profile:
     kind: ProfileKind
     born_year: int | None
     born_month: int | None
-    level: str
+    level: Level
     theme: str
 
 
@@ -399,10 +426,11 @@ class Store:
             self._connection.execute("commit")
         self._connection.execute("pragma foreign_keys = on")
 
-    def add_profile(self, name: str, kind: ProfileKind, born_year: int | None, born_month: int | None, theme: str, level: str = "beginner") -> Profile:
+    def add_profile(self, name: str, kind: ProfileKind, born_year: int | None, born_month: int | None, theme: str, level: Level | None = None) -> Profile:
+        level = level or (Level.YOUNG_CHILD if kind is ProfileKind.KID else Level.BEGINNER)
         cursor = self._connection.execute(
             "insert into profiles (name, kind, born_year, born_month, level, theme, created_at) values (?, ?, ?, ?, ?, ?, ?)",
-            (name, kind.value, born_year, born_month, level, theme, _iso(_now())),
+            (name, kind.value, born_year, born_month, level.value, theme, _iso(_now())),
         )
         return self.profile(cursor.lastrowid)
 
@@ -792,7 +820,7 @@ class Store:
 
 
 def _profile_from(row: sqlite3.Row) -> Profile:
-    return Profile(row["id"], row["name"], ProfileKind(row["kind"]), row["born_year"], row["born_month"], row["level"], row["theme"])
+    return Profile(row["id"], row["name"], ProfileKind(row["kind"]), row["born_year"], row["born_month"], Level(row["level"]), row["theme"])
 
 
 def _uses_lab(value: Any, lab_id: str) -> bool:

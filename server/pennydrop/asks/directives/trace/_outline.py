@@ -4,10 +4,11 @@ import asyncio
 import json
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Any
 
+from ....store import Level
 from ....tracer import ALGORITHMS, Tracer
 from ....tracer.library import (
     FOUND,
@@ -116,11 +117,12 @@ class Told:
         return self.lab != "code" and not self.code_beside and any(len(turn.operations) > CODE_LINE_ROOM for turn in self.turns)
 
 
-async def run_outline(algorithm: str, tracer: Tracer, shows_code: bool = False) -> Outline:
+async def run_outline(algorithm: str, tracer: Tracer, level: Level, shows_code: bool = False) -> Outline:
     key = (algorithm, shows_code and outline_lab(algorithm) != "code")
     if key not in _OUTLINES:
         _OUTLINES[key] = await _outline(algorithm, tracer, key[1])
-    return _OUTLINES[key]
+    outline = _OUTLINES[key]
+    return replace(outline, brief="\n".join([outline.brief, *_pitch(algorithm, level, contrasted=bool(outline.runs.side))]))
 
 
 async def kid_outline(algorithm: str, tracer: Tracer) -> Outline | None:
@@ -341,8 +343,12 @@ def _run_brief(told: Told, named: str | None, stops: list[int]) -> list[str]:
         f"Real run to teach: the Ask is about {ALGORITHMS[spec.code].summary}. The server already ran it on a fixed example, and it has {len(told.turns)} turns. Carry exactly `\"trace\": {shown}` in every Step that moves the run, on {stage}, and write none of its operations by hand.{alone} Use exactly this input and never values of your own, so that each Step narrates only the turns it plays and every number matches the stage. Step 1 carries the trace with \"until\": 0. {_staging("main run" if named else "run", stops)} Its turns are:",
         *told.lines(""),
         _ending(told),
-        *_promise_hint(spec.code),
     ]
+
+
+def _pitch(algorithm: str, level: Level, contrasted: bool) -> list[str]:
+    pitch = PITCHES.get(level)
+    return [pitch + (NORMAL_CASE_AS_BASELINE if contrasted else "")] if pitch else _promise_hint(algorithm)
 
 
 def _promise_hint(algorithm: str) -> list[str]:
@@ -391,6 +397,21 @@ def _story_order(contrast: Contrast, proof: Proof, beside: bool, main_steps: int
 
 
 MAX_LESSON_STEPS = 8
+PITCHES = {
+    Level.INTERMEDIATE: (
+        "Pitch for this intermediate learner, who has met this algorithm in an intro course: keep the runs, their stops and the order above, and change the words. "
+        "Step 1, the promise, asks about a case the learner meets in the field rather than in daily life. "
+        "Name each run by its algorithm and say what it does in the field's terms, without walking through what the learner already knows, and slow down on the one link the point turns on, such as how a run's total grows with the size of its input."
+    ),
+    Level.ADVANCED: (
+        "Pitch for this advanced learner, who knows this algorithm and its costs: keep the runs, their stops and the order above, and change the words. "
+        "Step 1, the promise, asks about a case the learner meets in their own work. "
+        "No Step explains how a run works: name it by its algorithm, let the stage play it, and spend the narration on what the textbook account leaves out. "
+        "Give the cost behind each run's total as a formula in n, the size of its input, checked against the total on stage, say what it comes to at the scale of the learner's work, and name where the algorithm stops paying off: the condition it rests on, what keeping that condition costs, or the input where another way wins. "
+        "The Rule's condition is that limit."
+    ),
+}
+NORMAL_CASE_AS_BASELINE = " Tell the run that serves the normal case as the baseline the learner already holds, never as a first try."
 RUNS_CAPTIONED = 'The learner sees each run under its "caption", so "main" and "contrast" are words for you alone: never say them in "say", and call each run by its caption.'
 RUNS_UNNAMED = 'The learner sees the two runs with no names, so "main" and "contrast" are words for you alone: never say them in "say", and call each run by what the learner sees, such as its list ("the first list", "the reversed list") or its algorithm ("binary search", "linear search").'
 STAGES = {

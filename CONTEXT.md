@@ -60,8 +60,14 @@ The spaced list of Rules a person is practicing. Each review serves a Rule's nex
 _Avoid_: flashcards, quiz
 
 **Profile**:
-One learner's identity, level and Theme, which set how Lessons are pitched and drawn.
+One learner's identity, Level and Theme, which set how Lessons are pitched and drawn.
 _Avoid_: account, user
+
+**Level**:
+How much a learner already knows, which sets what a Lesson assumes, the words it uses, what its point is about and how far it takes the mechanism: young child, beginner, intermediate or advanced.
+Each Level has one written definition that the writer pitches a Lesson to and the judge checks it against.
+A kid Profile is always young child, a Lesson with no Profile is pitched at beginner, and each Lesson records the Level it was pitched at.
+_Avoid_: rung, grade, difficulty
 
 **Contrast run**:
 A second real run of a library algorithm, on its own object beside the main run, that serves the normal case or the break of a Lesson's story, such as linear search beside binary search.

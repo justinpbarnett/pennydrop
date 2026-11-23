@@ -8,6 +8,7 @@ from typing import Any
 
 from ..courses import CourseContext
 from ..gateway import CallStats, Gateway
+from ..levels import learner_brief
 from ..pictures import Picture
 from ..practice import Direction, Form, Rule
 from ..settings import Job
@@ -65,8 +66,7 @@ Rules
 - When a directive can play your example on a Lab (trace for the array, code and graph Labs, simulate for the scheduler, threads and address Labs), always use that directive for it, and never write by hand the operations it writes, even though the Lab's catalog entry shows them. A trace or a simulation tells its run in stages: repeat the same directive in each Step of the story, give every Step but the last a later "until", leave "until" out of the Step that plays the end of the run, and let each Step's narration talk only about the part that Step plays.
 - Stage a played run along the story: Step 1 carries it with "until": 0, so the stage shows the setup the question is about; each cause Step plays the next part and explains it; the hinge Step stops before the part that settles the Challenge's answer, and the reveal Step plays that part. Only the Steps after the reveal may talk over a run that has already ended.
 - When "say" brings in a new example, number, list or object, that same Step's "scene" sets it, so the stage always shows what the narration talks about.
-- A Learner who is a kid gets words a young child knows, and a warm, playful voice. The kid rules below say more.
-- A Learner level of beginner, intermediate or advanced sets how much you assume.
+- The Learner line names the learner's level, and that level's definition follows it in the brief: pitch the Lesson to that definition.
 - When the brief names a Course Topic, teach that Topic's core idea, use the Terms the brief lists as your vocabulary, and obey the honor code in the brief: explain every concept on a toy example of your own, and never read, write or hint at project code or assignment specs.
 
 ## Practice
@@ -136,7 +136,7 @@ class Brief:
         ]
 
     def text(self) -> str:
-        lines = [f"Ask: {self.ask}", f"Learner: {self.profile.kind.value}, level {self.profile.level}" if self.profile else "Learner: adult, level beginner", *self.course_lines()]
+        lines = [f"Ask: {self.ask}", learner_brief(self.profile), *self.course_lines()]
         lines.append(
             f"Labs that fit this Ask: {', '.join(self.plan.labs)}. Use them where they help, together with primitives."
             if self.plan.labs else "No Lab fits this Ask: build the explanation from primitives."
@@ -275,7 +275,7 @@ class Writer:
     async def case(self, rule: Rule, form: Form, direction: Direction | None, lesson: str, seen: list[dict[str, Any]], profile: Profile | None, errors: list[str], lesson_id: str) -> ParsedLine:
         prompt = "\n".join([
             CASE_INSTRUCTIONS,
-            f"Learner: {profile.kind.value}, level {profile.level}" if profile else "Learner: adult, level beginner",
+            learner_brief(profile),
             f'Rule: "{rule.statement}", holding when {rule.condition}; its slots are {", ".join(rule.slots)}.',
             lesson,
             f"Write the {form.value} item" + (f", running {direction.value}." if direction else "."),

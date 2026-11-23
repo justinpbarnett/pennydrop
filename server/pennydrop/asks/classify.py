@@ -12,6 +12,7 @@ from ..gateway import (
     YesNo,
     YesNoAnswer,
 )
+from ..levels import learner_line
 from ..pictures import subject_phrases
 from ..store import Profile, ProfileKind
 from ..tracer import ALGORITHMS
@@ -307,7 +308,7 @@ def _mean_yes(answers: Iterable[Answer]) -> float:
 def _state(ask: str, profile: Profile | None, viewing: Viewing | None) -> str:
     lines = [f"Ask: {ask}"]
     if profile:
-        lines.append(f"Learner: {profile.kind.value}, level {profile.level}")
+        lines.append(learner_line(profile))
     if viewing:
         lines.append(f"Watching the Lesson '{viewing.title}' (goal: {viewing.goal}), now at: {viewing.current_say}")
     return "\n".join(lines)

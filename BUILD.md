@@ -70,6 +70,10 @@ The goal and the design live outside the repo, in the workshop initiative `penny
   The system prompt tells the writer, and the repair prompt tells the repair call, to begin its line at once because the directives compute every value.
   That moved the first Step p90 from over 6 s to 4.0 s on the bench.
   The hedge starts another attempt whenever the latest one begins thinking, up to 5 attempts, on the stream and on repairs.
+- Each Level has one written definition in `server/pennydrop/levels.py`: what the learner assumes, the words, the world, what the point is about, how far the mechanism goes and the practice.
+  The writer's brief carries the Learner's own definition, and the judge holds all four, so `pitched_to_level` can fail a Lesson that fits the level above or below better.
+  A kid Profile is always young child, a Lesson with no Profile is pitched at beginner, and the Lesson header records its Level.
+  An algorithm outline keeps its runs, stops and order at every level and changes only the words: a beginner gets the library's daily-life promise, and an intermediate or advanced learner a pitch line instead.
 
 ## Code standard
 
@@ -293,6 +297,11 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 - 13 older stored Lessons predate the current validator and skip ops when played.
 - Kokoro speaks a name missing from `server/pennydrop/tts/pronunciations.py` through misaki alone, because espeak-ng is not installed for its fallback.
 - Superseded Film backups (Napoleon v1 to v4, page table walk v1 to v3) sit in their `data/films` workspaces and wait for a decision before deletion.
+- An algorithm outline plays the same small runs at every level, so an advanced Lesson still walks a seven value trace its learner already knows, and the judge fails it on `pitched_to_level` even when its words fit.
+- A Course Topic Lesson is written with no Profile, so all 39 CS 6200 Topic Lessons are pitched at beginner, though CS 6200 is a graduate course.
+- A Profile has one Level for every subject, so an engineer who is advanced in computing is pitched advanced in biology too.
+- The writer still misses its Level's definition on 21 of 24 re-asked Lessons.
+  Every advanced Lesson spends Steps on the standard model, a beginner Lesson leaves a term such as node, thread or CPU, or a highlighted code line, unexplained, and a young child Rule comes out in adult words or with no character that wants something.
 
 ### Server facts for later work
 
@@ -384,3 +393,22 @@ minute-qwen3.mp4     82.8 s  -14.00 LUFS              cue offset max 5.0 ms over
 
 `pd judge` scored 25 Lessons, one or more per Lab, with a mean of 5.72 out of 10, then re-scored the weakest after fixes: music 5 to 7, words 2 to 6, circuit 4 to 5, shapes 5 to 6.
 Fixes from the pass: the words hinge and stress claim, the transistor model, the map summary, mark fonts keeping their case, still Steps that only highlight, highlights that change nothing, and the kids mascot centering.
+
+### Levels
+
+Measured on 24 Lessons re-asked from stored ones, 8 per Level for advanced, beginner and young child, with `pd judge` on Opus giving each Lesson's `pitched_to_level` verdict and a blind pair compare against the Lesson it came from.
+
+```
+before                             pass 0 of 26   mean overall 4.58 over the 24
+definitions in the system prompt   pass 0 of 21   mean overall 4.67
+definitions in the brief           pass 1 of 24   mean overall 5.04   pairs on level: after 20, before 1, tie 3
+the brief with each Level's point  pass 3 of 24   mean overall 5.04   pairs on level: after 21, before 3; overall: after 19, before 5
+```
+
+Migration 11 left the live store at `user_version` 11 with 1264 advanced, 228 beginner and 327 young child Lessons, and `pragma foreign_key_check` empty.
+`pd ask --profile 3 --from aae44ce46dd8:3` wrote follow up Lesson d4887502e69a with `"level": "intermediate"` in its header.
+`POST /api/review/{rule}/case` served a tick or cross ramp case to the kid Profile and a say case to the advanced Profile.
+A headless player played advanced Lesson 06dc959c86c0 and kid Lesson 97779d978955 to their ends with no console errors.
+`pd bench` ran HEAD on a copy of the store from before migration 11, then this code, one after the other on an advanced Profile, while another session loaded the machine.
+First Step p50 went from 12.9 s to 17.7 s and p90 from 37.1 s to 19.3 s, done p50 from 92.9 s to 59.0 s, and cost p50 from $0.281 to $0.266.
+The brief adds about 500 input tokens to a 43k prompt, and the writer's first token averaged 13.05 s over HEAD's 223 calls and 6.51 s over this code's 194, so the spread is load and hedging rather than the definitions.
