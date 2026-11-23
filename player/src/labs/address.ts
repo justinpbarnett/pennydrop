@@ -91,7 +91,7 @@ const PANEL_BOTTOM_MARGIN = 13;
 const VIRTUAL_Y = 60;
 const FIELD_ARROW_Y = 182;
 const PANEL_TOP = 232;
-const HEADER_HEIGHT = 84;
+const HEADER_HEIGHT = 86;
 const SMALLEST_DIGIT = 28;
 const DIGIT_GAP = 5;
 const MAX_ENTRIES_PER_TABLE = 6;
@@ -369,10 +369,10 @@ function panelRect(state: AddressState, id: string, column: number, fill: "fill"
 function header(state: AddressState, id: string, column: number, title: string, sub: string, badge: { text: string; role: Role } | null, titleRole: Role): Drawable[] {
   const x = columnX(state, column);
   const out: Drawable[] = [
-    textDrawable(`${id}-title`, title, { x: x + 18, y: PANEL_TOP + 24 }, { size: 28, anchor: "start", fill: titleRole, z: 1 }),
-    textDrawable(`${id}-sub`, sub, { x: x + 18, y: PANEL_TOP + 62 }, { size: NODE_LABEL_SIZE, anchor: "start", fill: "muted", z: 1 }),
+    textDrawable(`${id}-title`, title, { x: x + 18, y: PANEL_TOP + 23 }, { size: 28, anchor: "start", fill: titleRole, z: 1 }),
+    textDrawable(`${id}-sub`, sub, { x: x + 18, y: PANEL_TOP + 63 }, { size: NODE_LABEL_SIZE, anchor: "start", fill: "muted", z: 1 }),
   ];
-  if (badge) out.push(textDrawable(`${id}-badge`, badge.text, { x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 24 }, { size: NODE_LABEL_SIZE, font: "mark", anchor: "end", fill: badge.role, z: 1 }));
+  if (badge) out.push(textDrawable(`${id}-badge`, badge.text, { x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 23 }, { size: NODE_LABEL_SIZE, font: "mark", anchor: "end", fill: badge.role, z: 1 }));
   return out;
 }
 
@@ -400,8 +400,8 @@ function rowCell(state: AddressState, { id, column, row, role, left, right, righ
 function caption(state: AddressState, id: string, column: number, first: string, second: string, firstRole: Role): Drawable[] {
   const center = columnX(state, column) + COLUMN_WIDTH / 2;
   return [
-    textDrawable(`${id}-caption-1`, first, { x: center, y: captionY(state) + 14 }, { size: 26, fill: firstRole }),
-    textDrawable(`${id}-caption-2`, second, { x: center, y: captionY(state) + 50 }, { size: NODE_LABEL_SIZE, fill: "muted" }),
+    textDrawable(`${id}-caption-1`, first, { x: center, y: captionY(state) + 13 }, { size: 26, fill: firstRole }),
+    textDrawable(`${id}-caption-2`, second, { x: center, y: captionY(state) + 52 }, { size: NODE_LABEL_SIZE, fill: "muted" }),
   ];
 }
 
