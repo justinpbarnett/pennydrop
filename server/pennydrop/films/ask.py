@@ -40,6 +40,19 @@ def json_in(text: str) -> dict:
     return parsed
 
 
+def judged(text: str, parse: Callable[[str], Any], check: Callable[[Any], list[str]]) -> tuple[Any, list[str]]:
+    try:
+        parsed = parse(text)
+        return parsed, check(parsed)
+    except FilmError as error:
+        return None, [str(error)]
+
+
+def asked_again(question: str, text: str, problems: list[str]) -> str:
+    listing = "\n".join(f"- {problem}" for problem in problems)
+    return f"{question}\n\nYour previous answer:\n\n{text}\n\nIt has these problems:\n{listing}\n\nAnswer again in full, with every problem fixed and nothing else changed."
+
+
 async def answer(
     services: Services,
     workspace: Workspace,
@@ -50,25 +63,24 @@ async def answer(
     parse: Callable[[str], Any] = json_in,
     search: bool = False,
     timeout: float = 1500.0,
+    previous: str | None = None,
 ) -> Any:
     options = {"tools": SEARCH_TOOLS, "allowed_tools": SEARCH_TOOLS} if search else {}
     calls: list[CallStats] = []
     asked = question
-    problems: list[str] = []
+    if previous is not None:
+        parsed, problems = judged(previous, parse, check)
+        if not problems:
+            return parsed
+        asked = asked_again(question, previous, problems)
     try:
         for _ in range(ROUNDS):
             completion = await services.gateway.complete(job, asked, timeout=timeout, **options)
             calls.append(completion.stats)
-            parsed: Any = None
-            try:
-                parsed = parse(completion.text)
-                problems = check(parsed)
-            except FilmError as error:
-                problems = [str(error)]
+            parsed, problems = judged(completion.text, parse, check)
             if not problems:
                 return parsed
-            listing = "\n".join(f"- {problem}" for problem in problems)
-            asked = f"{question}\n\nYour previous answer:\n\n{completion.text}\n\nIt has these problems:\n{listing}\n\nAnswer again in full, with every problem fixed and nothing else changed."
+            asked = asked_again(question, completion.text, problems)
         rejected = workspace.home / f"{stage}.rejected.txt"
         rejected.write_text(completion.text)
         raise FilmError(f"{stage} still had problems after {ROUNDS} rounds, and its last answer is in {rejected}:\n" + "\n".join(f"- {problem}" for problem in problems))

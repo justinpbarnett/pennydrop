@@ -160,6 +160,16 @@ def plan_problems(services: Services, workspace: Workspace, rows: list[dict], sc
 
 
 async def plan(services: Services, workspace: Workspace) -> dict:
+    return await planned_film(services, workspace, "plan")
+
+
+async def revise(services: Services, workspace: Workspace) -> dict:
+    if not workspace.film.exists():
+        raise FilmError(f"{workspace.film} is missing; run the plan stage first, then revise it")
+    return await planned_film(services, workspace, "revise", previous=workspace.film.read_text())
+
+
+async def planned_film(services: Services, workspace: Workspace, stage: str, previous: str | None = None) -> dict:
     brief = workspace.brief()
     script = workspace.read("script")
     question = prompt(
@@ -173,7 +183,7 @@ async def plan(services: Services, workspace: Workspace) -> dict:
     voice = theme_identity(services, brief["theme"])["voice"]
     spoken = await speak_film(services.speaker, services.settings.tts_provider, voice, [scene["say"] for scene in script["scenes"]])
     voices = [line.voice.for_player() for line in spoken]
-    await answer(services, workspace, "plan", Job.FILM_PLAN, question, lambda rows: plan_problems(services, workspace, rows, script, brief, voices), parse=film_rows, timeout=1800.0)
+    await answer(services, workspace, stage, Job.FILM_PLAN, question, lambda rows: plan_problems(services, workspace, rows, script, brief, voices), parse=film_rows, timeout=1800.0, previous=previous)
     manifest = json.loads(film_tool(services, "plan", "--film", str(workspace.voiced_film), capture=True).stdout)
     summary = {"lines": len(script["scenes"]), "duration": manifest["duration"], "cues": len(manifest["cues"])}
     workspace.write("plan.json", summary)
