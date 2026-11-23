@@ -22,7 +22,7 @@ A card of text is the exception, kept for the few words a viewer must read.
 
 - Show the people a line is about doing what the narration says, on a stage. Walk them on, hand over the command, have them salute, plead, fall or flee, fire the guns, let the crowd cheer or run.
 - Show where things happened and how forces moved on a map: a journey drawn place by place, armies marching, battles bursting where they meet.
-- Run every mechanism on a Lab.
+- Run every mechanism on a Lab. While the narration explains a part of it, fly the camera onto that part or run the Lab's next step on the word that names it. A pulse only points at a thing; it never stands in for something happening.
 - Act an abstract idea instead of printing it. Power lent is an orb handed from the person who lends it to the one who borrows it. A fall from favor is a person dimmed or vanishing. A rise is a climb up a ranks staircase.
 - A card is only for what no picture carries: a term the Film turns on (keyword), a written line the viewer must read whole (quote), a number that must be seen (counter), where a comparison holds and where it breaks (compare), the steps of a procedure (tracker), dates in order (timeline), and the closing question (question). At most one line in four adds a card, and the closing question card does not count.
 

@@ -10,6 +10,7 @@ import { parseSelector } from "../selector";
 import { buildStage, type Stage } from "../stage";
 import type { Theme } from "../theme";
 import { type Located, Timeline } from "../timeline";
+import type { Touch } from "../verbs";
 import { clearBottom, cssMatrix, drift, type Follow, type Pose, poseAt, poseFor, project, regionOf, type ScreenRegion, type Shot } from "./camera";
 import type { CameraMove, FilmLine, FilmSource } from "./format";
 import { type InkBox, InkRecord } from "./inks";
@@ -397,9 +398,11 @@ export function longestEmpty(film: Film, shot: number, theme: Theme, id: string)
   return longest;
 }
 
+const onlyPoints = (touch: Touch) => touch.action.type === "effect" && touch.action.effect.kind === "pulse";
+
 function changingNow(located: Located): ((id: string) => boolean) | null {
   if (located.relayout) return () => true;
-  const ids = new Set([...located.touches, ...located.carried.map((run) => run.touch)].map((touch) => touch.objectId));
+  const ids = new Set([...located.touches, ...located.carried.map((run) => run.touch)].filter((touch) => !onlyPoints(touch)).map((touch) => touch.objectId));
   located.replaced.forEach((id) => ids.add(id));
   const before = new Set(located.before.objects.map((object) => object.id));
   const after = new Set(located.after.objects.map((object) => object.id));
