@@ -23,6 +23,7 @@ Reply with this JSON and nothing else:
 {{"usable": true, "reason": "", "parts": [{{"name": "beak", "box": [left, top, right, bottom]}}]}}
 - Each box is the tightest rectangle around that one part only: its edges touch the part's own outer edges, and it leaves out neighbouring parts, the rest of the subject and the background. Never box a group of parts, or the whole subject, as one part. The grid goes from 0 to {grid} across and from 0 to {grid} down over the whole picture.
 - Use the part names exactly as given, each once. Leave a part out when it is hidden, cut off or not in the picture; the picture stays usable without it.
+- A plural name stands for its clearest one: for wheels, box the one clearest wheel. Only a pair that sits together, such as eyes, gets one box around both.
 - Answer "usable": false only when the picture is not a sharp, real photo of the subject, and say in "reason" what is wrong."""
 WARM_PROMPT = """The picture is shown to a young child, and it shows: {subject}.
 Find the {count} biggest, most recognisable parts of it that a child can name and tap, using the plainest common words, such as eyes, beak, wing, wheel, chimney.
