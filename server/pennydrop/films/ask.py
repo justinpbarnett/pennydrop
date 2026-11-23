@@ -69,7 +69,9 @@ async def answer(
                 return parsed
             listing = "\n".join(f"- {problem}" for problem in problems)
             asked = f"{question}\n\nYour previous answer:\n\n{completion.text}\n\nIt has these problems:\n{listing}\n\nAnswer again in full, with every problem fixed and nothing else changed."
-        raise FilmError(f"{stage} still had problems after {ROUNDS} rounds:\n" + "\n".join(f"- {problem}" for problem in problems))
+        rejected = workspace.home / f"{stage}.rejected.txt"
+        rejected.write_text(completion.text)
+        raise FilmError(f"{stage} still had problems after {ROUNDS} rounds, and its last answer is in {rejected}:\n" + "\n".join(f"- {problem}" for problem in problems))
     finally:
         if calls:
             workspace.record(stage, calls)
