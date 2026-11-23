@@ -303,6 +303,8 @@ function facingArg(value: unknown, from: number, state: StageState, where: strin
   return toward(from, other.x, 1);
 }
 
+const sideName = (facing: Facing) => SIDES[facing === -1 ? 0 : 1];
+
 function poseArg(value: unknown, fallback: PoseName, where: string): PoseName {
   return value === undefined ? fallback : oneOf(value, POSE_NAMES, where);
 }
@@ -621,7 +623,9 @@ const STAGE_OPS: Record<string, StageOp> = {
     seconds: (op, state) => crowdSeconds(state, op, TURN_SECONDS),
     apply(state, op) {
       const actor = onStage(findActor(state, op.parts[0], op.name), state, op.name);
-      return withActor(state, { ...actor, facing: facingArg(op.args.face, actor.x, state, `op "turn" "face"`) });
+      const facing = facingArg(op.args.face, actor.x, state, `op "turn" "face"`);
+      if (facing === actor.facing) fail(`op "turn": ${state.objectId}[${actor.id}] already faces ${sideName(facing)}, so nothing moves; turn them the other way, or pose, walk or give`);
+      return withActor(state, { ...actor, facing });
     },
     act: (cue) => only(cue.op.parts[0]!, blending(cue, findActor(cue.before, cue.op.parts[0], cue.op.name), findActor(cue.after, cue.op.parts[0], cue.op.name), TURN_SECONDS)),
   },
@@ -632,6 +636,7 @@ const STAGE_OPS: Record<string, StageOp> = {
       const actor = onStage(findActor(state, op.parts[0], op.name), state, op.name);
       const pose = poseArg(op.args.pose ?? fail(`op "pose" needs "pose": ${POSE_NAMES.join(", ")}`), actor.pose, `op "pose" "pose"`);
       const facing = op.args.face === undefined ? actor.facing : facingArg(op.args.face, actor.x, state, `op "pose" "face"`);
+      if (pose === actor.pose && facing === actor.facing) fail(`op "pose": ${state.objectId}[${actor.id}] already holds "${pose}" facing ${sideName(facing)}, so nothing moves; pick a pose they are not in, or walk, turn or give`);
       return withActor(state, { ...actor, pose, facing });
     },
     act: (cue) => only(cue.op.parts[0]!, blending(cue, findActor(cue.before, cue.op.parts[0], cue.op.name), findActor(cue.after, cue.op.parts[0], cue.op.name), POSE_SECONDS)),
