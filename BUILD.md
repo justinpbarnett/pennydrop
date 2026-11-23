@@ -235,6 +235,10 @@ A `cue` is a word or phrase from `say`, matched in order.
 The `at` field of a scene object is `{relation: id}` with the relations `right of`, `left of`, `above`, `below`, `behind`, `in front of` and `next`, and the world layout places each object on a plane in 3D.
 The pieces are the cards `keyword`, `quote`, `counter`, `compare`, `tracker`, `timeline` and `question`, the line drawing `figure`, the acted scene `stage` and the campaign map `map`, and Labs draw on their own planes unchanged.
 A `stage` puts line-drawn people on a set, where they walk, pose, hand things over, speak quoted words, fall and fire cannon.
+Its `things` are props named from a table of game-icons silhouettes, each drawn at its real height against the figure, and a thing can rest `atop` a surface such as a table, a crate or a barrel.
+Guns kick and flash when they fire, boats bob and roll in the water and push the harbor's sketched ships aside, trees, crops and flags sway, and flames throw a soft flickering glow.
+`player/tools/prop-icons.ts` regenerates `prop-icons.json` from the pinned `@iconify-json/game-icons` package before every build.
+A Film that shows props ends on a credit naming their icon authors, as CC BY 3.0 asks.
 It refuses blocking where people or crowds overlap, where anyone stands in front of a muzzle, or where a shot passes through someone.
 A crowd of soldiers, grenadiers or cadets stands in ranks that step back up and to the right, and the front rank hides the legs of the ranks behind it.
 Every person and crowd is kept inside the 2400 x 1350 stage, and every set drawing is clipped to it, because the camera frames all the ink in a shot.

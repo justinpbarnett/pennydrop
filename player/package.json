@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "metrics": "bun tools/font-metrics.ts",
-    "prebuild": "bun tools/font-metrics.ts",
+    "icons": "bun tools/prop-icons.ts",
+    "prebuild": "bun tools/font-metrics.ts && bun tools/prop-icons.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
@@ -20,9 +21,13 @@
     "tone": "^15.1.22"
   },
   "devDependencies": {
+    "@iconify-json/game-icons": "^1.2.4",
     "bun-types": "^1.4.5",
     "fontkit": "^3.0.0",
     "playwright-core": "1.59.0",
+    "polygon-clipping": "0.15.7",
+    "svg-path-bbox": "^2.1.0",
+    "svgpath": "^2.6.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
   }

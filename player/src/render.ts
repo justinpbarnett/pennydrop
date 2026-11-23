@@ -69,12 +69,15 @@ interface Live {
   kind: string;
   signature: string;
   clip: SVGClipPathElement | null;
+  fade: SVGRadialGradientElement | null;
 }
 
 const imagesInFrame = new Set<string>();
 
 let definitions = 0;
 const definitionId = (prefix: string) => `${prefix}-${definitions++}`;
+
+const FADE_STOPS = Array.from({ length: 9 }, (_, i) => ({ offset: i / 8, opacity: (1 - (i / 8) ** 2) ** 3 }));
 
 interface KindRenderer {
   create(): SVGElement;
@@ -124,6 +127,22 @@ function updateImage(holder: SVGElement, item: Painted): void {
   }, () => undefined);
 }
 
+function updateSilhouette(holder: SVGElement, item: Painted, live: Live): void {
+  const path = holder.firstElementChild!;
+  if (live.signature !== item.d) {
+    live.signature = item.d ?? "";
+    path.setAttribute("d", live.signature);
+  }
+  const [w, h] = [item.w ?? 0, item.h ?? 0];
+  const box = item.crop ?? { x: 0, y: 0, w, h };
+  const scale = Math.min(w / box.w, h / box.h) || 0;
+  setAttributes(path, {
+    transform: `translate(${item.x} ${item.y}) scale(${item.mirror ? -scale : scale} ${scale}) translate(${-box.x - box.w / 2} ${-box.y - box.h / 2})`,
+    ...strokeOf(item),
+    "stroke-width": scale ? item.strokeWidth / scale : 0,
+  });
+}
+
 const DRAWABLE_KINDS: Record<DrawableKind, KindRenderer> = {
   rect: {
     create: () => svg("rect"),
@@ -147,6 +166,14 @@ const DRAWABLE_KINDS: Record<DrawableKind, KindRenderer> = {
   path: {
     create: createPath,
     update: (element, item) => setAttributes(element, { d: polyline(item.points ?? [], Boolean(item.closed)), ...strokeOf(item), ...dashOf(item) }),
+  },
+  silhouette: {
+    create() {
+      const holder = svg("g");
+      holder.append(createPath());
+      return holder;
+    },
+    update: updateSilhouette,
   },
   text: {
     create: () => svg("text", { "dominant-baseline": "central" }),
@@ -329,7 +356,7 @@ export class StageRenderer {
     if (existing && existing.kind === item.kind) return existing;
     if (existing) this.discard(existing);
     const element = DRAWABLE_KINDS[item.kind].create();
-    const live = { element, kind: item.kind, signature: "", clip: null };
+    const live = { element, kind: item.kind, signature: "", clip: null, fade: null };
     this.live.set(item.id, live);
     return live;
   }
@@ -337,6 +364,7 @@ export class StageRenderer {
   private discard(live: Live): void {
     live.element.remove();
     live.clip?.remove();
+    live.fade?.remove();
   }
 
   private clipTo(live: Live, clip: Painted["clip"]): void {
@@ -357,6 +385,22 @@ export class StageRenderer {
     setAttributes(live.clip.firstElementChild!, { x: clip.x, y: clip.y, width: clip.w, height: clip.h });
   }
 
+  private fadeFill(live: Live, item: Painted): void {
+    if (!item.soft || !item.fill) {
+      live.fade?.remove();
+      live.fade = null;
+      return;
+    }
+    if (!live.fade) {
+      live.fade = svg("radialGradient", { id: definitionId("fade") });
+      live.fade.append(...FADE_STOPS.map(({ offset }) => svg("stop", { offset })));
+      this.clips.append(live.fade);
+    }
+    const color = cssRgba(item.fill);
+    [...live.fade.children].forEach((stop, i) => setAttributes(stop, { "stop-color": color, "stop-opacity": FADE_STOPS[i]!.opacity }));
+    live.element.setAttribute("fill", `url(#${live.fade.id})`);
+  }
+
   private update(live: Live, item: Painted): void {
     setAttributes(live.element, {
       opacity: Math.max(0, Math.min(1, item.opacity)),
@@ -365,6 +409,7 @@ export class StageRenderer {
     });
     this.clipTo(live, item.clip);
     DRAWABLE_KINDS[item.kind].update(live.element, item, live);
+    this.fadeFill(live, item);
   }
 
   private invalidateEverything(): void {

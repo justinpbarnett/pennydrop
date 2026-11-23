@@ -77,6 +77,7 @@ export class FilmView {
   private readonly world = element("div", "world");
   private readonly grain = element("canvas", "grain");
   private readonly vignette = element("div", "vignette");
+  private readonly credits = element("div", "credits");
   private readonly planes = new Map<string, PlaneView>();
   private readonly motes: Mote[] = [];
   private readonly grainContext: CanvasRenderingContext2D;
@@ -84,7 +85,7 @@ export class FilmView {
   private themeId: string | null = null;
 
   constructor(root: HTMLElement, bounds: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number }) {
-    this.screen.append(this.world, this.vignette, this.grain);
+    this.screen.append(this.world, this.vignette, this.credits, this.grain);
     root.replaceChildren(this.screen);
     this.grain.width = GRAIN.w;
     this.grain.height = GRAIN.h;
@@ -215,6 +216,8 @@ export class FilmView {
       this.screen.style.background = `radial-gradient(ellipse at 50% 45%, ${theme.colors.fill2} 0%, ${theme.colors.ground} 62%)`;
       this.vignette.style.background = `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 42%, rgba(0,0,0,${theme.backdrop.vignette}) 100%)`;
       this.grain.style.opacity = theme.backdrop.kind === "grain" ? "0.2" : "0";
+      const font = theme.fonts.read;
+      Object.assign(this.credits.style, { color: theme.colors.muted, fontFamily: font.family, fontWeight: String(font.weight), letterSpacing: `${font.tracking}em` });
       document.querySelector("#film-glow-defs")?.remove();
       const defs = glowFilter(theme.backdrop.glow);
       defs.id = "film-glow-defs";
@@ -233,6 +236,8 @@ export class FilmView {
         this.planes.delete(id);
       }
     }
+    this.credits.textContent = frame.credits.lines.join("\n");
+    this.credits.style.opacity = frame.credits.opacity.toFixed(3);
     this.drawMotes(frame.time, frame, theme);
     if (theme.backdrop.kind === "grain") this.drawGrain(frame.time, 1);
   }
