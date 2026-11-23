@@ -173,7 +173,7 @@ def _silences(manifest: dict, shifts: dict[int, float]) -> list[Silence]:
     ]
     opening = Silence(0.0, heard[0][0], "before the first word")
     between = [Silence(said[1], following[0] - said[1], f"in line {said[2]}" if said[2] == following[2] else f"between lines {said[2]} and {following[2]}") for said, following in pairwise(heard)]
-    ending = Silence(heard[-1][1], manifest["creditsFrom"] - heard[-1][1], "after the last word, before the credits")
+    ending = Silence(heard[-1][1], manifest["duration"] - heard[-1][1], "after the last word")
     return [opening, *between, ending]
 
 

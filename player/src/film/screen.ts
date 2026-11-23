@@ -3,6 +3,11 @@ import type { CameraView } from "./format";
 export const SCREEN = { w: 1920, h: 1080 } as const;
 export const PERSPECTIVE = 2000;
 export const FILL: Record<CameraView, number> = { wide: 0.5, fit: 0.88, close: 0.9 };
+export const CREDITS = { bottom: 48, size: 26, lineHeight: 39, clearance: 24 } as const;
+
+export function creditBand(lines: number): number {
+  return lines ? CREDITS.bottom + lines * CREDITS.lineHeight + CREDITS.clearance : 0;
+}
 
 export function frameAround(size: { w: number; h: number }, view: CameraView): { w: number; h: number } {
   const scale = Math.min((FILL[view] * SCREEN.w) / size.w, (FILL[view] * SCREEN.h) / size.h);

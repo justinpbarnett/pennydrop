@@ -10,14 +10,16 @@ import { parseSelector } from "../selector";
 import { buildStage, type Stage } from "../stage";
 import type { Theme } from "../theme";
 import { type Located, Timeline } from "../timeline";
-import { cssMatrix, drift, type Follow, type Pose, poseAt, poseFor, project, regionOf, type ScreenRegion, type Shot } from "./camera";
+import { clearBottom, cssMatrix, drift, type Follow, type Pose, poseAt, poseFor, project, regionOf, type ScreenRegion, type Shot } from "./camera";
 import type { CameraMove, FilmLine, FilmSource } from "./format";
 import { type InkBox, InkRecord } from "./inks";
+import { creditBand } from "./screen";
 import { centerOf, focusedOn, layoutWorld, type Placement } from "./world";
 
 const DEFAULT_LEAD_SECONDS = 0.5;
 const DEFAULT_TAIL_SECONDS = 0.5;
-const CREDIT_SECONDS = 3;
+const CREDIT_SECONDS = 4;
+const CREDIT_RISE_SECONDS = 1.2;
 const CREDIT_FADE_SECONDS = 0.8;
 const DEFAULT_MOVE_SECONDS = 3.2;
 const FOG_START = 3200;
@@ -196,8 +198,7 @@ export async function buildFilm(source: FilmSource, inks = new InkRecord()): Pro
   const opening = openingPose(source, everyScene, errors, inks, requests[0]?.time ?? Infinity);
   timeline.finish();
   const credits = creditLines(everyScene);
-  const tail = Math.max(header.tail ?? DEFAULT_TAIL_SECONDS, credits.length ? CREDIT_SECONDS : 0);
-  const duration = lead + timeline.duration + tail;
+  const duration = lead + timeline.duration + (header.tail ?? DEFAULT_TAIL_SECONDS);
   const shots: Shot[] = [];
   const settle = THEMES[header.theme];
   requests.forEach(({ move, time, seconds, line }, order) => {
@@ -238,7 +239,7 @@ export async function buildFilm(source: FilmSource, inks = new InkRecord()): Pro
     bounds,
     inks,
     credits,
-    creditsFrom: duration - tail,
+    creditsFrom: credits.length ? Math.max(0, duration - CREDIT_SECONDS) : duration,
   };
 }
 
@@ -343,7 +344,9 @@ export function frameAt(film: Film, time: number, theme: Theme): FilmFrame {
     else grouped.set(id, [item]);
   }
 
-  const pose = drift(poseAt(film.opening, film.shots, time, easeFor(theme), subjectFollow(film, theme, time, located)), time);
+  const framed = poseAt(film.opening, film.shots, time, easeFor(theme), subjectFollow(film, theme, time, located));
+  const rise = creditRise(film, time);
+  const pose = drift(rise > 0 ? clearBottom(framed, creditBand(film.credits.length) * easeFor(theme)(rise)) : framed, time);
   const focusDepth = project(pose, [pose.tx, pose.ty, pose.tz])?.depth ?? 0;
   const planes: PlaneFrame[] = [...grouped].map(([id, items]) => {
     const placement = placedBetween(id, located);
@@ -355,8 +358,12 @@ export function frameAt(film: Film, time: number, theme: Theme): FilmFrame {
     const blur = Math.min(BLUR_LIMIT, Math.max(0, (Math.abs(depth - focusDepth) - BLUR_FREE_RANGE) * BLUR_PER_UNIT));
     return { ...placement, items, opacity: fog, blur, visible: screen !== null, region: regionOf(pose, placement), ink: regionOf(pose, inked(placement, film.inks.at(id, time))) };
   });
-  const credits = { lines: film.credits, opacity: Math.min(1, Math.max(0, (time - film.creditsFrom) / CREDIT_FADE_SECONDS)) };
+  const credits = { lines: film.credits, opacity: Math.min(1, Math.max(0, (time - film.creditsFrom - CREDIT_RISE_SECONDS / 2) / CREDIT_FADE_SECONDS)) };
   return { planes, matrix: cssMatrix(pose), pose, time, credits };
+}
+
+function creditRise(film: Film, time: number): number {
+  return film.credits.length ? Math.min(1, Math.max(0, (time - film.creditsFrom) / CREDIT_RISE_SECONDS)) : 0;
 }
 
 export function holdEnd(film: Film, shot: number): number {
@@ -411,8 +418,9 @@ export function longestStill(film: Film, shot: number, theme: Theme): { seconds:
   const { start, end } = film.shots[shot]!;
   let run = 0;
   let longest = { seconds: 0, from: start };
-  for (let time = shot === 0 ? 0 : start; time < holdEnd(film, shot); time += step) {
-    const flying = time >= start && time < end;
+  const until = shot === film.shots.length - 1 ? film.duration : holdEnd(film, shot);
+  for (let time = shot === 0 ? 0 : start; time < until; time += step) {
+    const flying = (time >= start && time < end) || (creditRise(film, time) > 0 && creditRise(film, time) < 1);
     run = flying || movingInView(film, time, theme) ? 0 : run + step;
     if (run > longest.seconds) longest = { seconds: run, from: time + step - run };
   }

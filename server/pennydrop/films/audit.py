@@ -63,7 +63,7 @@ def silence_problems(rows: list[dict], manifest: dict) -> list[str]:
         gap = next_said[0] - said[1]
         if said[2] != next_said[2] and gap > LONGEST_SILENCE:
             problems.append(f"line {said[2]}: the narration stops for {gap:.1f} s before line {next_said[2]}, because the line's ops run on after its last word; cue them on earlier words or give them fewer seconds, so the next line starts as this one ends")
-    ending = manifest["creditsFrom"] - spoken[-1][1]
+    ending = manifest["duration"] - spoken[-1][1]
     if ending > LONGEST_SILENCE:
         problems.append(f'the Film runs {ending:.1f} s of silence after its last word; lower "tail" in the header, or leave it out')
     return problems

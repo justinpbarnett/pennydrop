@@ -7,6 +7,7 @@ import type { FilmFrame, PlaneFrame } from "./film";
 import type { InkBox } from "./inks";
 import { FILM_FPS } from "./format";
 import { PERSPECTIVE, project, SCREEN } from "./camera";
+import { CREDITS } from "./screen";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const MOTE_COUNT = 70;
@@ -91,6 +92,7 @@ export class FilmView {
     this.grain.height = GRAIN.h;
     this.grain.style.width = `${SCREEN.w}px`;
     this.grain.style.height = `${SCREEN.h}px`;
+    Object.assign(this.credits.style, { bottom: `${CREDITS.bottom}px`, fontSize: `${CREDITS.size}px`, lineHeight: `${CREDITS.lineHeight}px` });
     this.grainContext = this.grain.getContext("2d")!;
     this.grainImage = this.grainContext.createImageData(GRAIN.w, GRAIN.h);
     this.seedMotes(bounds);

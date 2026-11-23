@@ -74,6 +74,15 @@ export function blendPose(from: Pose, to: Pose, progress: number): Pose {
   return { ...pose, px: pose.px + away[0] * dolly, py: pose.py + away[1] * dolly, pz: pose.pz + away[2] * dolly };
 }
 
+export function clearBottom(pose: Pose, band: number): Pose {
+  const { y } = basisOf(pose);
+  const away: Vec = [pose.px - pose.tx, pose.py - pose.ty, pose.pz - pose.tz];
+  const zoom = SCREEN.h / (SCREEN.h - band);
+  const lift = (SCREEN.h / 2) * Math.hypot(...away) * (zoom - 1) / PERSPECTIVE;
+  const target: Vec = [pose.tx + y[0] * lift, pose.ty + y[1] * lift, pose.tz + y[2] * lift];
+  return { tx: target[0], ty: target[1], tz: target[2], px: target[0] + away[0] * zoom, py: target[1] + away[1] * zoom, pz: target[2] + away[2] * zoom };
+}
+
 function shifted(pose: Pose, [dx, dy, dz]: Vec): Pose {
   return { px: pose.px + dx, py: pose.py + dy, pz: pose.pz + dz, tx: pose.tx + dx, ty: pose.ty + dy, tz: pose.tz + dz };
 }
