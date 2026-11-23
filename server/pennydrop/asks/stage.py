@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from .directives import directives_for_labs
-from .directives._support import Hinge, Runs, operation_targets, trace_key, with_nested_trace_lifted
+from .directives._support import (
+    NO_RUNS,
+    Hinge,
+    Runs,
+    operation_targets,
+    trace_key,
+    with_nested_trace_lifted,
+)
 from .directives.simulate import contradictions, filled_from
 from .directives.trace import CONTRAST_RUN, MAIN_RUN, TRACE_TOTALS
 from .directives.trace.array import holds_input
@@ -24,7 +31,7 @@ PART_ANSWER = re.compile(r"^(?P<name>[\w-]+)\[(?P<part>[^\]]+)\]$")
 
 STRUCTURE_FIELDS = ("nodes", "values", "items", "edges", "cells", "rows")
 INSERTED = re.compile(r"\binsert(?:s|ed|ing)?\s+(?:the\s+|a\s+)?(?:value\s+|number\s+|key\s+|item\s+|element\s+)?(\w+)", re.IGNORECASE)
-NUMBER_WORDS = {word: str(number) for number, word in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())}
+NUMBER_WORDS = {word: str(number) for number, word in enumerate(["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"])}
 
 
 def _as_value(word: str) -> str:
@@ -100,7 +107,7 @@ class NextRun:
 
 
 class Stage:
-    def __init__(self, snapshot: Any = None, runs: Runs = Runs(), kid: bool = False, charts_quantities: bool = False):
+    def __init__(self, snapshot: Any = None, runs: Runs = NO_RUNS, kid: bool = False, charts_quantities: bool = False):
         self.runs = runs
         self.kid = kid
         self.charts_quantities = charts_quantities

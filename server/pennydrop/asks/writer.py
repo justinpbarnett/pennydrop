@@ -9,8 +9,8 @@ from typing import Any
 from ..courses import CourseContext
 from ..gateway import CallStats, Gateway
 from ..pictures import Picture
-from ..settings import Job
 from ..practice import Direction, Form, Rule
+from ..settings import Job
 from ..store import Profile
 from .catalog import Catalog
 from .classify import Plan

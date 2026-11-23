@@ -14,16 +14,50 @@ from ..store import CallStats, Store
 from .api import AnthropicRoute, OpenRouterRoute
 from .claude import ClaudeRoute
 from .codex import CodexRoute
-from .jev import Answer, Choice, ChoiceAnswer, JevRoute, Question, Score, ScoreAnswer, YesNo, YesNoAnswer
-from .types import Completion, GatewayError, Image, Request, RouteError, Thinking, Usage, json_object
+from .jev import (
+    Answer,
+    Choice,
+    ChoiceAnswer,
+    JevRoute,
+    Question,
+    Score,
+    ScoreAnswer,
+    YesNo,
+    YesNoAnswer,
+)
+from .types import (
+    Completion,
+    GatewayError,
+    Image,
+    Request,
+    RouteError,
+    Thinking,
+    Usage,
+    json_object,
+)
 
 MAX_HEDGED_ATTEMPTS = 5
 MAX_HEDGES_IN_FLIGHT = 4
 LOG = logging.getLogger("pennydrop.gateway")
 
 __all__ = [
-    "Answer", "Choice", "ChoiceAnswer", "Classification", "Completion", "Gateway", "GatewayError", "Image", "PingResult",
-    "Question", "RequestOptions", "Score", "ScoreAnswer", "CallStats", "YesNo", "YesNoAnswer", "json_object",
+    "Answer",
+    "CallStats",
+    "Choice",
+    "ChoiceAnswer",
+    "Classification",
+    "Completion",
+    "Gateway",
+    "GatewayError",
+    "Image",
+    "PingResult",
+    "Question",
+    "RequestOptions",
+    "Score",
+    "ScoreAnswer",
+    "YesNo",
+    "YesNoAnswer",
+    "json_object",
 ]
 
 PING_PROMPT = "Reply with the single word: ready"
@@ -140,7 +174,7 @@ class Gateway:
         started = time.monotonic()
         try:
             answers, usage = await self._jev.classify(route.model, state, questions, timeout)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             self._log(Job.CLASSIFY, route, started, None, Usage(), error, lesson_id)
             _reraise_as_gateway_error(route, error)
         return Classification(answers, self._log(Job.CLASSIFY, route, started, None, usage, None, lesson_id))
@@ -235,7 +269,7 @@ class Gateway:
                     if first_token_seconds is None and not isinstance(item, Thinking):
                         first_token_seconds = time.monotonic() - started
                     yield item
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             self._log(job, route, started, first_token_seconds, usage, error, request.lesson_id)
             _reraise_as_gateway_error(route, error)
         yield self._log(job, route, started, first_token_seconds, usage, None, request.lesson_id)

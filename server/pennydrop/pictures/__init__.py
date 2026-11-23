@@ -26,10 +26,10 @@ MOST_PARTS = 6
 OTHER_NAMES_PROMPT = 'Give the two other common English names people use for "{query}" when they look for photos of it, such as "steam locomotive" for "steam train". Answer with only a JSON list of two strings.'
 FILE_PREFIX_LENGTH = 16
 MIN_ASPECT, MAX_ASPECT = 0.5, 2.2
-NOT_LIVE = re.compile(r"\b(skeleton|skull|fossil|specimen|museum|mnhn|statue|sculpture|skulptur|toy|model|drawing|painting|diagram|cartoon|illustration|bone|bones|taxidermy|mounted|distant|view of|landscape|panorama|silhouette|detail|close-up|closeup|handlebar|handlebars|interior|cockpit|background|backgrounds|banner|wallpaper|graphic|template|poster)\b", re.I)
-CROWDED = re.compile(r"\b(group|crowd|flock|herd|pair|couple|dozens|many)\b", re.I)
-ARCHIVAL = re.compile(r"\b(1[0-8]\d\d|19[0-6]\d)s?\b|\bca\.? ?\d|archive|archival|historic|negative|glass|vintage|daguerreo|collection|album|scan|nzgr|fsac", re.I)
-NOT_SUBJECT_WORDS = frozenset("what whats why when where which who does do did is are was were has have had a an the show me us see picture pictures photo photos of look looks like looking inside in on how can could would i you tell about please to let my its it s and or with work works make makes many much".split())
+NOT_LIVE = re.compile(r"\b(skeleton|skull|fossil|specimen|museum|mnhn|statue|sculpture|skulptur|toy|model|drawing|painting|diagram|cartoon|illustration|bone|bones|taxidermy|mounted|distant|view of|landscape|panorama|silhouette|detail|close-up|closeup|handlebar|handlebars|interior|cockpit|background|backgrounds|banner|wallpaper|graphic|template|poster)\b", re.IGNORECASE)
+CROWDED = re.compile(r"\b(group|crowd|flock|herd|pair|couple|dozens|many)\b", re.IGNORECASE)
+ARCHIVAL = re.compile(r"\b(1[0-8]\d\d|19[0-6]\d)s?\b|\bca\.? ?\d|archive|archival|historic|negative|glass|vintage|daguerreo|collection|album|scan|nzgr|fsac", re.IGNORECASE)
+NOT_SUBJECT_WORDS = frozenset(["what", "whats", "why", "when", "where", "which", "who", "does", "do", "did", "is", "are", "was", "were", "has", "have", "had", "a", "an", "the", "show", "me", "us", "see", "picture", "pictures", "photo", "photos", "of", "look", "looks", "like", "looking", "inside", "in", "on", "how", "can", "could", "would", "i", "you", "tell", "about", "please", "to", "let", "my", "its", "it", "s", "and", "or", "with", "work", "works", "make", "makes", "many", "much"])
 LONGEST_SUBJECT_WORDS = 3
 CHOOSE_SYSTEM = "You choose the best photo for a children's lesson. You answer with one JSON object and nothing else."
 CHOOSE_PROMPT = """These {count} photos, numbered from 1 in the order shown, are candidates for a lesson that shows: {query}.
@@ -242,16 +242,16 @@ def _key(query: str, attribution_ok: bool) -> str:
 
 
 def clean_creator(creator: str) -> str:
-    named = re.sub(r"^\s*(?:this\s+)?(?:photo(?:graph)?|picture|image)?\s*(?:was\s+)?(?:taken|made|created|shot)?\s*by\s+", "", creator, flags=re.I)
+    named = re.sub(r"^\s*(?:this\s+)?(?:photo(?:graph)?|picture|image)?\s*(?:was\s+)?(?:taken|made|created|shot)?\s*by\s+", "", creator, flags=re.IGNORECASE)
     first = re.split(r"\s+[.;|]\s+|(?<=\w{3})[.;|]\s+(?=[A-Z])|\s{2,}", named)[0]
     return " ".join(first.split())[:80] or creator[:80]
 
 
 def clean_title(title: str, creator: str) -> str:
     plain = re.sub(r"[_]+", " ", title)
-    plain = re.sub(r"\s*[,.(\-–]?\s*\b(?:photo(?:graph)?|picture|image|credit)s?\s+(?:by|of)\s+.*$", "", plain, flags=re.I)
+    plain = re.sub(r"\s*[,.(\-–]?\s*\b(?:photo(?:graph)?|picture|image|credit)s?\s+(?:by|of)\s+.*$", "", plain, flags=re.IGNORECASE)
     if creator and creator != "Unknown":
-        plain = re.sub(rf"\s*[,(\-–]?\s*(?:by\s+)?{re.escape(creator)}\)?\s*$", "", plain, flags=re.I)
+        plain = re.sub(rf"\s*[,(\-–]?\s*(?:by\s+)?{re.escape(creator)}\)?\s*$", "", plain, flags=re.IGNORECASE)
     numbered = re.sub(r"^\s*[(\[]?\d[\w-]*[)\]]?\s+", "", plain)
     kept = numbered if len(numbered.split()) >= 2 else plain
     return " ".join(kept.split()).strip(" ,.-–") or title

@@ -1,6 +1,7 @@
 import ast
 import dataclasses
 import json
+import math
 import operator
 import os
 import sys
@@ -9,7 +10,15 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from trace_events import (
-    CallEvent, CompareEvent, Counters, GetEvent, LineEvent, PrintEvent, ReturnEvent, SetEvent, SwapEvent,
+    CallEvent,
+    CompareEvent,
+    Counters,
+    GetEvent,
+    LineEvent,
+    PrintEvent,
+    ReturnEvent,
+    SetEvent,
+    SwapEvent,
 )
 
 USER_FILE = "<user>"
@@ -159,7 +168,7 @@ def snapshot(value, depth=0):
     if value is None or isinstance(value, (bool, int)):
         return value
     if isinstance(value, float):
-        return value if value == value and abs(value) != float("inf") else str(value)
+        return value if math.isfinite(value) else str(value)
     if isinstance(value, str):
         return value[:MAX_TEXT]
     if depth < 3 and isinstance(value, (set, frozenset)):
@@ -247,7 +256,7 @@ def main():
     try:
         namespace = {"__name__": "__traced__"}
         hidden_names = comprehension_only_names(request["source"])
-        exec(compile(request["source"], USER_FILE, "exec"), namespace)
+        exec(compile(request["source"], USER_FILE, "exec"), namespace)  # noqa: S102
         if request["entry"] not in namespace:
             raise NameError(f"the source defines no function named '{request['entry']}'")
         sys.settrace(trace_calls)
@@ -257,7 +266,7 @@ def main():
             sys.settrace(None)
     except TraceDeadline:
         error = "the run exceeded its time limit"
-    except Exception as exception:
+    except Exception as exception:  # noqa: BLE001
         error = f"{type(exception).__name__}: {exception}"
     finally:
         sys.stdout = real_stdout

@@ -9,14 +9,12 @@ from ._stages import Window, loop_turns
 MARKER_FUNCTIONS = ("visit", "push", "pop", "relax")
 OPERATIONS = frozenset({"line", "call", "set", "return", "print"})
 
-GUIDE = "\n".join([
-    "The `code` Lab steps the traced source line by line: a line marker, the call stack, the variables and the output.",
-    'Set one object `{"lab":"code"}` in the Step. The directive fills in its `source` (the traced code, so line numbers match), `language` and `vars`, and writes every `line`, `call`, `set`, `return` and `print` operation from the real run.',
-    "Never write `line`, `call`, `set`, `return` or `print` operations yourself: write `{\"trace\": {\"code\": \"<the function source>\", \"input\": {\"n\": 3}}}`, where `input` maps each parameter name to its value.",
-    "To show the code before it runs, write the name of the library algorithm you trace as `source` (`\"source\": \"<the library algorithm you trace>\"`), and the stage shows the exact code the trace will run. Trace it with that same name and the same `input` as the graph or array already on stage, so the run matches the picture. In the Step that carries `trace`, the code object always shows the traced algorithm, whatever `source` says, and it steps its lines in time with the array, graph or tree.",
-    "A Step plays at most 40 operations, and each executed line costs one or two, so a function with a loop tells its run in stages with `until`, a turn or two of the loop per Step.",
-    "A function with no loop of its own, such as a recursive factorial, plays whole: past 40 operations it stops on a line, with the stack and variables exactly as the real run had them there, so narrate how it starts, and claim the final answer only for a tiny input such as factorial of 3.",
-])
+GUIDE = """The `code` Lab steps the traced source line by line: a line marker, the call stack, the variables and the output.
+Set one object `{"lab":"code"}` in the Step. The directive fills in its `source` (the traced code, so line numbers match), `language` and `vars`, and writes every `line`, `call`, `set`, `return` and `print` operation from the real run.
+Never write `line`, `call`, `set`, `return` or `print` operations yourself: write `{"trace": {"code": "<the function source>", "input": {"n": 3}}}`, where `input` maps each parameter name to its value.
+To show the code before it runs, write the name of the library algorithm you trace as `source` (`"source": "<the library algorithm you trace>"`), and the stage shows the exact code the trace will run. Trace it with that same name and the same `input` as the graph or array already on stage, so the run matches the picture. In the Step that carries `trace`, the code object always shows the traced algorithm, whatever `source` says, and it steps its lines in time with the array, graph or tree.
+A Step plays at most 40 operations, and each executed line costs one or two, so a function with a loop tells its run in stages with `until`, a turn or two of the loop per Step.
+A function with no loop of its own, such as a recursive factorial, plays whole: past 40 operations it stops on a line, with the stack and variables exactly as the real run had them there, so narrate how it starts, and claim the final answer only for a tiny input such as factorial of 3."""
 
 
 def apply(step: dict[str, Any], object_id: str, run: TracedRun, window: Window) -> dict[str, Any]:

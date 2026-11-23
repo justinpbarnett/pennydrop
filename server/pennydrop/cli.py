@@ -12,7 +12,15 @@ from pathlib import Path
 import uvicorn
 
 from . import course_cli
-from .ask_client import AskClient, AskClientError, Arrival, Outcome, breakdown, median_and_max, p90
+from .ask_client import (
+    Arrival,
+    AskClient,
+    AskClientError,
+    Outcome,
+    breakdown,
+    median_and_max,
+    p90,
+)
 from .courses import CourseSeedError
 from .films import STAGES, FilmError, Workspace, check_film, format_report, render_film
 from .gateway import Choice, GatewayError, Image, YesNo

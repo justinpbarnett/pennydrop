@@ -4,8 +4,16 @@ import inspect
 import sys
 from typing import Any
 
+from ._support import (
+    PLACEHOLDER,
+    DirectiveError,
+    DirectiveTools,
+    discover,
+    fill_values,
+    plain_text,
+    unclear_values,
+)
 from .trace._outline import Outline, kid_outline, run_outline
-from ._support import PLACEHOLDER, DirectiveError, DirectiveTools, discover, fill_values, plain_text, unclear_values
 
 DIRECTIVES = discover(sys.modules[__name__])
 DEFAULT_BRIEF = "Play the {lab} Lab with the {directive} directive: write no operations for it yourself."
@@ -108,4 +116,4 @@ def directive_guides() -> str:
     return "\n\n".join(directive.GUIDE for directive in DIRECTIVES.values())
 
 
-__all__ = ["DIRECTIVES", "DirectiveError", "DirectiveTools", "directive_briefs", "directive_guides", "directives_for_labs", "expand_directives", "Outline", "kid_outline", "run_outline"]
+__all__ = ["DIRECTIVES", "DirectiveError", "DirectiveTools", "Outline", "directive_briefs", "directive_guides", "directives_for_labs", "expand_directives", "kid_outline", "run_outline"]

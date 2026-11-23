@@ -2,19 +2,18 @@ from __future__ import annotations
 
 import importlib
 import json
-import re
 import pkgutil
-from collections.abc import Iterator
+import re
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from ...pictures import PartLocator, PictureFinder
 from ...tracer import Trace, Tracer
 from ..writer_errors import describe
-
 
 MAX_STEP_OPERATIONS = 40
 
@@ -75,6 +74,8 @@ class Runs:
     told: frozenset[str] = frozenset()
     planned: tuple[tuple[str, TracedRun], ...] = ()
 
+
+NO_RUNS = Runs()
 
 @dataclass(frozen=True)
 class Simulation:

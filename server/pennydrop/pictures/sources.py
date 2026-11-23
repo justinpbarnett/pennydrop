@@ -20,7 +20,7 @@ STANDARD_WIDTHS = (20, 40, 60, 120, 250, 330, 500, 960, 1280, 1920, 3840)
 SHARP_WIDTH = 1600
 SHARP_STANDARD_WIDTH = next(width for width in STANDARD_WIDTHS if width >= SHARP_WIDTH)
 PREVIEW_WIDTH = 500
-NOT_A_PHOTO = re.compile(r"drawing|painting|illustration|diagram|\bmap\b|engraving|stamp|poster|logo|icon|sketch|lithograph|plate|cartoon|clipart|\bsvg\b|collage|montage|screenshot|mosaic", re.I)
+NOT_A_PHOTO = re.compile(r"drawing|painting|illustration|diagram|\bmap\b|engraving|stamp|poster|logo|icon|sketch|lithograph|plate|cartoon|clipart|\bsvg\b|collage|montage|screenshot|mosaic", re.IGNORECASE)
 PUBLIC_DOMAIN_NAMES = ("cc0", "public domain", "pd")
 ATTRIBUTION_NAMES = ("cc by",)
 EXCLUDED_TERMS = ("-nc", "-nd", " nc", " nd")

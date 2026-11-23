@@ -18,7 +18,7 @@ MAX_MENDS = 3
 NUMBER_WORDS = {
     word: str(number)
     for number, word in enumerate(
-        "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split()
+        ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
     )
 }
 PROMISE_WORDS = 14
@@ -470,9 +470,7 @@ def _with_rewritten_operations(step: dict[str, Any], errors: list[str]) -> dict[
             resolving[index] = {"op": waiting["resolve"], "on": operation["on"]}
         elif found["op"] == "compare" and "needs exactly two cells" in message:
             rewritten[index] = {**operation, "op": "highlight"}
-        elif found["op"] == "release" and ("cannot" in message or "only the owner" in message):
-            dropped.add(index)
-        elif "is out of range" in message and found["op"] in ("mark", "line"):
+        elif (found["op"] == "release" and ("cannot" in message or "only the owner" in message)) or ("is out of range" in message and found["op"] in ("mark", "line")):
             dropped.add(index)
     if rewritten == operations and not dropped and not resolving:
         return None

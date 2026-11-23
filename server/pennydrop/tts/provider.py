@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import ClassVar
 from dataclasses import dataclass
+from typing import ClassVar
 
 from ..settings import Settings
 from ..words import WordTiming

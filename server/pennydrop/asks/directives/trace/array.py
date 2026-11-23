@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import pairwise
 from typing import Any
 
 from .._support import DirectiveError, TracedRun
@@ -11,12 +12,10 @@ COUNTED_EVENTS = ("comparisons", "swaps", "writes")
 OPERATIONS = frozenset({"compare", "pointer", "counter", "swap", "set", "window", "sorted", "found"})
 ROOM_BANDS = (("pointers", "pointer"), ("window", "window"))
 
-GUIDE = "\n".join([
-    "The `array` Lab plays a trace as compares, swaps and writes on its cells.",
-    "Set one `array` object with `values` equal to the input list, so the trace starts from known values. The counters `comparisons`, `swaps` and `writes` are added for you when the algorithm changes them, so name no counters yourself.",
-    "The trace also draws what the algorithm keeps in its range: a bracket over the cells still in play, such as the live low to high range of binary_search and quick_sort, and a sorted mark on each cell that reaches its final place, such as the pivot of partition and quick_sort, so set no `window` or `sorted` on a traced array either.",
-    "The trace slides the pointers its algorithm keeps, such as `boundary` and `j` for partition and quick_sort, under the cells they index, so set no `pointers` on a traced array: a pointer the run does not move would stand still while the narration moves on.",
-])
+GUIDE = """The `array` Lab plays a trace as compares, swaps and writes on its cells.
+Set one `array` object with `values` equal to the input list, so the trace starts from known values. The counters `comparisons`, `swaps` and `writes` are added for you when the algorithm changes them, so name no counters yourself.
+The trace also draws what the algorithm keeps in its range: a bracket over the cells still in play, such as the live low to high range of binary_search and quick_sort, and a sorted mark on each cell that reaches its final place, such as the pivot of partition and quick_sort, so set no `window` or `sorted` on a traced array either.
+The trace slides the pointers its algorithm keeps, such as `boundary` and `j` for partition and quick_sort, under the cells they index, so set no `pointers` on a traced array: a pointer the run does not move would stand still while the narration moves on."""
 
 
 def apply(step: dict[str, Any], object_id: str, run: TracedRun, window: Window) -> dict[str, Any]:
@@ -76,14 +75,14 @@ def _traced_list(arguments: Any) -> list | None:
 
 def _with_counters(array: dict[str, Any], changing: list[str]) -> dict[str, Any]:
     counters = array.get("counters", [])
-    still = lambda name: name in COUNTED_EVENTS and name not in changing  # noqa: E731
+    still = lambda name: name in COUNTED_EVENTS and name not in changing
     if isinstance(counters, dict):
         return {**array, "counters": {**{name: 0 for name in changing}, **{name: value for name, value in counters.items() if not still(name)}}}
     return {**array, "counters": [*(name for name in counters if not still(name)), *(name for name in changing if name not in counters)]}
 
 
 def operations_by_event(run: TracedRun, array_id: str) -> list[tuple[int, list[dict[str, Any]]]]:
-    cell = lambda index: f"{array_id}[{index}]"  # noqa: E731
+    cell = lambda index: f"{array_id}[{index}]"
     values = list(_traced_list(run.input) or [])
     pointed: dict[str, int] = {}
     framed: tuple[int, int] | None = None
@@ -166,7 +165,7 @@ def _compare_operations(event: Any, array_id: str, pointed: dict[str, int]) -> l
 def _closing(found: list[tuple[int, list[dict[str, Any]]]], run: TracedRun, array_id: str, framed: bool, values: list) -> list[dict[str, Any]]:
     moved = any(operation["op"] in ("compare", "swap", "set") for _, operations in found for operation in operations)
     closing = [{"op": "clear", "on": [array_id]}] if moved else []
-    if run.sorts and all(left <= right for left, right in zip(values, values[1:], strict=False)):
+    if run.sorts and all(left <= right for left, right in pairwise(values)):
         closing += [*([{"op": "clear", "on": [array_id], "what": "window"}] if framed else []), {"op": "sorted", "on": [array_id]}]
     if run.seeks and _is_slot(run.trace.result, len(values)):
         closing.append({"op": "found", "on": [f"{array_id}[{run.trace.result}]"]})

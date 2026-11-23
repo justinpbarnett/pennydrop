@@ -7,12 +7,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ..asks.validator import Validator
 from ..gateway import CallStats, Gateway
 from ..settings import Job, Settings
 from ..store import MintRecord, MintStatus, Store
-from . import runtime, workspace as workspace_builder
+from . import runtime
+from . import workspace as workspace_builder
 from .checks import Finding, run_checks
-from ..asks.validator import Validator
 from .judge import Defect, confirm, judge
 from .paths import MINT_JOB_TIMEOUT_SECONDS, MintPaths
 from .runtime import MintError

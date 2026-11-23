@@ -3,10 +3,18 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from ..gateway import Answer, Choice, ChoiceAnswer, Gateway, Question, YesNo, YesNoAnswer
+from ..gateway import (
+    Answer,
+    Choice,
+    ChoiceAnswer,
+    Gateway,
+    Question,
+    YesNo,
+    YesNoAnswer,
+)
 from ..pictures import subject_phrases
-from ..tracer import ALGORITHMS
 from ..store import Profile, ProfileKind
+from ..tracer import ALGORITHMS
 from .catalog import LabEntry
 from .directives.trace import TARGETS, outline_lab
 

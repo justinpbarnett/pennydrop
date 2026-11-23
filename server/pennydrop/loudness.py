@@ -22,7 +22,7 @@ class Loudness:
 
 
 def _run(arguments: list[str]) -> str:
-    result = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", *arguments], capture_output=True, text=True)
+    result = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", *arguments], check=False, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg failed: {result.stderr[-600:]}")
     return result.stderr

@@ -19,14 +19,12 @@ LINE_NAME = re.compile(r"^[a-z][a-z_]{0,19}$")
 
 BRIEF = 'To plot the Ask\'s own quantity, such as money over years or distance over time, bring the {lab} Lab on stage with the curves directive: it computes every line from its formula and writes the plot object, so put no plot object in "scene" yourself. The plot\'s function families, linear, square and sine with a coefficient a, suit only an Ask about the shape, slope or area of those functions.'
 
-GUIDE = "\n".join([
-    "### Directive `curves`",
-    '`"curves": {"on": "growth", "x": "years", "y": "dollars", "over": [0, 30], "lines": {"simple": "100 + 10*x", "compound": "100*1.1**x"}}` computes each line from its formula in x over that range of x and brings the plot `growth` on stage with every line still hidden. Carry it once, in the Step that first shows the plot, and write no plot object in that Step\'s "scene".',
-    "Write each formula from the numbers the Ask gives, so every line shows the Ask's own quantity. Name each line with lowercase words joined by _, such as simple or compound: the legend shows that name. A plot holds at most 3 lines.",
-    'A line appears with `{"op": "graph", "on": ["growth"], "curve": "simple"}`, and `"to": 10` draws it only up to x 10, so a later graph of the same line draws on from there. Step 1, the promise, may carry the directive and graph no line, so the empty axes of the Ask\'s own quantities stand on stage while it asks its question; never stand in for the Ask\'s lines with a function family or a shape. Otherwise bring the plot on stage in the Step that tells the first line, such as the normal case, and graph that line there; graph each further line in the Step whose narration tells it, so the stage moves as the story turns. `{"op": "mark", "on": ["growth"], "x": 30}` marks one x and shows the value of every line drawn through it.',
-    'Hold the line that proves the point back for the reveal: graph it part way with "to" while the cause Steps explain it, ask the predict Challenge while its end is still hidden, such as a choice of where it ends or which line ends higher, and let the next Step graph the rest and mark the end. A learner cannot work out a number such as 1.1 to the 30th power, so ask a choice whose options are far apart rather than the exact value.',
-    'The directive gives each line\'s value at the end of the range as `{curves.compound}`, for "say", text and a number Challenge\'s "answer". The narration says such a number only once the stage shows it, in the Step that marks that x or later.',
-])
+GUIDE = """### Directive `curves`
+`"curves": {"on": "growth", "x": "years", "y": "dollars", "over": [0, 30], "lines": {"simple": "100 + 10*x", "compound": "100*1.1**x"}}` computes each line from its formula in x over that range of x and brings the plot `growth` on stage with every line still hidden. Carry it once, in the Step that first shows the plot, and write no plot object in that Step's "scene".
+Write each formula from the numbers the Ask gives, so every line shows the Ask's own quantity. Name each line with lowercase words joined by _, such as simple or compound: the legend shows that name. A plot holds at most 3 lines.
+A line appears with `{"op": "graph", "on": ["growth"], "curve": "simple"}`, and `"to": 10` draws it only up to x 10, so a later graph of the same line draws on from there. Step 1, the promise, may carry the directive and graph no line, so the empty axes of the Ask's own quantities stand on stage while it asks its question; never stand in for the Ask's lines with a function family or a shape. Otherwise bring the plot on stage in the Step that tells the first line, such as the normal case, and graph that line there; graph each further line in the Step whose narration tells it, so the stage moves as the story turns. `{"op": "mark", "on": ["growth"], "x": 30}` marks one x and shows the value of every line drawn through it.
+Hold the line that proves the point back for the reveal: graph it part way with "to" while the cause Steps explain it, ask the predict Challenge while its end is still hidden, such as a choice of where it ends or which line ends higher, and let the next Step graph the rest and mark the end. A learner cannot work out a number such as 1.1 to the 30th power, so ask a choice whose options are far apart rather than the exact value.
+The directive gives each line's value at the end of the range as `{curves.compound}`, for "say", text and a number Challenge's "answer". The narration says such a number only once the stage shows it, in the Step that marks that x or later."""
 
 
 class CurvesSpec(BaseModel):
@@ -136,5 +134,5 @@ def _whole_stride(span: float) -> int:
         scale *= 10
 
 
-def _shown(value: int | float) -> int | float:
+def _shown(value: float) -> int | float:
     return value if isinstance(value, int) else round(value, 2 if abs(value) >= 1 else 4)

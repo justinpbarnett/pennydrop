@@ -11,7 +11,14 @@ from typing import Any
 
 from .courses import Course, CourseContext, CourseSeed, CourseTopic
 from .practice import FORMS, Direction, Form, Practice
-from .practice.records import FormRate, PracticeCase, PracticeWire, RuleLink, RuleRecord, RuleReview
+from .practice.records import (
+    FormRate,
+    PracticeCase,
+    PracticeWire,
+    RuleLink,
+    RuleRecord,
+    RuleReview,
+)
 from .review import Schedule
 from .settings import Job
 

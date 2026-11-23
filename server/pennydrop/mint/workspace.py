@@ -92,5 +92,5 @@ def _code_standard(paths: MintPaths) -> str:
 
 
 def _catalog(paths: MintPaths) -> str:
-    result = subprocess.run(["bun", str(paths.tools / "catalog.ts"), "--md"], capture_output=True, text=True, cwd=paths.player)
+    result = subprocess.run(["bun", str(paths.tools / "catalog.ts"), "--md"], check=False, capture_output=True, text=True, cwd=paths.player)
     return result.stdout if result.returncode == 0 else f"(the catalog could not be built: {result.stderr.strip()[-400:]})"

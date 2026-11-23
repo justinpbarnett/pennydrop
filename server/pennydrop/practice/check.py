@@ -10,7 +10,14 @@ from typing import Any
 from ..asks.challenge_words import answer_told, asks_another_question
 from ..asks.classify import Classifier
 from ..asks.coaching import coached
-from ..asks.directives import DIRECTIVES, DirectiveError, DirectiveTools, carries_directive, computed_facts, expand_directives
+from ..asks.directives import (
+    DIRECTIVES,
+    DirectiveError,
+    DirectiveTools,
+    carries_directive,
+    computed_facts,
+    expand_directives,
+)
 from ..asks.directives.curves import hidden_plots, with_every_line_graphed
 from ..asks.directives.trace import totals_for
 from ..asks.mending import mended, mended_cues, validated_and_mended

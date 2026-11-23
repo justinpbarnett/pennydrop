@@ -85,7 +85,7 @@ def _failed_replays(validator: Validator, store: Store, lab_id: str) -> list[str
 
 def _run_tool(paths: MintPaths, tool: str, *arguments: str) -> subprocess.CompletedProcess[str]:
     with lifeline() as stdin:
-        return subprocess.run(tethered_argv(["bun", str(paths.tools / tool), *arguments]), stdin=stdin, capture_output=True, text=True, cwd=paths.player)
+        return subprocess.run(tethered_argv(["bun", str(paths.tools / tool), *arguments]), check=False, stdin=stdin, capture_output=True, text=True, cwd=paths.player)
 
 
 def _problems(result: subprocess.CompletedProcess[str]) -> list[str]:
@@ -100,7 +100,7 @@ PRETTIER_OPTIONS = ["--print-width=200", "--trailing-comma=all"]
 
 
 def format_source(paths: MintPaths, source: Path) -> None:
-    result = subprocess.run(["bunx", PRETTIER, *PRETTIER_OPTIONS, "--write", str(source)], capture_output=True, text=True, cwd=paths.player)
+    result = subprocess.run(["bunx", PRETTIER, *PRETTIER_OPTIONS, "--write", str(source)], check=False, capture_output=True, text=True, cwd=paths.player)
     if result.returncode != 0:
         raise MintError(f"prettier could not format {source.name}: {(result.stderr or result.stdout).strip()[-400:]}")
 
@@ -109,7 +109,7 @@ def build(paths: MintPaths, lab_id: str) -> None:
     with lifeline() as stdin:
         result = subprocess.run(
             tethered_argv(["bun", str(paths.tools / "mint-build.ts"), str(paths.minted_source(lab_id)), str(paths.minted_build(lab_id))]),
-            stdin=stdin, capture_output=True, text=True, cwd=paths.player,
+            check=False, stdin=stdin, capture_output=True, text=True, cwd=paths.player,
         )
     if result.returncode != 0:
         raise MintError(f"building the minted Lab '{lab_id}' failed: {(result.stderr or result.stdout).strip()[-600:]}")

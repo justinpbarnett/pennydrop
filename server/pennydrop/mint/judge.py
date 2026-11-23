@@ -14,7 +14,7 @@ THEMES = ("pattern", "film", "kids", "plain")
 MAX_DEFECTS_PER_THEME = 6
 JUDGE_TIMEOUT_SECONDS = 240.0
 
-SYSTEM = """You are a strict visual reviewer for an educational animation app.
+SYSTEM = f"""You are a strict visual reviewer for an educational animation app.
 You are shown frames from one Lesson, taken at different times, all drawn in one visual theme on a 1600 by 900 stage.
 List only concrete, visible defects, each one a thing a designer would send back:
 - overlap: marks, text or shapes covering each other when they should not
@@ -31,8 +31,8 @@ The layout places the whole Lab drawing in the middle of the stage, so blank sta
 A connector arrow that crosses a panel border to reach a part in another panel is correct, and an arrowhead that ends on its target part is correct; report an arrow only when it runs along or on top of a border line, its head covers text, or it points at nothing.
 Do not report the shapes of the theme's typeface glyphs (such as a 1 resembling an I), theme colors the Lab cannot choose, taste, motion, or anything you cannot point to in a specific frame.
 Report each defect once, at the first frame where it shows, even when it is visible in several frames.
-Reply with JSON only: a list of at most %d objects {"frame": <number of the frame, starting at 1>, "defect": "<what is wrong and where, in one sentence>", "fix": "<what to change in the drawing code>"}.
-Reply with [] when the frames have no such defect.""" % MAX_DEFECTS_PER_THEME
+Reply with JSON only: a list of at most {MAX_DEFECTS_PER_THEME} objects {{"frame": <number of the frame, starting at 1>, "defect": "<what is wrong and where, in one sentence>", "fix": "<what to change in the drawing code>"}}.
+Reply with [] when the frames have no such defect."""
 
 
 @dataclass(frozen=True)

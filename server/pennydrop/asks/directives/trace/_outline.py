@@ -5,14 +5,40 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any
 
 from ....tracer import ALGORITHMS, Tracer
-from ....tracer.library import FOUND, NEXT_LOOK, NORMAL_CASE, PLACED, SHORTEST_HOME, Contrast
-from .._support import MAX_STEP_OPERATIONS, Hinge, Runs, TracedRun, trace_key, with_answer
+from ....tracer.library import (
+    FOUND,
+    NEXT_LOOK,
+    NORMAL_CASE,
+    PLACED,
+    SHORTEST_HOME,
+    Contrast,
+)
+from .._support import (
+    MAX_STEP_OPERATIONS,
+    NO_RUNS,
+    Hinge,
+    Runs,
+    TracedRun,
+    trace_key,
+    with_answer,
+)
+from . import (
+    CONTRAST_RUN,
+    MAIN_RUN,
+    SEARCHES,
+    TARGETS,
+    TraceSpec,
+    _run,
+    _with_search_target,
+    code,
+    outline_lab,
+)
 from ._stages import Window
 from .array import COUNTED_EVENTS, PROBE_POINTER
-from . import CONTRAST_RUN, MAIN_RUN, SEARCHES, TARGETS, TraceSpec, _run, _with_search_target, code, outline_lab
 
 MAX_LISTED = 6
 CODE_LINE_ROOM = 12
@@ -30,7 +56,7 @@ _KID_OUTLINES: dict[str, Outline | None] = {}
 @dataclass(frozen=True)
 class Outline:
     brief: str
-    runs: Runs = Runs()
+    runs: Runs = NO_RUNS
     point: str | None = None
 
 
@@ -173,7 +199,7 @@ def _turns(run: TracedRun, lab: str, example: Any, code_beside: bool) -> list[Tu
     bounds = [0, *stops[1:], event_count] if stops else [0, event_count]
     values = list(_array_of(example)) if lab == "array" else []
     turns = []
-    for start, end in zip(bounds, bounds[1:]):
+    for start, end in pairwise(bounds):
         window = Window(start, end, finished=False)
         operations = window.of(by_event)
         cost = _followed_cost(run, by_event, window) if code_beside else len(operations)

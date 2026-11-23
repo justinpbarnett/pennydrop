@@ -10,15 +10,13 @@ LOCK = "m"
 COUNT_OBJECT = "count"
 COUNTER_STEPS = ("read", "add", "write")
 
-GUIDE = "\n".join([
-    '`{"lab": "threads", "threads": ["A", "B"], "lock": false, "increments": 1, "interleave": true}` runs the threads that each do `count++` on one shared counter that starts at 0. Each `count++` is three separate steps: read, add one, write.',
-    "`increments` is 1 or 2 and never more. `lock: true` wraps every increment in acquire and release of one lock, so a thread that finds it held blocks. `interleave: true` switches thread after every step, the worst case for a race, and `false` lets each thread finish before the next starts.",
-    "The directive also draws the shared counter as a text object named `count`, which shows its value after every write, so the lost update is visible; never write a second counter yourself.",
-    "Values: `final` (what the counter ends at), `expected` (threads times increments) and `lost` (the increments that vanished), such as `{simulate.final}`.",
-    "A run with `lock: true` is named `locked`, one without a lock `interleaved` or `serial`: `{simulate.interleaved.final}`, `{simulate.locked.final}`.",
-    "To tell the run in stages, add `\"until\": 6` to play only the first 6 steps, where a step is one read, add, write, acquire, block or release. A later Step carries the same simulation with a later `until`, or none for the rest of the run, and plays only the new part on the same Lab and counter.",
-    "`expected` can be used in any Step. `final` and `lost` can be used only in the Step that plays the run to its end.",
-])
+GUIDE = """`{"lab": "threads", "threads": ["A", "B"], "lock": false, "increments": 1, "interleave": true}` runs the threads that each do `count++` on one shared counter that starts at 0. Each `count++` is three separate steps: read, add one, write.
+`increments` is 1 or 2 and never more. `lock: true` wraps every increment in acquire and release of one lock, so a thread that finds it held blocks. `interleave: true` switches thread after every step, the worst case for a race, and `false` lets each thread finish before the next starts.
+The directive also draws the shared counter as a text object named `count`, which shows its value after every write, so the lost update is visible; never write a second counter yourself.
+Values: `final` (what the counter ends at), `expected` (threads times increments) and `lost` (the increments that vanished), such as `{simulate.final}`.
+A run with `lock: true` is named `locked`, one without a lock `interleaved` or `serial`: `{simulate.interleaved.final}`, `{simulate.locked.final}`.
+To tell the run in stages, add `"until": 6` to play only the first 6 steps, where a step is one read, add, write, acquire, block or release. A later Step carries the same simulation with a later `until`, or none for the rest of the run, and plays only the new part on the same Lab and counter.
+`expected` can be used in any Step. `final` and `lost` can be used only in the Step that plays the run to its end."""
 
 ThreadName = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9]{0,9}$")]
 

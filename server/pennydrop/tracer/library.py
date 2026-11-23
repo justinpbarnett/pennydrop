@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any
 
-
 NORMAL_CASE = "normal_case"
 BREAK = "break"
 COMPARISONS = "comparisons"

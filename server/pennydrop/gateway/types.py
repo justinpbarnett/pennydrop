@@ -9,7 +9,6 @@ from typing import Any
 
 from ..store import CallStats
 
-
 JSON_BLOCK = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 
 

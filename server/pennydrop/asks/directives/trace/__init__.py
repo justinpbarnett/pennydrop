@@ -3,18 +3,32 @@ from __future__ import annotations
 import ast
 import re
 import sys
+from itertools import pairwise
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from ....spoken import comparable_script
 from ....tracer import ALGORITHMS, TraceError, Tracer
+from .._support import (
+    MAX_STEP_OPERATIONS,
+    DirectiveError,
+    DirectiveTools,
+    TracedRun,
+    discover,
+    limit_operations,
+    operation_targets,
+    parse_spec,
+    trace_key,
+    values_said,
+    with_answer_from,
+    with_nested_trace_lifted,
+)
 from . import _stages as stages
 from . import code
 from ._stages import Window
 from .array import PROBE_POINTER
 from .code import shown_source
-from .._support import MAX_STEP_OPERATIONS, DirectiveError, DirectiveTools, TracedRun, discover, limit_operations, operation_targets, parse_spec, trace_key, values_said, with_answer_from, with_nested_trace_lifted
 
 TRACE_TOTALS = ("comparisons", "swaps", "writes")
 RUN_LABS = ("array", "code")
@@ -234,7 +248,7 @@ def _require_totals_unsaid(step: dict[str, Any], until: int | None, object_id: s
 def _require_one_middle_check(spec: TraceSpec, operations: list[dict[str, Any]], traced: dict[str, Any], say: Any) -> None:
     if spec.code != "binary_search":
         return
-    probed = [int(found[1]) for probe, counted in zip(operations, operations[1:]) if probe.get("name") == PROBE_POINTER and counted.get("op") == "counter" and (found := CELL_INDEX.search(str(probe.get("on")))) is not None]
+    probed = [int(found[1]) for probe, counted in pairwise(operations) if probe.get("name") == PROBE_POINTER and counted.get("op") == "counter" and (found := CELL_INDEX.search(str(probe.get("on")))) is not None]
     values = traced.get("values") if isinstance(traced.get("values"), list) else []
     middles = [str(values[index]) for index in probed if index < len(values)]
     if len(probed) < 2 or (spec.until is None and _tells_in_order(middles, say)):

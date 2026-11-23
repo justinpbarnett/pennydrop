@@ -264,7 +264,7 @@ async def _server_sent(events: AsyncIterator[tuple[str, dict[str, Any]]]) -> Asy
     try:
         async for name, data in events:
             yield _event(name, data)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001
         yield _event("error", {"message": str(error)})
 
 

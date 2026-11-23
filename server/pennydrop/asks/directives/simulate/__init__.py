@@ -6,7 +6,17 @@ import re
 import sys
 from typing import Any
 
-from .._support import DirectiveError, DirectiveTools, Simulation, discover, limit_operations, operation_targets, parse_spec, values_said, with_answer_from
+from .._support import (
+    DirectiveError,
+    DirectiveTools,
+    Simulation,
+    discover,
+    limit_operations,
+    operation_targets,
+    parse_spec,
+    values_said,
+    with_answer_from,
+)
 
 TARGETS = discover(sys.modules[__name__])
 END = math.inf

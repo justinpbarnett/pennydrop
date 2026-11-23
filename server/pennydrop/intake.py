@@ -5,8 +5,8 @@ import contextlib
 import json
 import shutil
 import socket
-from collections.abc import AsyncIterator
 import tempfile
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
@@ -49,11 +49,10 @@ class Transcriber:
 
     async def transcribe(self, audio: bytes | Path) -> str:
         base_url = await self._resident_server()
-        async with _prepared_wav(audio) as wav:
-            async with httpx.AsyncClient(timeout=60) as client:
-                response = await client.post(
-                    f"{base_url}/inference", data={"response_format": "text", "language": "en", "prompt": SPOKEN_ASK_CONTEXT}, files={"file": ("speech.wav", wav.read_bytes())},
-                )
+        async with _prepared_wav(audio) as wav, httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{base_url}/inference", data={"response_format": "text", "language": "en", "prompt": SPOKEN_ASK_CONTEXT}, files={"file": ("speech.wav", wav.read_bytes())},
+            )
         if response.status_code != 200:
             raise IntakeError(f"whisper-server answered {response.status_code}: {response.text[:300]}")
         return " ".join(response.text.split())

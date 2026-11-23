@@ -14,7 +14,7 @@ from ..settings import Job
 from .index import JsonIndex
 
 GRID = 1000
-PART_NAME = re.compile(r"^[a-z][a-z' -]{0,22}$", re.I)
+PART_NAME = re.compile(r"^[a-z][a-z' -]{0,22}$", re.IGNORECASE)
 MIN_SIDE = 0.02
 MAX_AREA = 0.85
 SYSTEM = "You find named parts of a picture for a children's lesson. You answer with one JSON object and nothing else."

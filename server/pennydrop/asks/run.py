@@ -20,14 +20,54 @@ from .catalog import Catalog
 from .challenge_words import answer_told, asks_another_question, predicted
 from .classify import Classifier, Plan, Viewing
 from .coaching import coached
-from .directives import DirectiveError, DirectiveTools, as_promise, carries_directive, computed_facts, directive_briefs, expand_directives, fill_values, kid_outline, run_outline, staged_directives, with_sources
-from .directives._support import Runs, operation_targets
+from .directives import (
+    DirectiveError,
+    DirectiveTools,
+    as_promise,
+    carries_directive,
+    computed_facts,
+    directive_briefs,
+    expand_directives,
+    fill_values,
+    kid_outline,
+    run_outline,
+    staged_directives,
+    with_sources,
+)
+from .directives._support import NO_RUNS, operation_targets
 from .directives.curves import graphed_half_way
 from .lesson_format import Header, Malformed, ParsedLine, is_practice_line
 from .live import LiveLesson
-from .mending import PROMISE_WORDS, brings_in_a_figure, mended, mended_cues, retold, validated_and_mended, with_one_figure_on_stage
-from .stage import Redeclared, Stage, question_without_challenge, ran_something, trace_totals
-from .stage_words import ArrayPlay, EventPlay, FigurePlay, PlotView, StagePlay, array_plays, card_matches, event_plays, plot_views, shapes_plays, shown_pictures, stress_marks
+from .mending import (
+    PROMISE_WORDS,
+    brings_in_a_figure,
+    mended,
+    mended_cues,
+    retold,
+    validated_and_mended,
+    with_one_figure_on_stage,
+)
+from .stage import (
+    Redeclared,
+    Stage,
+    question_without_challenge,
+    ran_something,
+    trace_totals,
+)
+from .stage_words import (
+    ArrayPlay,
+    EventPlay,
+    FigurePlay,
+    PlotView,
+    StagePlay,
+    array_plays,
+    card_matches,
+    event_plays,
+    plot_views,
+    shapes_plays,
+    shown_pictures,
+    stress_marks,
+)
 from .stopwatch import Stopwatch
 from .validator import PlayerCrash, Validator, Verdict
 
@@ -193,7 +233,7 @@ class LessonRun:
             await self._write()
         except BaseExceptionGroup as group:
             self._fail(group.exceptions[0])
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             self._fail(error)
         finally:
             self._live.close()
@@ -213,7 +253,7 @@ class LessonRun:
         start_scene = (await kit.validator.replay(self._ask.earlier_steps, self._reading)).scene if plan.follow_up else None
         outline = (await kid_outline(plan.algorithm, kit.directive_tools.tracer) if self._is_kid else await run_outline(plan.algorithm, kit.directive_tools.tracer, plan.shows_code)) if plan.algorithm else None
         self._last_scene = start_scene
-        self._stage = Stage(start_scene, outline.runs if outline else Runs(), kid=self._is_kid, charts_quantities=plan.charts_quantities)
+        self._stage = Stage(start_scene, outline.runs if outline else NO_RUNS, kid=self._is_kid, charts_quantities=plan.charts_quantities)
         self._told_point = outline.point if outline else None
         main_photo = await self._main_photo(photo_search, photo) if photo_search and photo else None
         brief = Brief(self._ask.text, self._ask.profile, plan, start_scene, self._ask.viewing.title if self._ask.viewing else None, self._ask.course, main_photo, outline.brief if outline else None, self._ask.link)
