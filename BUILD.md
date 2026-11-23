@@ -238,6 +238,7 @@ Every other line is `{line, say, scene?, do?, camera?, sound?, voice?}`.
 The camera never rolls and never swings sideways: it dollies and tilts, and each shot is framed on the measured ink of its object so the content sits centred with even margins.
 Dust drifts defocused behind the content and keeps off its ink.
 `sound` is a list of `{cue, tone, gain?}`, and the tone is one of `hit`, `chime`, `tick`, `rise` or `swell`.
+A sound accent marks a turn in the story, so the plan check allows at most one for every four lines.
 A `cue` is a word or phrase from `say`, matched in order.
 The `at` field of a scene object is `{relation: id}` with the relations `right of`, `left of`, `above`, `below`, `behind`, `in front of` and `next`, and the world layout places each object on a plane in 3D.
 The pieces are the cards `keyword`, `quote`, `counter`, `compare`, `tracker`, `timeline` and `question`, the line drawing `figure`, the acted scene `stage` and the campaign map `map`, and Labs draw on their own planes unchanged.
@@ -269,7 +270,7 @@ It refuses a camera move that leaves less than 1.5 seconds after the one before 
 `pd film revise <thread>` hands the current Film and its problems back to the planner, instead of planning the Film again from the script.
 The film page `player/film.html` draws a pure function of (film, time, Theme) through `window.film` with `load`, `seek` and `regions`.
 `bun player/tools/film.ts render` draws 1920x1080 frames at 30 fps in parallel headless pages, pipes them to ffmpeg as H.264 yuv420p, writes `<out>.manifest.json`, and reports frames per second.
-`pd film render <film> [--out]` voices each line through the TTS seam, builds a seeded sound kit and a bed ducked under speech, normalizes to -14 LUFS with true peak at most -1.5 dBTP through a limiter with a 0.3 dB margin, and muxes into the MP4.
+`pd film render <film> [--out]` voices each line through the TTS seam, builds a seeded sound kit and a bed ducked under speech, levels each accent so its loudest 400 ms sits 12 LU under the voice's integrated loudness, normalizes to -14 LUFS with true peak at most -1.5 dBTP through a limiter with a 0.3 dB margin, and muxes into the MP4.
 Rendered media goes under the gitignored `data/films/<thread>/`.
 `pd film check <mp4>` reports loudness, true peak, and for every Cue the offset in ms between the heard word and the op start, with max and mean against the 33 ms bar, plus the delay until pixels change in the op's region.
 It fails on dead air: any silence over 1.5 seconds in the heard narration, from the first frame to the last, placed by where each line is actually heard in the mix.

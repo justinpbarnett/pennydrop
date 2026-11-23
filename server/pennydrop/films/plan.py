@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any
 
@@ -34,6 +35,7 @@ NUMBER_WORDS = (
 )
 SPELLED_NUMBER = re.compile(r"\b(?:" + "|".join(NUMBER_WORDS.split()) + r")(?:[\s-]+(?:" + "|".join(NUMBER_WORDS.split()) + r"))+\b", re.IGNORECASE)
 SPOKEN_KEYS = {"say", "cue", "spine", "voice"}
+LINES_PER_ACCENT = 4
 
 
 def catalog(services: Services) -> str:
@@ -135,6 +137,17 @@ def spelled_numbers(rows: list[dict]) -> list[str]:
     ]
 
 
+def crowded_accents(rows: list[dict]) -> list[str]:
+    accented = [row["line"] for row in rows[1:] if row.get("sound")]
+    allowed = math.ceil((len(rows) - 1) / LINES_PER_ACCENT)
+    if len(accented) <= allowed:
+        return []
+    lines = ", ".join(map(str, accented))
+    return [
+        f'lines {lines} carry sound accents, and a Film of {len(rows) - 1} lines may carry at most {allowed}, one for every {LINES_PER_ACCENT} lines; keep an accent only on a line where the story turns, such as a reversal, a fall or the ending, and leave "sound" out of every other line'
+    ]
+
+
 def as_jsonl(rows: list[dict]) -> str:
     return "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
 
@@ -145,7 +158,7 @@ def plan_problems(services: Services, workspace: Workspace, rows: list[dict], sc
     except FilmError as error:
         return [str(error)]
     planned = planned[:1] + [in_narration_order(row) for row in planned[1:]]
-    found = spelled_numbers(planned) + staging_problems(planned)
+    found = spelled_numbers(planned) + crowded_accents(planned) + staging_problems(planned)
     try:
         moved_closer: set[int] = set()
         for _ in range(MEND_PASSES):

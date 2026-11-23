@@ -63,7 +63,7 @@ Never place an object so that a flight must cross the whole world, and never sta
 - Every `do` op, every camera move and every sound accent has a `cue`: a short exact phrase copied from the line's narration (case and punctuation as written). The op happens on that word.
 - A counter's `count` op is cued on the word that says the number, and the counter is added in the Scene of the line whose narration says it. A counter never sits on its dash for more than ten seconds. When its number is said late in a line, do not put the counter in the line's Scene: bring it in with a `create` op (`"op": "create", "on": ["id"], "spec": {...piece spec with its \"at\"}`) cued on the few words just before the number, and count it on the number word itself.
 - A line can have one to three camera moves, each cued on a phrase, `"go"` an object id, `"view"` one of wide, fit, close, `"elevation"` a few degrees of tilt (between -4 and 4), `"seconds"` between 2.5 and 4.
-- Every line carries one sound accent: `{"cue": "...", "tone": "chime"}` where tone is one of hit, chime, tick, rise, swell.
+- A sound accent marks a turn in the story, such as a reversal, a fall or the ending, so most lines carry none and a Film carries at most one for every four lines: `{"cue": "...", "tone": "hit"}` where tone is one of hit, chime, tick, rise, swell. It plays well under the voice, as a soft punctuation mark.
 - Every cue phrase must be findable in the narration, and where a phrase would repeat inside a line, choose one that is unique within the line.
 
 ### Camera discipline

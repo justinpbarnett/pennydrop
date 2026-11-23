@@ -8,7 +8,6 @@ import numpy
 from .document import FilmError
 
 SAMPLE_RATE = 48000
-ACCENT_PEAK = 0.55
 
 
 @dataclass(frozen=True)
@@ -47,7 +46,6 @@ class SoundKit:
         rng = numpy.random.default_rng(self.seed(f"accent-{tone}"))
         mono = ACCENTS[tone](self, rng)
         mono = _reverb(mono, self, rng)
-        mono = mono / max(numpy.max(numpy.abs(mono)), 1e-9) * ACCENT_PEAK
         left = numpy.roll(mono, int(0.0004 * SAMPLE_RATE))
         return numpy.stack([mono, left], axis=1)
 
@@ -85,11 +83,11 @@ def _hit(kit: SoundKit, rng: numpy.random.Generator) -> numpy.ndarray:
 
 
 def _chime(kit: SoundKit, rng: numpy.random.Generator) -> numpy.ndarray:
-    base = kit.root_hz * 16
-    envelope = _envelope(3.0, 0.002, 0.7)
+    base = kit.root_hz * 8
+    envelope = _envelope(3.0, 0.015, 0.7)
     time = numpy.arange(len(envelope)) / SAMPLE_RATE
     out = numpy.zeros(len(envelope))
-    for ratio, weight, decay in ((1.0, 1.0, 1.0), (2.76, 0.5, 0.55), (5.4, 0.25, 0.3), (8.93, 0.12, 0.18)):
+    for ratio, weight, decay in ((1.0, 1.0, 1.0), (2.0, 0.3, 0.6), (2.76, 0.12, 0.35)):
         out += weight * numpy.sin(2 * numpy.pi * base * ratio * time + rng.uniform(0, 6.28)) * numpy.exp(-time / (0.7 * decay))
     return out * envelope
 

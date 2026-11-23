@@ -13,6 +13,7 @@ LIMITER_MARGIN_DB = 0.3
 OVERSAMPLE_HZ = 192000
 MAX_PASSES = 6
 DELIVERY_CODEC = ["-c:a", "aac", "-b:a", "256k", "-ar", "48000"]
+MOMENTARY = re.compile(r"\bM:\s*(-?[\d.]+)")
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,11 @@ def measure(path: Path) -> Loudness:
     integrated = float(re.search(r"I:\s+(-?[\d.]+) LUFS", summary).group(1))
     true_peak = float(re.search(r"Peak:\s+(-?[\d.]+) dBFS", summary[summary.index("True peak") :]).group(1))
     return Loudness(integrated, true_peak)
+
+
+def loudest_moment(path: Path) -> float:
+    log = _run(["-i", str(path), "-vn", "-af", "ebur128=framelog=info", "-f", "null", "-"])
+    return max(float(value) for value in MOMENTARY.findall(log))
 
 
 def normalize(source: Path, target: Path) -> Loudness:

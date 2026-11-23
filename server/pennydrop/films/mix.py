@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from .voices import SpokenLine
 
 VOICE_RMS_DB = -20.0
 BED_RMS_DB = -34.0
+ACCENT_UNDER_VOICE_LU = 12.0
 DUCK_DB = 11.0
 DUCK_ATTACK_SECONDS = 0.08
 DUCK_RELEASE_SECONDS = 0.6
@@ -72,25 +74,39 @@ def build_mix(manifest: dict, spoken: list[SpokenLine], kit: SoundKit, directory
         voice[offset:end] += clip[: end - offset]
     speaking = numpy.abs(voice) > SPEECH_FLOOR * numpy.abs(voice).max()
     voice *= 10 ** ((VOICE_RMS_DB - _rms_db(voice, speaking)) / 20)
+    stereo_voice = numpy.stack([voice, voice], axis=1)
+    paths = {name: directory / f"{name}.wav" for name in ("voice", "bed", "mix", "master")}
+    _write(paths["voice"], stereo_voice)
+    voice_loudness = loudness.measure(paths["voice"])
 
     bed = kit.bed(seconds)[:count]
     bed *= 10 ** ((BED_RMS_DB - _rms_db(bed)) / 20)
     bed *= _duck_gain(voice, count)[:, None]
 
+    accent_loudness = voice_loudness.integrated - ACCENT_UNDER_VOICE_LU
+    tones = {tone: _leveled(kit.accent(tone), accent_loudness) for tone in {accent["tone"] for accent in manifest["accents"]}}
     accents = numpy.zeros((count, 2))
     for accent in manifest["accents"]:
-        tone = kit.accent(accent["tone"]) * accent["gain"]
+        tone = tones[accent["tone"]] * accent["gain"]
         offset = round(accent["time"] * SAMPLE_RATE)
         end = min(count, offset + len(tone))
         accents[offset:end] += tone[: end - offset]
 
-    stereo_voice = numpy.stack([voice, voice], axis=1)
-    mix = stereo_voice + bed + accents
-    paths = {name: directory / f"{name}.wav" for name in ("voice", "bed", "mix", "master")}
-    for name, signal in (("voice", stereo_voice), ("bed", bed), ("mix", mix)):
-        soundfile.write(paths[name], signal.astype(numpy.float32), SAMPLE_RATE, subtype="FLOAT")
+    _write(paths["bed"], bed)
+    _write(paths["mix"], stereo_voice + bed + accents)
     loudness.normalize(paths["mix"], paths["master"])
-    return MixReport(loudness.measure(paths["voice"]), loudness.measure(paths["bed"]), loudness.delivered(paths["master"]), seconds)
+    return MixReport(voice_loudness, loudness.measure(paths["bed"]), loudness.delivered(paths["master"]), seconds)
+
+
+def _write(path: Path, signal: numpy.ndarray) -> None:
+    soundfile.write(path, signal.astype(numpy.float32), SAMPLE_RATE, subtype="FLOAT")
+
+
+def _leveled(tone: numpy.ndarray, target_lufs: float) -> numpy.ndarray:
+    with tempfile.TemporaryDirectory() as scratch:
+        path = Path(scratch) / "accent.wav"
+        _write(path, tone)
+        return tone * 10 ** ((target_lufs - loudness.loudest_moment(path)) / 20)
 
 
 def mux(video: Path, master: Path, output: Path) -> None:
