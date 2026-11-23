@@ -117,18 +117,16 @@ class Told:
         return self.lab != "code" and not self.code_beside and any(len(turn.operations) > CODE_LINE_ROOM for turn in self.turns)
 
 
-async def run_outline(algorithm: str, tracer: Tracer, level: Level, shows_code: bool = False) -> Outline:
+async def run_outline(algorithm: str, tracer: Tracer, level: Level, shows_code: bool = False) -> Outline | None:
+    if level is Level.YOUNG_CHILD:
+        if algorithm not in _KID_OUTLINES:
+            _KID_OUTLINES[algorithm] = await _kid_outline(algorithm, tracer)
+        return _KID_OUTLINES[algorithm]
     key = (algorithm, shows_code and outline_lab(algorithm) != "code")
     if key not in _OUTLINES:
         _OUTLINES[key] = await _outline(algorithm, tracer, key[1])
     outline = _OUTLINES[key]
     return replace(outline, brief="\n".join([outline.brief, *_pitch(algorithm, level, contrasted=bool(outline.runs.side))]))
-
-
-async def kid_outline(algorithm: str, tracer: Tracer) -> Outline | None:
-    if algorithm not in _KID_OUTLINES:
-        _KID_OUTLINES[algorithm] = await _kid_outline(algorithm, tracer)
-    return _KID_OUTLINES[algorithm]
 
 
 async def _kid_outline(algorithm: str, tracer: Tracer) -> Outline | None:
@@ -347,8 +345,9 @@ def _run_brief(told: Told, named: str | None, stops: list[int]) -> list[str]:
 
 
 def _pitch(algorithm: str, level: Level, contrasted: bool) -> list[str]:
-    pitch = PITCHES.get(level)
-    return [pitch + (NORMAL_CASE_AS_BASELINE if contrasted else "")] if pitch else _promise_hint(algorithm)
+    if level is Level.BEGINNER:
+        return _promise_hint(algorithm)
+    return [FIELD_PITCHES[level] + (NORMAL_CASE_AS_BASELINE if contrasted else "")]
 
 
 def _promise_hint(algorithm: str) -> list[str]:
@@ -397,7 +396,7 @@ def _story_order(contrast: Contrast, proof: Proof, beside: bool, main_steps: int
 
 
 MAX_LESSON_STEPS = 8
-PITCHES = {
+FIELD_PITCHES = {
     Level.INTERMEDIATE: (
         "Pitch for this intermediate learner, who has met this algorithm in an intro course: keep the runs, their stops and the order above, and change the words. "
         "Step 1, the promise, asks about a case the learner meets in the field rather than in daily life. "

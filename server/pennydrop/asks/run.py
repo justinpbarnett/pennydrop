@@ -30,7 +30,6 @@ from .directives import (
     directive_briefs,
     expand_directives,
     fill_values,
-    kid_outline,
     run_outline,
     staged_directives,
     with_sources,
@@ -194,6 +193,7 @@ class LessonRun:
     def __init__(self, toolkit: Toolkit, ask: Ask, record: LessonRecord, live: LiveLesson, stopwatch: Stopwatch):
         self._kit = toolkit
         self._ask = ask
+        self._level = level_of(ask.profile)
         self._record = record
         self._live = live
         self._stopwatch = stopwatch
@@ -227,7 +227,7 @@ class LessonRun:
 
     @property
     def _is_kid(self) -> bool:
-        return self._ask.profile is not None and self._ask.profile.kind is ProfileKind.KID
+        return self._level.kind is ProfileKind.KID
 
     async def run(self) -> None:
         try:
@@ -252,7 +252,7 @@ class LessonRun:
         photo_search = plan.photo_subject if "picture" in plan.labs else None
         photo = asyncio.ensure_future(kit.directive_tools.images.find(photo_search, not self._is_kid, self._record.id)) if photo_search else None
         start_scene = (await kit.validator.replay(self._ask.earlier_steps, self._reading)).scene if plan.follow_up else None
-        outline = (await kid_outline(plan.algorithm, kit.directive_tools.tracer) if self._is_kid else await run_outline(plan.algorithm, kit.directive_tools.tracer, level_of(self._ask.profile), plan.shows_code)) if plan.algorithm else None
+        outline = await run_outline(plan.algorithm, kit.directive_tools.tracer, self._level, plan.shows_code) if plan.algorithm else None
         self._last_scene = start_scene
         self._stage = Stage(start_scene, outline.runs if outline else NO_RUNS, kid=self._is_kid, charts_quantities=plan.charts_quantities)
         self._told_point = outline.point if outline else None
@@ -316,8 +316,8 @@ class LessonRun:
             store.file_lab_request(self._ask.text)
 
     def _open(self, header: Header, start_scene: Any) -> None:
-        header = header.model_copy(update={"labs": [lab for lab in header.labs if lab in self._catalog_labs], "start_scene": start_scene, "reading": self._reading, "point": self._told_point or header.point})
-        data = {**header.model_dump(exclude_none=True), "level": level_of(self._ask.profile).value}
+        header = header.model_copy(update={"labs": [lab for lab in header.labs if lab in self._catalog_labs], "start_scene": start_scene, "reading": self._reading, "level": self._level, "point": self._told_point or header.point})
+        data = header.model_dump(mode="json", exclude_none=True)
         self._record = replace(self._record, title=header.title, labs=header.labs, header=data)
         self._kit.store.save_lesson(self._record)
         self._live.publish("lesson", {"id": self._record.id, "lesson": data})

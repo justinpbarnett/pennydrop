@@ -73,6 +73,8 @@ The goal and the design live outside the repo, in the workshop initiative `penny
 - Each Level has one written definition in `server/pennydrop/levels.py`: what the learner assumes, the words, the world, what the point is about, how far the mechanism goes and the practice.
   The writer's brief carries the Learner's own definition, and the judge holds all four, so `pitched_to_level` can fail a Lesson that fits the level above or below better.
   A kid Profile is always young child, a Lesson with no Profile is pitched at beginner, and the Lesson header records its Level.
+  A header with no level, as in the hand Lessons, reads as beginner.
+  A review case is pitched at the Level of the Profile reviewing it, the learner in front of the screen, not the Level of the Lesson its Rule came from.
   An algorithm outline keeps its runs, stops and order at every level and changes only the words: a beginner gets the library's daily-life promise, and an intermediate or advanced learner a pitch line instead.
 
 ## Code standard
@@ -398,6 +400,9 @@ Fixes from the pass: the words hinge and stress claim, the transistor model, the
 ### Levels
 
 Measured on 24 Lessons re-asked from stored ones, 8 per Level for advanced, beginner and young child, with `pd judge` on Opus giving each Lesson's `pitched_to_level` verdict and a blind pair compare against the Lesson it came from.
+The sample has no intermediate Lessons, because the store had none, and it takes the same number from each Level rather than the store's mix of 1264 advanced, 228 beginner and 327 young child.
+The before row judged the 24 source Lessons and 2 beginner Course Topic Lessons, and its mean overall is over the 24 sources.
+The judge gave no verdict on 3 of the advanced Lessons in the system prompt round, so that row counts 21.
 
 ```
 before                             pass 0 of 26   mean overall 4.58 over the 24

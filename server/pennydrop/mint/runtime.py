@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from ..asks.validator import Validator, ValidatorError
+from ..levels import lesson_level
 from ..store import LessonRecord, LessonSource, Store
 from ..tether import lifeline, tethered_argv
 from .paths import MintPaths
@@ -117,7 +118,7 @@ def build(paths: MintPaths, lab_id: str) -> None:
 
 def _save_example_lesson(store: Store, lab_id: str, lesson_file: Path) -> None:
     lines = [json.loads(line) for line in lesson_file.read_text().splitlines() if line.strip()]
-    header = lines[0]["lesson"]
+    header = {**lines[0]["lesson"], "level": lesson_level(lines[0]["lesson"])}
     steps = [line for line in lines[1:] if "step" in line]
     lesson_id = example_lesson_id(lab_id)
     store.delete_lesson(lesson_id)

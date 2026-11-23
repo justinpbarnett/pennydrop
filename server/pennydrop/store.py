@@ -303,12 +303,24 @@ class ProfileKind(StrEnum):
     ADULT = "adult"
     KID = "kid"
 
+    @property
+    def levels(self) -> tuple[Level, ...]:
+        return tuple(level for level in Level if level.kind is self)
+
+    @property
+    def default_level(self) -> Level:
+        return self.levels[0]
+
 
 class Level(StrEnum):
     YOUNG_CHILD = "young child"
     BEGINNER = "beginner"
     INTERMEDIATE = "intermediate"
     ADVANCED = "advanced"
+
+    @property
+    def kind(self) -> ProfileKind:
+        return ProfileKind.KID if self is Level.YOUNG_CHILD else ProfileKind.ADULT
 
 
 class LessonSource(StrEnum):
@@ -427,7 +439,9 @@ class Store:
         self._connection.execute("pragma foreign_keys = on")
 
     def add_profile(self, name: str, kind: ProfileKind, born_year: int | None, born_month: int | None, theme: str, level: Level | None = None) -> Profile:
-        level = level or (Level.YOUNG_CHILD if kind is ProfileKind.KID else Level.BEGINNER)
+        level = level or kind.default_level
+        if level.kind is not kind:
+            raise ValueError(f"a {kind} Profile takes the level {' or '.join(kind.levels)}, not {level}")
         cursor = self._connection.execute(
             "insert into profiles (name, kind, born_year, born_month, level, theme, created_at) values (?, ?, ?, ?, ?, ?, ?)",
             (name, kind.value, born_year, born_month, level.value, theme, _iso(_now())),

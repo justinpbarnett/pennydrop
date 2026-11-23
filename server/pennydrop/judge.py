@@ -7,7 +7,7 @@ from typing import Any
 
 from .gateway import Gateway, GatewayError
 from .lessons import LessonLibrary
-from .levels import LEVELS_GUIDE, lesson_level
+from .levels import LEVELS_GUIDE, learner_line, lesson_level
 from .settings import Job
 
 JUDGE_EFFORT = "medium"
@@ -127,7 +127,7 @@ def _lesson_text(header: dict[str, Any], steps: list[dict[str, Any]], practice: 
     lines = [f"Title: {header.get('title', '')}", f"Goal: {header.get('goal', '')}"]
     if with_point:
         lines.append(f"Stated point: {header['point']}" if header.get("point") else "Stated point: none was written, so infer what the Lesson proves from its Steps and judge it against that.")
-    lines.append(f"Learner: level {lesson_level(header).value}, {'nothing to read' if header.get('reading') is False else 'reads along'}")
+    lines.append(f"{learner_line(lesson_level(header))}, {'nothing to read' if header.get('reading') is False else 'reads along'}")
     lines.extend(f"Step {step['step']}: " + json.dumps({key: value for key, value in step.items() if key not in ("step", "voice")}, separators=(",", ":")) for step in steps)
     if practice:
         lines.append(f"Practice line, played after the last Step. Rule: {practice['rule']} (holds when {practice['condition']}; slots: {', '.join(practice['slots'])})")

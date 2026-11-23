@@ -308,7 +308,7 @@ def _mean_yes(answers: Iterable[Answer]) -> float:
 def _state(ask: str, profile: Profile | None, viewing: Viewing | None) -> str:
     lines = [f"Ask: {ask}"]
     if profile:
-        lines.append(learner_line(profile))
+        lines.append(learner_line(profile.level))
     if viewing:
         lines.append(f"Watching the Lesson '{viewing.title}' (goal: {viewing.goal}), now at: {viewing.current_say}")
     return "\n".join(lines)

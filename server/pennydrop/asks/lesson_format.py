@@ -13,7 +13,9 @@ from pydantic import (
     model_validator,
 )
 
+from ..levels import DEFAULT_LEVEL
 from ..practice import FORMS, Direction, Form
+from ..store import Level
 from .directives import DIRECTIVES
 from .writer_errors import describe
 
@@ -27,6 +29,7 @@ class Header(BaseModel):
     labs: list[str] = []
     start_scene: Any = None
     reading: bool = True
+    level: Level = DEFAULT_LEVEL
 
 
 class StepOp(BaseModel):
