@@ -22,6 +22,8 @@ The goal and the design live outside the repo, in the workshop initiative `penny
 - Tailnet host `macbook.tail7a3807.ts.net`.
   Port 443 already serves another app, so Pennydrop is served with `tailscale serve --bg --https=8443 http://127.0.0.1:8740`.
   The CLI is `/Applications/Tailscale.localized/Tailscale.app/Contents/MacOS/Tailscale`.
+  `http://pennydrop` on any tailnet device redirects there, so the page keeps the secure context the microphone needs.
+  The `pennydrop` node is the workshop's `com.workshop.tailnet-alias.pennydrop` launchd agent, described in `~/dev/workshop/docs/infrastructure.md`.
 - The tailnet holds the Mac and an iPhone, and no iPad yet.
 - Server port 8740, Vite dev port 5173 with a proxy to 8740.
 - `claude -p` measured at 1.5 s to first token for Haiku 5.5 and 1.6 s total for a short Sonnet 5.5 answer.
