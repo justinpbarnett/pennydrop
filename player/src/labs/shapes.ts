@@ -1,5 +1,5 @@
 import { textWidth } from "../text-metrics";
-import { boxDrawable, clamp01, type Drawable, fail, integerArg, integerField, type LabCtx, type LabDef, type LabOp, lerp, type OpDef, type Point, positiveField, readsWords, type Role, type Size, textDrawable } from "../lab";
+import { boxDrawable, clamp01, type Drawable, fail, integerArg, integerField, type LabCtx, type LabDef, type LabOp, lerp, type OpDef, type Point, positiveField, readsWords, type Role, type Size, textDrawable, type TextLook } from "../lab";
 
 type SpecFields = Record<string, unknown>;
 type Side = "a" | "b" | "c";
@@ -50,6 +50,13 @@ function arc(center: Point, radius: number, degrees: number, samples: number): n
     const angle = ((degrees * index) / (samples - 1)) * (Math.PI / 180);
     return [center.x + radius * Math.cos(angle), center.y - radius * Math.sin(angle)];
   });
+}
+
+const anyNumber = (digits: number) => range(10).map((digit) => String(digit).repeat(digits));
+
+// Layout trims a figure to its ink, so invisible copies of every text a label can show keep the figure in place as the label changes.
+function textRoom(id: string, texts: string[], at: Point, look: TextLook): Drawable[] {
+  return texts.map((text, index) => textDrawable(`${id}-room-${index}`, text, at, { ...look, opacity: 0, z: 0 }));
 }
 
 
@@ -156,8 +163,16 @@ function drawBlocks(state: BlocksState, shown: number): Drawable[] {
   for (const outline of layout.outlines) out.push(boxAt(outline.id, outline.x, outline.y, outline.w, outline.h, { fill: "none", stroke: outline.role, strokeWidth: 3, radius: 0.5, z: 1 }));
   const header = { x: layout.size.w / 2, y: BLOCKS_HEADER_Y };
   if (state.reading && state.groupSize !== null) out.push(textDrawable("caption", groupCaption(state), header, { size: 40 }));
-  else if (state.reading) out.push(textDrawable("total", String(lit), header, { size: 76, z: 3, opacity: lit > 0 ? 1 : 0 }));
+  else if (state.reading) out.push(textDrawable("total", String(lit), header, { size: 76, z: 3, opacity: lit > 0 ? 1 : 0 }), ...textRoom("total", anyNumber(String(state.count).length), header, { size: 76 }));
   return out;
+}
+
+function joinedRoom(state: BlocksState): Drawable[] {
+  const joined = state.joined === null ? [] : blockLayout(state).slots.slice(state.joined);
+  if (joined.length === 0) return [];
+  const [left, right] = [Math.min(...joined.map((at) => at.x)), Math.max(...joined.map((at) => at.x))];
+  const [top, bottom] = [Math.min(...joined.map((at) => at.y)), Math.max(...joined.map((at) => at.y))];
+  return [boxAt("joined-room", (left + right) / 2, (top + bottom) / 2, right - left + BLOCK, bottom - top + BLOCK, { fill: "none", stroke: "swap", strokeWidth: 4, opacity: 0, z: 0 })];
 }
 
 function regrownBlocks(before: BlocksState, after: BlocksState, progress: number): Drawable[] {
@@ -253,7 +268,7 @@ const blocks: Figure<BlocksState> = {
     },
   },
   size: (state) => blockLayout(state).size,
-  draw: (state) => drawBlocks(state, state.counted),
+  draw: (state) => [...drawBlocks(state, state.counted), ...joinedRoom(state)],
 };
 
 
@@ -366,6 +381,9 @@ const line: Figure<LineState> = {
       if (state.reading && labelled) out.push(textDrawable(`num-${value}`, String(value), { x, y: LINE_Y + 46 }, { size: value === state.token ? 42 : 30, fill: value === state.token ? "ink" : "muted" }));
     }
     state.hops.forEach((_, index) => out.push(...hopDrawables(state, index, 1)));
+    const highest = LINE_Y - TOKEN_LIFT - HOP_MAX;
+    out.push({ id: "hop-room", kind: "line", x: LINE_PAD, y: highest, x2: LINE_PAD + LINE_WIDTH, y2: highest, stroke: "accent", strokeWidth: 3.5, opacity: 0, z: 0 });
+    if (state.reading) out.push(...textRoom("hop-label", anyNumber(String(state.to - state.from).length).map((number) => `+${number}`), { x: LINE_PAD + LINE_WIDTH / 2, y: highest - 28 }, { size: 30 }));
     out.push(tokenDrawable({ x: lineX(state, state.token), y: LINE_Y - TOKEN_LIFT }));
     for (let value = state.from; value <= state.to; value++) {
       out.push(boxAt(`spot-${value}`, lineX(state, value), LINE_Y - SPOT_ABOVE / 2 + SPOT_BELOW / 2, spacing, SPOT_ABOVE + SPOT_BELOW, { fill: "ground", opacity: 0, z: 6, part: `${state.objectId}[${value}]` }));
@@ -416,10 +434,14 @@ function drawPolygon(state: PolygonState, walked: number): Drawable[] {
     const label = { x: middle.x + ((middle.x - center.x) / outward) * SIDE_LABEL_OUT, y: middle.y + ((middle.y - center.y) / outward) * SIDE_LABEL_OUT };
     if (state.reading) out.push(textDrawable(`side-label-${index}`, String(index + 1), label, { size: 34, z: 3, opacity: lit ? 1 : 0 }));
   });
-  points.forEach((point, index) => out.push({ id: `corner-${index}`, kind: "circle", x: point.x, y: point.y, r: 9, fill: "ink", z: 4 }));
+  points.forEach((point, index) => out.push(
+    { id: `corner-${index}`, kind: "circle", x: point.x, y: point.y, r: 9, fill: "ink", z: 4 },
+    { id: `walker-room-${index}`, kind: "circle", x: point.x, y: point.y, r: WALKER, fill: "accent", stroke: "ink", strokeWidth: 3, opacity: 0, z: 0 },
+  ));
   const at = done >= state.sides ? points[0]! : mix(points[done]!, points[(done + 1) % state.sides]!, partial);
   out.push({ id: "walker", kind: "circle", x: at.x, y: at.y, r: WALKER, fill: "accent", stroke: "ink", strokeWidth: 3, z: 5 });
-  if (state.reading) out.push(textDrawable("total", String(Math.min(done, state.sides)), { x: POLYGON_PAD + POLYGON_RADIUS, y: 54 }, { size: 76, z: 3, opacity: done > 0 ? 1 : 0 }));
+  const totalAt = { x: POLYGON_PAD + POLYGON_RADIUS, y: 54 };
+  if (state.reading) out.push(textDrawable("total", String(Math.min(done, state.sides)), totalAt, { size: 76, z: 3, opacity: done > 0 ? 1 : 0 }), ...textRoom("total", anyNumber(String(state.sides).length), totalAt, { size: 76 }));
   return out;
 }
 
@@ -521,10 +543,13 @@ function drawArea(state: AreaState, shown: number): Drawable[] {
   ));
   out.push(boxAt("body", AREA_LEFT + width / 2, AREA_TOP + height / 2, width, height, { fill: "none", stroke: "ink", strokeWidth: 3, z: 2 }));
   if (state.reading) {
+    const formula = (count: string) => `${state.columns} × ${state.rows} = ${count}`;
+    const formulaAt = { x: AREA_LEFT + width / 2, y: AREA_TOP + height + 58 };
     out.push(
       textDrawable("columns", String(state.columns), { x: AREA_LEFT + width / 2, y: AREA_TOP - 32 }, { size: 38, fill: "muted" }),
       textDrawable("rows", String(state.rows), { x: AREA_LEFT - 36, y: AREA_TOP + height / 2 }, { size: 38, fill: "muted" }),
-      textDrawable("formula", `${state.columns} × ${state.rows} = ${lit > 0 ? lit : "?"}`, { x: AREA_LEFT + width / 2, y: AREA_TOP + height + 58 }, { size: 56 }),
+      textDrawable("formula", formula(lit > 0 ? String(lit) : "?"), formulaAt, { size: 56 }),
+      ...textRoom("formula", [...anyNumber(String(state.columns * state.rows).length), "?"].map(formula), formulaAt, { size: 56 }),
     );
   }
   return out;
@@ -581,8 +606,10 @@ function drawAngle(state: AngleState, degrees: number): Drawable[] {
     { id: "ray", kind: "line", x: vertex.x, y: vertex.y, x2: tip.x, y2: tip.y, stroke: "accent", strokeWidth: 6, z: 3 },
     { id: "arc", kind: "path", x: 0, y: 0, points: sweep, fill: "none", stroke: "accent", strokeWidth: 4, z: 3 },
     { id: "right-mark", kind: "path", x: 0, y: 0, points: [vertex.x + RIGHT_MARK, vertex.y, vertex.x + RIGHT_MARK, vertex.y - RIGHT_MARK, vertex.x, vertex.y - RIGHT_MARK], fill: "none", stroke: "ink", strokeWidth: 3, opacity: Math.abs(degrees - 90) < 0.5 ? 1 : 0, z: 3 },
+    { id: "sweep-room", kind: "path", x: 0, y: 0, points: arc(vertex, RAY, 180, 3), fill: "none", stroke: "accent", strokeWidth: 6, opacity: 0, z: 0 },
   ];
-  if (state.reading) out.push(textDrawable("degrees", `${Math.round(degrees)}°`, { x: vertex.x, y: vertex.y + 54 }, { size: 52 }));
+  const degreesAt = { x: vertex.x, y: vertex.y + 54 };
+  if (state.reading) out.push(textDrawable("degrees", `${Math.round(degrees)}°`, degreesAt, { size: 52 }), ...textRoom("degrees", anyNumber(3).map((number) => `${number}°`), degreesAt, { size: 52 }));
   return out;
 }
 
