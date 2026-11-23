@@ -45,7 +45,7 @@ Use only what the catalog lists.
 
 - Use one map for each theater of events, and keep its "region" tight around its places so their names have room. A map refuses a layout with no room and says which place to leave out.
 - List every place the map will name, in the order the story reaches them.
-- A journey uses "go". Armies use "march" and "clash". A map stays in the world, so a later line can move its armies again.
+- A journey uses "go". Armies use "march" and "clash", and a place that gives up uses "surrender". A map stays in the world, so a later line can move its armies again.
 - Move a force only where the story says it went, on the word that says so. A plan, a request or a report is not a march: act it on a stage. An army never marches back the way it came unless a battle drove it.
 
 ### Placement

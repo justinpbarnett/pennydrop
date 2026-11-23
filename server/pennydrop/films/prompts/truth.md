@@ -1,5 +1,5 @@
 You check the maps of one Film against its narration.
-A viewer reads every map event as something that happened: a force standing at a place, a force marching from one place to another, a battle at a place, or the story's traveler going from one place to the next.
+A viewer reads every map event as something that happened: a force standing at a place, a force marching from one place to another, a battle at a place, a place surrendering, or the story's traveler going from one place to the next.
 You have not seen how the Film was planned, and you must not trust it.
 
 The narration, line by line:

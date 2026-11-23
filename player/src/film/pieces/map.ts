@@ -33,6 +33,7 @@ interface MapState {
   reached: number;
   armies: Army[];
   clashes: number[];
+  surrenders: number[];
 }
 
 interface Sizes {
@@ -52,6 +53,9 @@ const WIDTH = 3200;
 const FRAME_ASPECT = 16 / 9;
 const TRAVEL_SECONDS = 1.6;
 const CLASH_SECONDS = 1.6;
+const SURRENDER_SECONDS = 2;
+const ICON_OPS = new Set(["clash", "surrender"]);
+const ICON_ROOM = 0.3;
 const OLD_OPACITY = 0.5;
 const HALO = 12;
 const ARMY_PAINT: Record<Allegiance, Paint> = { lead: "accent", foe: "muted" };
@@ -146,6 +150,9 @@ function markerHalf(state: MapState, s: Sizes, index: number): Size {
 }
 
 const iconWidth = (s: Sizes) => s.sabre * 2 + s.name * 0.2;
+const iconsAt = (state: MapState, index: number) => Number(state.clashes.includes(index)) + Number(state.surrenders.includes(index));
+const seen = (state: MapState, index: number) =>
+  index < state.reached || iconsAt(state, index) > 0 || state.armies.some((army) => army.stops.some((stop) => stop.place === index));
 
 function stopPoint(state: MapState, s: Sizes, army: Army, leg: number): Point {
   const stop = army.stops[leg]!;
@@ -285,7 +292,7 @@ function layoutOf(state: MapState, s: Sizes): Layout {
     return best.rect;
   };
   const names = state.places.map((place, index) => {
-    const size = { w: (state.clashes.includes(index) ? iconWidth(s) : 0) + textWidth(place.name, s.name, "read"), h: s.name };
+    const size = { w: iconsAt(state, index) * iconWidth(s) + textWidth(place.name, s.name, "read"), h: s.name };
     return settle(`place ${index}`, `the name ${nameAt(index)}`, placeAt(state, index), NAME_SPOTS, size, markerHalf(state, s, index), { x: s.gap * 0.5, y: s.gap * 0.5 });
   });
   const labels = new Map(state.armies.map((army) => {
@@ -380,6 +387,28 @@ function sabres(id: string, s: Sizes, at: Point, opacity: number): Drawable[] {
   return [blade(1, "ground", r * 0.42, "h1"), blade(-1, "ground", r * 0.42, "h2"), blade(1, "highlight", r * 0.18, "b1"), blade(-1, "highlight", r * 0.18, "b2"), guard(1, "g1"), guard(-1, "g2")];
 }
 
+function whiteFlag(id: string, s: Sizes, at: Point, raised: number, rise: number, ripple: number, opacity: number): Drawable[] {
+  const r = s.sabre;
+  const mast = { x: at.x - r * 0.75, top: at.y - r * 1.2, bottom: at.y + r };
+  const width = r * 1.55;
+  const height = r * 0.95;
+  const top = lerp(mast.bottom - height, mast.top + r * 0.2, rise);
+  const edge = (y: number) => Array.from({ length: 9 }, (_, i) => {
+    const t = i / 8;
+    return [mast.x + t * width, y + t * r * (0.12 * Math.sin(1.2 - 2 * Math.PI * t) + 0.2 * ripple * Math.sin(-2 * Math.PI * t))];
+  });
+  const cloth = [...edge(top), ...edge(top + height).reverse()].flat();
+  const pole: Drawable = { id: `${id}.pole`, kind: "line", x: mast.x, y: mast.bottom, x2: mast.x, y2: mast.top, stroke: "ink", strokeWidth: r * 0.14, opacity: raised * opacity, z: 6 };
+  const poleHalo: Drawable = { ...pole, id: `${id}.pole-halo`, stroke: "ground", strokeWidth: r * 0.34 };
+  if (rise === 0) return [poleHalo, pole];
+  return [
+    poleHalo,
+    { id: `${id}.cloth-halo`, kind: "path", x: 0, y: 0, points: cloth, closed: true, fill: "none", stroke: "ground", strokeWidth: r * 0.3, opacity, z: 6 },
+    { id: `${id}.cloth`, kind: "path", x: 0, y: 0, points: cloth, closed: true, fill: "white", stroke: "ink", strokeWidth: r * 0.08, opacity, z: 6 },
+    pole,
+  ];
+}
+
 function burst(id: string, s: Sizes, at: Point, progress: number): Drawable[] {
   const out: Drawable[] = [];
   const pop = progress * 2.6;
@@ -448,7 +477,7 @@ function drawMap(state: MapState, now: Running<MapState>[], clock: number): Draw
     out.push(...burst(`clash-${place}`, s, center, u));
   }
   const settling = now[0];
-  const glide = ease(settling?.progress ?? 1);
+  const glide = ease(clamp01((settling?.progress ?? 1) / (settling && ICON_OPS.has(settling.op.name) ? ICON_ROOM : 1)));
   for (const token of tokens) {
     const after = labelOffset(state, s, token.army.id)!;
     const before = settling ? labelOffset(settling.before, s, token.army.id) ?? after : after;
@@ -456,18 +485,27 @@ function drawMap(state: MapState, now: Running<MapState>[], clock: number): Draw
   }
 
   for (const place of state.clashes) show(place, 1);
+  const yielding = new Map(runningOf(now, "surrender").map((entry) => [entry.after.surrenders[entry.after.surrenders.length - 1]!, entry.progress]));
+  for (const place of state.surrenders) show(place, clamp01((yielding.get(place) ?? 1) * 4));
   const namesNow = layoutOf(state, s).names;
   const namesBefore = settling ? layoutOf(settling.before, s).names : namesNow;
   for (const [index, opacity] of shown) {
     const at = placeAt(state, index);
     const name = state.places[index]!.name;
     const u = fighting.get(index);
-    const marked = state.clashes.includes(index) ? (u === undefined ? 1 : ease(clamp01((u - 0.3) / 0.4))) : 0;
-    const rect = lerpRect(namesBefore[index]!, namesNow[index]!, glide);
+    const marked = state.clashes.includes(index) ? (u === undefined ? 1 : ease(clamp01((u - ICON_ROOM) / 0.4))) : 0;
+    const rect = settling && yielding.has(index) && !seen(settling.before, index) ? namesNow[index]! : lerpRect(namesBefore[index]!, namesNow[index]!, glide);
     const y = rect.y + rect.h / 2;
+    const textLeft = rect.x + rect.w - textWidth(name, s.name, "read");
+    const icon = (slot: number) => ({ x: textLeft - (iconsAt(state, index) - slot) * iconWidth(s) + s.sabre, y });
     out.push({ id: `dot-${index}`, kind: "circle", x: at.x, y: at.y, r: s.dot, fill: "ink", stroke: "ground", strokeWidth: 4 * s.k, opacity, z: 4 });
-    out.push({ id: `name-${index}`, kind: "text", x: rect.x + rect.w - textWidth(name, s.name, "read") / 2, y, text: name, size: s.name, font: "read", fill: "ink", stroke: "ground", strokeWidth: HALO * s.k, opacity, z: 6 });
-    if (marked > 0) out.push(...sabres(`sabres-${index}`, s, { x: rect.x + s.sabre, y }, marked * opacity));
+    out.push({ id: `name-${index}`, kind: "text", x: textLeft + textWidth(name, s.name, "read") / 2, y, text: name, size: s.name, font: "read", fill: "ink", stroke: "ground", strokeWidth: HALO * s.k, opacity, z: 6 });
+    if (marked > 0) out.push(...sabres(`sabres-${index}`, s, icon(0), marked * opacity));
+    if (state.surrenders.includes(index)) {
+      const u = yielding.get(index) ?? 1;
+      const ripple = Math.sin(clock * 7) * (1 - u);
+      out.push(...whiteFlag(`flag-${index}`, s, icon(Number(state.clashes.includes(index))), ease(clamp01((u - ICON_ROOM) / 0.15)), ease(clamp01((u - ICON_ROOM - 0.1) / 0.55)), ripple, opacity));
+    }
   }
   return out;
 }
@@ -501,7 +539,7 @@ export const primitive: LabDef<Record<string, unknown>, MapState> = {
   title: "Campaign map",
   reading: "required",
   catalog: {
-    summary: "A map with real coastlines where a journey is drawn stop by stop, armies march between places as unit markers trailing a widening band, and battles burst between the armies and leave crossed sabres by the place's name. An army that reaches a place another army holds stops short of it, facing it. Use it for where things happened and how forces moved. Aim the camera at part of it with a camera move's focus.",
+    summary: "A map with real coastlines where a journey is drawn stop by stop, armies march between places as unit markers trailing a widening band, battles burst between the armies and leave crossed sabres by the place's name, and a place that surrenders raises a white flag by its name. An army that reaches a place another army holds stops short of it, facing it. Use it for where things happened and how forces moved. Aim the camera at part of it with a camera move's focus.",
     spec: {
       region: "[west, south, east, north] in degrees; keep it tight around the places so their names have room",
       places: 'every place the scene names, in journey order: [{"name": "Toulon", "lon": 5.93, "lat": 43.12}]; each name sets itself beside its place, clear of other names, markers and paths. A place shows once something reaches it',
@@ -516,7 +554,7 @@ export const primitive: LabDef<Record<string, unknown>, MapState> = {
     if (!Array.isArray(region) || region.length !== 4 || region.some((value) => typeof value !== "number")) fail(`${objectId}: "region" must be [west, south, east, north] in degrees`);
     const [west, south, east, north] = region as number[];
     if (east! <= west! || north! <= south!) fail(`${objectId}: "region" must have east after west and north after south`);
-    const state: MapState = { objectId, west: west!, south: south!, east: east!, north: north!, places: parsePlaces(spec.places, objectId), reached: 0, armies: [], clashes: [] };
+    const state: MapState = { objectId, west: west!, south: south!, east: east!, north: north!, places: parsePlaces(spec.places, objectId), reached: 0, armies: [], clashes: [], surrenders: [] };
     return roomy({ ...state, armies: parseArmies(spec.armies, state) });
   },
   ops: {
@@ -545,6 +583,15 @@ export const primitive: LabDef<Record<string, unknown>, MapState> = {
       doc: 'a battle bursts at place "at", between any armies there, and leaves crossed sabres by its name',
       seconds: CLASH_SECONDS,
       apply: (state, op) => roomy({ ...state, clashes: [...state.clashes, placeIndex(state, op.args.at, `op "clash" "at"`)] }),
+    },
+    surrender: {
+      doc: 'place "at" surrenders: a white flag rises by its name and stays',
+      seconds: SURRENDER_SECONDS,
+      apply(state, op) {
+        const at = placeIndex(state, op.args.at, `op "surrender" "at"`);
+        if (state.surrenders.includes(at)) fail(`op "surrender": ${state.places[at]!.name} on ${state.objectId} has already surrendered`);
+        return roomy({ ...state, surrenders: [...state.surrenders, at] });
+      },
     },
   },
   size: (state) => ({ w: WIDTH, h: scaleOf(state).height }),

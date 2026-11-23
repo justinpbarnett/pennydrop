@@ -250,7 +250,8 @@ It refuses blocking where people or crowds overlap, where anyone stands in front
 A crowd of soldiers, grenadiers or cadets stands in ranks that step back up and to the right, and the front rank hides the legs of the ranks behind it.
 Every person and crowd is kept inside the 2400 x 1350 stage, and every set drawing is clipped to it, because the camera frames all the ink in a shot.
 A walk or entrance ends standing unless it names a pose, keeping a bearing that carries through a walk, such as a hand in the coat.
-A `map` draws places, journeys, marching armies and clashes inside a tight region, and refuses a layout whose names have no room.
+A `map` draws places, journeys, marching armies, clashes and surrenders inside a tight region, and refuses a layout whose names have no room.
+A surrender raises a white flag by the place's name, so a city that gives up is shown without anyone traveling there.
 It refuses a march that takes an army straight back to the place it just left, unless a battle where it stands came between.
 Once a plan passes every other check, a second model on the factcheck route reads the narration and each map event in plain words, naming every place a journey's route runs through, and every event the narration does not tell goes back to the planner, so a plan, a report or a surrender is never drawn as a march.
 It gives a verdict on every event, and an event it calls told must quote the narration that tells it word for word, so an answer that skims past an event is refused and asked again instead of passing it.

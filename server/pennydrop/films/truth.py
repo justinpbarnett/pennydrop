@@ -10,7 +10,7 @@ from ..store import CallStats
 from .ask import json_in, prompt
 from .document import FilmError
 
-EVENT_OPS = ("go", "march", "clash")
+EVENT_OPS = ("go", "march", "clash", "surrender")
 JUDGE_ATTEMPTS = 2
 
 
@@ -84,6 +84,8 @@ def map_events(rows: list[dict]) -> list[MapEvent]:
                 armies[(map_id, army)] = to
             elif op["op"] == "clash":
                 told.append((f"{cue}, a battle is fought at {place_name(spec, op['at'])}", False))
+            elif op["op"] == "surrender":
+                told.append((f"{cue}, {place_name(spec, op['at'])} surrenders", False))
             else:
                 to = place_index(spec, op["to"])
                 told += journey(cue, place_names(spec), journeys.get(map_id, 0), to)
@@ -131,7 +133,7 @@ async def untrue_map_events(services: Services, rows: list[dict], calls: list[Ca
         calls.append(completion.stats)
         try:
             return [
-                f"line {event.line}: the map shows that {event.text}, which the narration does not tell ({why}); draw on a map only what the narration says happened, and act anything else, such as a plan, a report or a surrender, on a stage"
+                f"line {event.line}: the map shows that {event.text}, which the narration does not tell ({why}); draw on a map only what the narration says happened, show a place that gives up with 'surrender' rather than a move, and act anything else, such as a plan or a report, on a stage"
                 for event, why in untrue_answer(json_in(completion.text), events, narration)
             ]
         except FilmError as error:
