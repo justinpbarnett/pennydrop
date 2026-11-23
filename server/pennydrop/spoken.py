@@ -38,6 +38,10 @@ ORDINAL_SUFFIXES = {"st", "nd", "rd", "th"}
 ALPHANUMERIC_RUN = re.compile(r"\d+|[^\W\d_]+")
 
 
+def said_numbers(text: str) -> list[int]:
+    return [int(word) for word in comparable_script(text) if word.isdigit()]
+
+
 def comparable_script(text: str) -> list[str]:
     tokens = _as_cardinals([run for raw in text.lower().replace("-", " ").split() for run in ALPHANUMERIC_RUN.findall(raw)])
     words: list[str] = []
