@@ -94,15 +94,31 @@ export interface InkBox {
   below: number;
 }
 
+function anchorOffset(width: number, anchor: TextAnchor): number {
+  return anchor === "start" ? 0 : anchor === "end" ? width : width / 2;
+}
+
 export function inkBox(text: string, size: number, role: FontRole, anchor: TextAnchor, theme?: Theme): InkBox {
   const inks = themesFor(theme).map((shown) => textInk(shownText({ text, font: role }, shown)!, size, shown.fonts[role]));
-  const origin = (ink: TextInk) => (anchor === "start" ? 0 : anchor === "end" ? ink.width : ink.width / 2);
   return {
-    left: Math.min(...inks.map((ink) => ink.left - origin(ink))),
-    right: Math.max(...inks.map((ink) => ink.right - origin(ink))),
+    left: Math.min(...inks.map((ink) => ink.left - anchorOffset(ink.width, anchor))),
+    right: Math.max(...inks.map((ink) => ink.right - anchorOffset(ink.width, anchor))),
     above: Math.max(...inks.map((ink) => ink.above)),
     below: Math.max(...inks.map((ink) => ink.below)),
   };
+}
+
+export function wordCuts(text: string, size: number, role: FontRole, anchor: TextAnchor, theme?: Theme): number[] {
+  const words = text.split(" ");
+  return words.slice(0, -1).map((_, index) => {
+    const said = words.slice(0, index + 1).join(" ");
+    const edges = themesFor(theme).map((shown) => {
+      const ink = (part: string) => textInk(shownText({ text: part, font: role }, shown)!, size, shown.fonts[role]);
+      const origin = anchorOffset(ink(text).width, anchor);
+      return { right: ink(said).right - origin, left: ink(`${said} `).width + ink(words[index + 1]!).left - origin };
+    });
+    return (Math.max(...edges.map((edge) => edge.right)) + Math.min(...edges.map((edge) => edge.left))) / 2;
+  });
 }
 
 export function inkBelow(text: string, size: number, role: FontRole, theme?: Theme): number {

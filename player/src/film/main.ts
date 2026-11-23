@@ -139,8 +139,9 @@ window.film = {
       const smallestText = depth && sizes.length ? Math.min(...sizes) * (PERSPECTIVE / depth) : null;
       const laterOps = target ? current.cues.filter((cue) => cue.kind === "do" && cue.object === target.id && cue.opStart > shot.end).map((cue) => cue.opStart) : [];
       const still = longestStill(current, index, theme);
-      const wait = target && laterOps.length && unfilledAt(current, shot.end, theme, target.id) ? Math.min(...laterOps) - shot.end : null;
-      return { shot: index, at: shot.end, object: target?.id ?? null, tilt, top: margins?.top ?? null, bottom: margins?.bottom ?? null, left: margins?.left ?? null, right: margins?.right ?? null, smallestText, peeking: frame.planes.filter((plane) => plane.ink && plane.id !== target?.id).map((plane) => plane.id), wait, empty: target ? longestEmpty(current, index, theme, target.id) : 0, hold: holdEnd(current, index) - shot.end, still: still.seconds, stillFrom: still.from };
+      const unfilled = target ? unfilledAt(current, shot.end, theme, target.id) : false;
+      const wait = unfilled && laterOps.length ? Math.min(...laterOps) - shot.end : null;
+      return { shot: index, at: shot.end, object: target?.id ?? null, tilt, top: margins?.top ?? null, bottom: margins?.bottom ?? null, left: margins?.left ?? null, right: margins?.right ?? null, smallestText, peeking: frame.planes.filter((plane) => plane.ink && plane.id !== target?.id).map((plane) => plane.id), unfilled, wait, empty: target ? longestEmpty(current, index, theme, target.id) : 0, hold: holdEnd(current, index) - shot.end, still: still.seconds, stillFrom: still.from };
     });
   },
   regions(time) {

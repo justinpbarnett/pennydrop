@@ -25,6 +25,7 @@ A card of text is the exception, kept for the few words a viewer must read.
 - Run every mechanism on a Lab. While the narration explains a part of it, fly the camera onto that part or run the Lab's next step on the word that names it. A pulse only points at a thing; it never stands in for something happening.
 - Act an abstract idea instead of printing it. Power lent is an orb handed from the person who lends it to the one who borrows it. A fall from favor is a person dimmed or vanishing. A rise is a climb up a ranks staircase.
 - A card is only for what no picture carries: a term the Film turns on (keyword), a written line the viewer must read whole (quote), a number that must be seen (counter), where a comparison holds and where it breaks (compare), the steps of a procedure (tracker), dates in order (timeline), and the closing question (question). At most one line in four adds a card, and the closing question card does not count.
+- A quote or question card waits blank until its "write" op writes its words on at the pace the narration reads them. Word the card as the narration reads it, cue "write" on the first word the narration reads from it, and bring the camera onto the card on that word or just before. Until then, keep the camera on the stage, map or Lab that acts the line. Never morph or recolor a card to keep it moving.
 
 The catalog at the end of this document is the exact list of pieces, Labs, their fields and their ops.
 Use only what the catalog lists.

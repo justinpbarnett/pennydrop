@@ -43,12 +43,14 @@ def audit_problems(audit: list[dict]) -> list[str]:
             problems.append(f"{where}: its smallest text is {shot['smallestText']:.1f} px high on screen, under the {SMALLEST_READABLE_TEXT} px that reads; fly closer or split the card")
         if shot["peeking"]:
             problems.append(f"{where}: {', '.join(shot['peeking'])} peek into the frame at its edge; place the object farther from them along the route, or place the older pieces behind the route")
-        if shot["wait"] is not None and shot["wait"] > LONGEST_UNFILLED_WAIT:
+        if shot["unfilled"] and shot["wait"] is None:
+            problems.append(f"{where}: the camera lands on {shot['object']} while it is still blank, and no later op fills it, so the viewer sees an empty piece; give it its first op on a word the narration reads in this shot, such as the write of a card or the entrance of a person")
+        elif shot["wait"] is not None and shot["wait"] > LONGEST_UNFILLED_WAIT:
             problems.append(f"{where}: the camera arrives {shot['wait']:.0f} s before the first operation on {shot['object']}, so the viewer watches an unfilled piece; cue the camera move on a word nearer that operation, so the piece fills as the camera lands")
         if shot["empty"] > LONGEST_EMPTY_STAGE:
             problems.append(f"{where}: everyone has left and the piece stands empty for {shot['empty']:.0f} s while the narration goes on; cue the next entrance or appearance on a word nearer the exit, or the exit on a later word, so someone is always acting")
         if shot["still"] > LONGEST_STILL:
-            problems.append(f"{where}: nothing moves in view for {shot['still']:.0f} s from {shot['stillFrom']:.0f} s while the narration goes on, so the scene freezes; cue an op on a word in that stretch, such as a walk, a gesture, a give, the next event on the map, the next step of the Lab or a camera move onto the part the words name, so something is always happening; a pulse only points at a thing and does not count")
+            problems.append(f"{where}: nothing moves in view for {shot['still']:.0f} s from {shot['stillFrom']:.0f} s while the narration goes on, so the scene freezes; cue an op on a word in that stretch, such as a walk, a gesture, a give, the next event on the map, the next step of the Lab, the write of a card as the narration reads it, or a camera move onto the part the words name, so something is always happening; a pulse only points at a thing and does not count")
     return problems
 
 
