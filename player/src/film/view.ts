@@ -145,14 +145,15 @@ export class FilmView {
 
   measureInk(plane: PlaneFrame, theme: Theme): InkBox | null {
     this.drawPlane(plane, theme, false);
-    const content = this.planeFor(plane.id).svg.lastElementChild;
+    const { renderer } = this.planeFor(plane.id);
     let left = Infinity;
     let top = Infinity;
     let right = -Infinity;
     let bottom = -Infinity;
-    [...(content?.children ?? [])].forEach((child, index) => {
-      if (!(child instanceof SVGGraphicsElement) || Number.parseFloat(getComputedStyle(child).opacity) < MIN_INK_OPACITY) return;
-      const box = glyphBox(plane.items[index]) ?? child.getBBox();
+    plane.items.forEach((item) => {
+      const child = renderer.elementOf(item.id);
+      if (!(child instanceof SVGGraphicsElement) || Math.min(1, item.opacity) * Math.min(1, item.layer?.opacity ?? 1) < MIN_INK_OPACITY) return;
+      const box = glyphBox(item) ?? child.getBBox();
       if (box.width === 0 && box.height === 0) return;
       const matrix = child.transform.baseVal.consolidate()?.matrix ?? new DOMMatrix();
       for (const corner of [new DOMPoint(box.x, box.y), new DOMPoint(box.x + box.width, box.y), new DOMPoint(box.x, box.y + box.height), new DOMPoint(box.x + box.width, box.y + box.height)]) {

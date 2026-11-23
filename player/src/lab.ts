@@ -26,6 +26,11 @@ export type DrawableKind = "rect" | "circle" | "line" | "arrow" | "path" | "text
 export const PATH_KINDS: readonly DrawableKind[] = ["line", "arrow", "path"];
 export const WORD_KINDS: readonly DrawableKind[] = ["text", "code", "math"];
 
+export interface Layer {
+  id: string;
+  opacity: number;
+}
+
 export interface Drawable {
   id: string;
   kind: DrawableKind;
@@ -57,6 +62,7 @@ export interface Drawable {
   draw?: number;
   part?: string;
   backdrop?: boolean;
+  layer?: Layer;
 }
 
 export interface Point {
@@ -87,6 +93,17 @@ export interface LabOp {
 export interface LabCtx {
   objectId: string;
   links: Record<string, Link>;
+}
+
+export interface LiveCtx extends LabCtx {
+  clock: number;
+}
+
+export interface Running<State = unknown> {
+  op: LabOp;
+  before: State;
+  after: State;
+  progress: number;
 }
 
 export interface LabCatalog {
@@ -125,6 +142,7 @@ export interface LabDef<Spec = Record<string, unknown>, State = unknown> {
   size(state: State): Size;
   axis?(state: State): number;
   draw(state: State, ctx: LabCtx): Drawable[];
+  live?(state: State, running: Running<State>[], ctx: LiveCtx): Drawable[];
   unfilled?(state: State): boolean;
 }
 
@@ -280,6 +298,10 @@ export function soundLabOp(def: AnyLabDef, op: LabOp, state: unknown): void {
 
 export function duringLabOp(def: AnyLabDef, before: unknown, after: unknown, op: LabOp, progress: number, ctx: LabCtx): Drawable[] {
   return def.ops[op.name]?.during?.(before, after, op, clamp01(progress), ctx) ?? [];
+}
+
+export function liveLabDrawing(def: AnyLabDef, state: unknown, running: Running[], ctx: LiveCtx): Drawable[] | null {
+  return def.live ? def.live(state, running.map((entry) => ({ ...entry, progress: clamp01(entry.progress) })), ctx) : null;
 }
 
 export function labCatalog(def: AnyLabDef): Catalog {

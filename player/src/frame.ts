@@ -1,7 +1,7 @@
 import { gsap } from "gsap";
 import { definitionOf, type SceneState } from "./scene";
 import { type Camera, buildStage, HOME_CAMERA, arrivedObjects, movedObjects, type PlacedObject, placeDrawables, type Stage } from "./stage";
-import { clamp01, type Drawable, duringLabOp, lerp, lerpRect, type Paint, PATH_KINDS, type Rect, WORD_KINDS } from "./lab";
+import { clamp01, type Drawable, duringLabOp, lerp, lerpRect, liveLabDrawing, type Paint, PATH_KINDS, type Rect, type Running, WORD_KINDS } from "./lab";
 import { colorOf, parseHex, type Rgba, shownText, type Theme } from "./theme";
 import { type Located, type SegmentProgress, type Timeline, trueProgress } from "./timeline";
 import { applyEffect, type Touch } from "./verbs";
@@ -85,6 +85,7 @@ function paintDrawable(drawable: Drawable, theme: Theme): Painted {
     rotation: drawable.rotation ?? 0,
     draw: drawable.draw ?? (PATH_KINDS.includes(drawable.kind) ? 1 : undefined),
     part: drawable.part,
+    layer: drawable.layer,
   };
 }
 
@@ -147,6 +148,15 @@ function contentKey(item: Painted): string {
 }
 
 const FADING_OUT = "~out";
+const REPLACED = "~replaced";
+
+function faded(item: Painted, amount: number): Painted {
+  return item.layer ? { ...item, layer: { ...item.layer, opacity: item.layer.opacity * amount } } : { ...item, opacity: item.opacity * amount };
+}
+
+function renamed(item: Painted, suffix: string): Painted {
+  return { ...item, id: `${item.id}${suffix}`, layer: item.layer && { ...item.layer, id: `${item.layer.id}${suffix}` } };
+}
 
 function blend(before: Painted, after: Painted, progress: number): Painted[] {
   const mixed: Painted = {
@@ -170,12 +180,13 @@ function blend(before: Painted, after: Painted, progress: number): Painted[] {
     draw: mixOptional(before.draw, after.draw, progress),
     crop: mixCrop(before.crop, after.crop, progress),
     clip: mixCrop(before.clip, after.clip, progress),
+    layer: after.layer && { ...after.layer, opacity: lerp(before.layer?.opacity ?? 1, after.layer.opacity, clamp01(progress)) },
   };
   if (contentKey(before) === contentKey(after)) return [mixed];
   const clamped = clamp01(progress);
   return [
-    { ...mixed, kind: before.kind, text: before.text, spans: before.spans, latex: before.latex, href: before.href, id: `${before.id}${FADING_OUT}`, opacity: before.opacity * Math.max(0, 1 - clamped * 2) },
-    { ...mixed, opacity: after.opacity * Math.max(0, clamped * 2 - 1) },
+    faded(renamed({ ...mixed, kind: before.kind, text: before.text, spans: before.spans, latex: before.latex, href: before.href, opacity: before.opacity, layer: before.layer }, FADING_OUT), Math.max(0, 1 - clamped * 2)),
+    faded({ ...mixed, opacity: after.opacity, layer: after.layer }, Math.max(0, clamped * 2 - 1)),
   ];
 }
 
@@ -195,38 +206,68 @@ function boxOf(stage: Stage, objectId: string): Box | undefined {
 
 function arriving(item: Painted, eased: number): Painted {
   const progress = clamp01(eased);
-  return { ...item, y: item.y + ENTER_RISE * (1 - progress), opacity: item.opacity * progress };
+  return { ...faded(item, progress), y: item.y + ENTER_RISE * (1 - progress) };
 }
 
-function applyTouches(
-  items: Map<string, Painted>,
-  touches: Touch[],
-  stages: { before: Stage; after: Stage },
-  progress: SegmentProgress,
-  theme: Theme,
-  replaced: Set<string>,
-): void {
-  const moving = movedObjects(stages.before, stages.after);
-  const arrived = arrivedObjects(stages.before, stages.after);
-  const entering = (objectId: string, painted: Painted): Painted =>
-    arrived.has(objectId) ? arriving(painted, progress.eased) : replaced.has(objectId) ? { ...painted, opacity: painted.opacity * clamp01(progress.eased) } : painted;
+interface Moment {
+  stages: { before: Stage; after: Stage };
+  progress: SegmentProgress;
+  theme: Theme;
+  replaced: Set<string>;
+  clock: number;
+}
+
+function momentBox(moment: Moment, objectId: string): Box | undefined {
+  const { before, after } = moment.stages;
+  const from = boxOf(before, objectId);
+  const to = boxOf(after, objectId);
+  if (!from && !to) return undefined;
+  return lerpBox(from, to, movedObjects(before, after).has(objectId) ? moment.progress.shift : moment.progress.eased);
+}
+
+function entering(moment: Moment, objectId: string, painted: Painted): Painted {
+  if (arrivedObjects(moment.stages.before, moment.stages.after).has(objectId)) return arriving(painted, moment.progress.eased);
+  return moment.replaced.has(objectId) ? faded(painted, clamp01(moment.progress.eased)) : painted;
+}
+
+function drive(touch: Touch, progress: SegmentProgress): number {
+  return touch.action.type === "lab" && touch.action.trueTime ? trueProgress(progress, touch.action.seconds) : progress.eased;
+}
+
+function applyTouches(items: Map<string, Painted>, touches: Touch[], moment: Moment): void {
   for (const touch of touches) {
-    const box = lerpBox(boxOf(stages.before, touch.objectId), boxOf(stages.after, touch.objectId), moving.has(touch.objectId) ? progress.shift : progress.eased);
+    const box = momentBox(moment, touch.objectId)!;
     if (touch.action.type === "effect") {
       const own = [...items.values()].filter((item) => objectOf(item.id) === touch.objectId);
       const center = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
-      const moved = applyEffect(touch.action.effect, own, progress.eased, center);
+      const moved = applyEffect(touch.action.effect, own, moment.progress.eased, center);
       moved.forEach((item) => items.set(item.id, item));
-    } else if (touch.action.type === "lab" && touch.before && touch.after) {
-      const { name, parts, args, seconds, trueTime } = touch.action;
-      const drive = trueTime ? trueProgress(progress, seconds) : progress.eased;
-      const local = duringLabOp(definitionOf(touch.after), touch.before.state, touch.after.state, { name, parts, args }, drive, { objectId: touch.objectId, links: {} });
+    } else if (touch.action.type === "lab" && touch.before && touch.after && !definitionOf(touch.after).live) {
+      const { name, parts, args } = touch.action;
+      const local = duringLabOp(definitionOf(touch.after), touch.before.state, touch.after.state, { name, parts, args }, drive(touch, moment.progress), { objectId: touch.objectId, links: {} });
       placeDrawables(touch.objectId, local, box).forEach((drawable) => {
-        const painted = paintDrawable(drawable, theme);
-        items.set(drawable.id, entering(touch.objectId, painted));
+        items.set(drawable.id, entering(moment, touch.objectId, paintDrawable(drawable, moment.theme)));
         items.delete(`${drawable.id}${FADING_OUT}`);
       });
     }
+  }
+}
+
+function runningOn(objectId: string, touches: Touch[], progress: SegmentProgress): Running[] {
+  return touches.flatMap((touch) => {
+    if (touch.objectId !== objectId || touch.action.type !== "lab" || !touch.before || !touch.after) return [];
+    const { name, parts, args } = touch.action;
+    return [{ op: { name, parts, args }, before: touch.before.state, after: touch.after.state, progress: drive(touch, progress) }];
+  });
+}
+
+function paintLive(items: Map<string, Painted>, scene: SceneState, touches: Touch[], moment: Moment): void {
+  for (const object of scene.objects) {
+    const box = momentBox(moment, object.id);
+    const local = box && liveLabDrawing(definitionOf(object), object.state, runningOn(object.id, touches, moment.progress), { objectId: object.id, links: {}, clock: moment.clock });
+    if (!local) continue;
+    for (const id of [...items.keys()]) if (objectOf(id) === object.id && !id.endsWith(REPLACED)) items.delete(id);
+    placeDrawables(object.id, local, box).forEach((drawable) => items.set(drawable.id, entering(moment, object.id, paintDrawable(drawable, moment.theme))));
   }
 }
 
@@ -274,8 +315,10 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
   const { before, after, progress, touches, replaced } = settled || !located.relayout ? { ...staged, progress: located.progress, touches: located.touches, replaced: new Set(located.replaced) } : relayoutPhase(located, staged);
 
   const items = new Map<string, Painted>();
+  const moment: Moment = { stages: settled ? { before: after, after } : { before, after }, progress, theme, replaced: settled ? new Set() : replaced, clock: time };
   if (settled) {
     paintedStage(after, theme).forEach((item, id) => items.set(id, item));
+    paintLive(items, located.after, [], moment);
   } else {
     const beforeItems = paintedStage(before, theme);
     const afterItems = paintedStage(after, theme);
@@ -286,20 +329,21 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
       const previous = beforeItems.get(id);
       const owner = objectOf(id);
       if (replaced.has(owner)) {
-        items.set(id, { ...item, opacity: item.opacity * clamped });
+        items.set(id, faded(item, clamped));
       } else if (previous) {
         blend(previous, item, progress.shift).forEach((blended) => items.set(blended.id, blended));
       } else if (moved.has(owner)) {
-        items.set(id, { ...item, opacity: item.opacity * clamp01((clamp01(progress.shift) - RELAYOUT_FADE_START) / (1 - RELAYOUT_FADE_START)) });
+        items.set(id, faded(item, clamp01((clamp01(progress.shift) - RELAYOUT_FADE_START) / (1 - RELAYOUT_FADE_START))));
       } else {
-        items.set(id, oldObjects.has(owner) ? { ...item, opacity: item.opacity * clamped } : arriving(item, progress.eased));
+        items.set(id, oldObjects.has(owner) ? faded(item, clamped) : arriving(item, progress.eased));
       }
     });
     beforeItems.forEach((item, id) => {
-      if (replaced.has(objectOf(id))) items.set(`${id}~replaced`, { ...item, id: `${id}~replaced`, opacity: item.opacity * (1 - progress.exit) });
-      else if (!afterItems.has(id)) items.set(id, { ...item, opacity: item.opacity * (1 - progress.exit) });
+      if (replaced.has(objectOf(id))) items.set(`${id}${REPLACED}`, faded(renamed(item, REPLACED), 1 - progress.exit));
+      else if (!afterItems.has(id)) items.set(id, faded(item, 1 - progress.exit));
     });
-    applyTouches(items, touches, { before, after }, progress, theme, replaced);
+    applyTouches(items, touches, moment);
+    paintLive(items, located.after, located.touches, moment);
   }
 
   const camera = settled ? after.camera : {

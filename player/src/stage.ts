@@ -35,6 +35,7 @@ export function placeDrawables(objectId: string, local: Drawable[], box: Box): D
     if (drawable.clip) placed.clip = { x: box.x + drawable.clip.x * s, y: box.y + drawable.clip.y * s, w: drawable.clip.w * s, h: drawable.clip.h * s };
     if (drawable.x2 !== undefined) placed.x2 = box.x + drawable.x2 * s;
     if (drawable.y2 !== undefined) placed.y2 = box.y + drawable.y2 * s;
+    if (drawable.layer) placed.layer = { ...drawable.layer, id: `${objectId}/${drawable.layer.id}` };
     if (drawable.points) placed.points = drawable.points.map((value, index) => (index % 2 === 0 ? box.x : box.y) + value * s);
     return placed;
   });

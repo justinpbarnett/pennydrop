@@ -24,6 +24,10 @@ function setAttributes(element: Element, attributes: Record<string, string | num
 
 const paintCss = (paint: Painted["fill"]) => (paint ? cssRgba(paint) : "none");
 
+function place(parent: SVGElement, child: SVGElement, index: number): void {
+  if (parent.children[index] !== child) parent.insertBefore(child, parent.children[index] ?? null);
+}
+
 function arrowPath(item: Painted): string {
   const [x2, y2] = [item.x2!, item.y2!];
   const angle = Math.atan2(y2 - item.y, x2 - item.x);
@@ -197,6 +201,7 @@ export class StageRenderer {
   private readonly defs = svg("defs");
   private readonly clips = svg("defs");
   private readonly live = new Map<string, Live>();
+  private readonly layers = new Map<string, SVGGElement>();
   private clipCount = 0;
   private grainSeed: SVGElement | null = null;
   private backdropTheme: ThemeId | null = null;
@@ -214,19 +219,48 @@ export class StageRenderer {
     this.camera.setAttribute("transform", `translate(${STAGE.w / 2} ${STAGE.h / 2}) scale(${zoom}) translate(${-cx} ${-cy})`);
 
     const wanted = new Set<string>();
+    const filled = new Map<string, number>();
+    let slot = 0;
     imagesInFrame.clear();
-    frame.items.forEach((item, index) => {
+    for (const item of frame.items) {
       wanted.add(item.id);
       const live = this.elementFor(item);
       this.update(live, item);
-      if (this.camera.children[index] !== live.element) this.camera.insertBefore(live.element, this.camera.children[index] ?? null);
-    });
+      if (!item.layer) {
+        place(this.camera, live.element, slot++);
+        continue;
+      }
+      const layer = this.layerFor(item.layer.id);
+      const index = filled.get(item.layer.id);
+      if (index === undefined) {
+        layer.setAttribute("opacity", String(Math.max(0, Math.min(1, item.layer.opacity))));
+        place(this.camera, layer, slot++);
+      }
+      place(layer, live.element, index ?? 0);
+      filled.set(item.layer.id, (index ?? 0) + 1);
+    }
     for (const [id, live] of this.live) {
       if (!wanted.has(id)) {
         this.discard(live);
         this.live.delete(id);
       }
     }
+    for (const [id, layer] of this.layers) {
+      if (!filled.has(id)) {
+        layer.remove();
+        this.layers.delete(id);
+      }
+    }
+  }
+
+  elementOf(id: string): SVGElement | null {
+    return this.live.get(id)?.element ?? null;
+  }
+
+  private layerFor(id: string): SVGGElement {
+    let layer = this.layers.get(id);
+    if (!layer) this.layers.set(id, (layer = svg("g")));
+    return layer;
   }
 
   private buildBackdrop(theme: Theme): void {
