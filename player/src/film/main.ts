@@ -5,7 +5,7 @@ import { registerModules } from "../registry";
 import { layOutFor } from "../text-metrics";
 import { type Theme, THEMES } from "../theme";
 import { PERSPECTIVE, project, SCREEN } from "./camera";
-import { buildFilm, type CueRecord, type Film, frameAt, framedRegion, holdEnd, longestEmpty, type PlaneFrame, unfilledAt } from "./film";
+import { buildFilm, type CueRecord, type Film, frameAt, framedRegion, holdEnd, longestEmpty, longestStill, type PlaneFrame, unfilledAt } from "./film";
 import { FILM_FPS, parseFilm } from "./format";
 import { type InkBox, InkRecord } from "./inks";
 import { loadLand } from "./land";
@@ -31,7 +31,7 @@ declare global {
       load(text: string): Promise<FilmManifest>;
       seek(time: number): Promise<void>;
       regions(time: number): Record<string, { x: number; y: number; w: number; h: number } | null>;
-      audit(): { shot: number; at: number; object: string | null; tilt: number; top: number | null; bottom: number | null; left: number | null; right: number | null; smallestText: number | null; peeking: string[]; wait: number | null }[];
+      audit(): { shot: number; at: number; object: string | null; tilt: number; top: number | null; bottom: number | null; left: number | null; right: number | null; smallestText: number | null; peeking: string[]; wait: number | null; empty: number; hold: number; still: number; stillFrom: number }[];
     };
   }
 }
@@ -136,8 +136,9 @@ window.film = {
       const sizes = (target?.items ?? []).filter((item) => item.kind === "text" && (item.text?.trim() || item.spans?.length)).map((item) => item.size);
       const smallestText = depth && sizes.length ? Math.min(...sizes) * (PERSPECTIVE / depth) : null;
       const laterOps = target ? current.cues.filter((cue) => cue.kind === "do" && cue.object === target.id && cue.opStart > shot.end).map((cue) => cue.opStart) : [];
+      const still = longestStill(current, index, theme);
       const wait = target && laterOps.length && unfilledAt(current, shot.end, theme, target.id) ? Math.min(...laterOps) - shot.end : null;
-      return { shot: index, at: shot.end, object: target?.id ?? null, tilt, top: margins?.top ?? null, bottom: margins?.bottom ?? null, left: margins?.left ?? null, right: margins?.right ?? null, smallestText, peeking: frame.planes.filter((plane) => plane.ink && plane.id !== target?.id).map((plane) => plane.id), wait, empty: target ? longestEmpty(current, index, theme, target.id) : 0 };
+      return { shot: index, at: shot.end, object: target?.id ?? null, tilt, top: margins?.top ?? null, bottom: margins?.bottom ?? null, left: margins?.left ?? null, right: margins?.right ?? null, smallestText, peeking: frame.planes.filter((plane) => plane.ink && plane.id !== target?.id).map((plane) => plane.id), wait, empty: target ? longestEmpty(current, index, theme, target.id) : 0, hold: holdEnd(current, index) - shot.end, still: still.seconds, stillFrom: still.from };
     });
   },
   regions(time) {

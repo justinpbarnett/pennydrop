@@ -365,6 +365,35 @@ export function longestEmpty(film: Film, shot: number, theme: Theme, id: string)
   return longest;
 }
 
+function changingNow(located: Located): ((id: string) => boolean) | null {
+  if (located.relayout) return () => true;
+  const ids = new Set([...located.touches, ...located.carried.map((run) => run.touch)].map((touch) => touch.objectId));
+  located.replaced.forEach((id) => ids.add(id));
+  const before = new Set(located.before.objects.map((object) => object.id));
+  const after = new Set(located.after.objects.map((object) => object.id));
+  before.forEach((id) => after.has(id) || ids.add(id));
+  after.forEach((id) => before.has(id) || ids.add(id));
+  return ids.size > 0 ? (id) => ids.has(id) : null;
+}
+
+function movingInView(film: Film, time: number, theme: Theme): boolean {
+  const changing = changingNow(locateAt(film, time, theme));
+  return changing !== null && frameAt(film, time, theme).planes.some((plane) => plane.visible && plane.ink && changing(plane.id));
+}
+
+export function longestStill(film: Film, shot: number, theme: Theme): { seconds: number; from: number } {
+  const step = 1 / 4;
+  const { start, end } = film.shots[shot]!;
+  let run = 0;
+  let longest = { seconds: 0, from: start };
+  for (let time = shot === 0 ? 0 : start; time < holdEnd(film, shot); time += step) {
+    const flying = time >= start && time < end;
+    run = flying || movingInView(film, time, theme) ? 0 : run + step;
+    if (run > longest.seconds) longest = { seconds: run, from: time + step - run };
+  }
+  return longest;
+}
+
 export function loadFilmError(error: unknown): Error {
   return error instanceof LabError || error instanceof FilmError ? error : new Error(describe(error));
 }
