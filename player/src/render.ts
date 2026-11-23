@@ -73,6 +73,9 @@ interface Live {
 
 const imagesInFrame = new Set<string>();
 
+let definitions = 0;
+const definitionId = (prefix: string) => `${prefix}-${definitions++}`;
+
 interface KindRenderer {
   create(): SVGElement;
   update(element: SVGElement, item: Painted, live: Live): void;
@@ -206,7 +209,6 @@ export class StageRenderer {
   private readonly clips = svg("defs");
   private readonly live = new Map<string, Live>();
   private readonly layers = new Map<string, SVGGElement>();
-  private clipCount = 0;
   private grainSeed: SVGElement | null = null;
   private backdropTheme: ThemeId | null = null;
 
@@ -347,7 +349,7 @@ export class StageRenderer {
       return;
     }
     if (!live.clip) {
-      live.clip = svg("clipPath", { id: `clip-${this.clipCount++}` });
+      live.clip = svg("clipPath", { id: definitionId("clip") });
       live.clip.append(svg("rect"));
       this.clips.append(live.clip);
       live.element.setAttribute("clip-path", `url(#${live.clip.id})`);

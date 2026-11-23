@@ -28,6 +28,7 @@ Rules to hold.
 - Every `do`, `camera` and `sound` entry has a `cue` that is an exact phrase of its line's `say`.
 - The first line opens on the Film's promise as a picture: a stage, a map or a Lab, with a keyword card only when no picture holds it.
 - Every line except the last has at least one `do` op on a stage, a map or a Lab, so something happens on screen in every line.
+- While the camera holds on a stage, someone stays on it: once everyone has exited, the next person enters or appears within 3 seconds.
 - At most one line in four adds a card (keyword, quote, counter, compare, tracker, timeline, text), counting cards brought in with `create`. The closing question card does not count.
 - The final line adds a question card.
 - A quote card or a stage `say` bubble holds only words the narration quotes from a person, copied word for word, and a quote card names who in `by`. A term goes on a keyword card; a paraphrase, a summary or the Film's own question never goes in quotation marks.

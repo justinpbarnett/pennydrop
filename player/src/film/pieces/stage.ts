@@ -2,7 +2,7 @@ import { clamp01, type Drawable, fail, integerField, type LabDef, type LabOp, le
 import { textWidth } from "../../text-metrics";
 import { COSTUMES, type CostumeName, drawFigure, type Holding, type Item, ITEMS, type Look } from "../acting/body";
 import { alive, arrivingPose, jittered, POSE_NAMES, POSES, type PoseName, walkingPose } from "../acting/poses";
-import { BONE, type Gait, GAITS, type GaitName, type Ground, lerpPose, type Pose, posed, type Skeleton, smooth, travelled, travelSeconds, walking } from "../acting/rig";
+import { type Gait, GAITS, type GaitName, type Ground, lerpPose, type Pose, posed, type Skeleton, smooth, travelled, travelSeconds, walking } from "../acting/rig";
 import { clipToStage, drawThing, type FireMoment, GENERAL_MARKS, MUZZLE_REACH, SET_NAMES, type Setting, settingOf, STAGE_H, STAGE_W, THING_KINDS, type ThingKind } from "../acting/sets";
 
 const TONES = ["lead", "plain", "dim", "lit"] as const;
@@ -68,8 +68,9 @@ const SPEECH_LINE = 56;
 const SPEECH_WIDTH = 660;
 const CAPTION_SIZE = 42;
 const ROW_LIFT = 46;
+const RANK_RISE = 18;
+const RANK_STEP = 26;
 const ROW_SHRINK = 0.9;
-const HAT_ROOM = 112;
 const POOL_Z = 2;
 const FIGURE_Z = 3;
 const TOP_Z = 5;
@@ -142,6 +143,7 @@ interface Member {
   scale: number;
   seed: number;
   delay: number;
+  screened: boolean;
 }
 
 const MEMBER_CACHE = new Map<string, Member[]>();
@@ -153,20 +155,25 @@ function membersOf(actor: Actor): Member[] {
   const base = hashOf(actor.id);
   const aligned = ALIGNED.includes(actor.as);
   const perRow = Math.ceil(actor.count / actor.rows);
-  const spacing = aligned ? 112 : 128;
+  const ranks = Math.ceil(actor.count / perRow);
+  const echelon = aligned && perRow > 1 ? RANK_STEP : 0;
+  const spacing = aligned ? 112 - (echelon * (ranks - 1)) / (perRow - 1 || 1) : 128;
+  const frontEnd = ((perRow - 1) / 2) * spacing - ((ranks - 1) / 2) * echelon;
   const members = Array.from({ length: actor.count }, (_, index): Member => {
-    if (actor.count === 1) return { index, dx: 0, row: 0, scale: 1, seed: seeded(base), delay: 0 };
+    if (actor.count === 1) return { index, dx: 0, row: 0, scale: 1, seed: seeded(base), delay: 0, screened: false };
     const row = Math.floor(index / perRow);
     const inRow = Math.min(perRow, actor.count - row * perRow);
     const column = index % perRow;
-    const stagger = aligned ? 0 : (row % 2 ? spacing / 2 : 0) + (seeded(base + index * 3) - 0.5) * 36;
+    const stagger = aligned ? (row - (ranks - 1) / 2) * echelon : (row % 2 ? spacing / 2 : 0) + (seeded(base + index * 3) - 0.5) * 36;
+    const dx = (column - (inRow - 1) / 2) * spacing + stagger;
     return {
       index,
-      dx: (column - (inRow - 1) / 2) * spacing + stagger,
+      dx,
       row,
       scale: aligned ? 1 : 0.92 + seeded(base + index * 5) * 0.13,
       seed: seeded(base + index * 11),
       delay: aligned ? 0 : seeded(base + index * 7) * CROWD_STAGGER,
+      screened: echelon > 0 && row > 0 && dx <= frontEnd,
     };
   });
   MEMBER_CACHE.set(key, members);
@@ -180,9 +187,10 @@ const inside = (actor: Actor, x: number) => {
   return Math.min(STAGE_W - half, Math.max(half, x));
 };
 const offX = (actor: Actor, side: Facing) => (side < 0 ? GENERAL_MARKS["off left"]! - halfWidth(actor) : GENERAL_MARKS["off right"]! + halfWidth(actor));
-const sizeOf = (actor: Actor, member: Member) => actor.scale * member.scale * ROW_SHRINK ** member.row;
+const ranked = (actor: Actor) => actor.count > 1 && ALIGNED.includes(actor.as);
+const sizeOf = (actor: Actor, member: Member) => actor.scale * member.scale * (ranked(actor) ? 1 : ROW_SHRINK ** member.row);
 const memberX = (actor: Actor, member: Member, x = actor.x) => x + member.dx * actor.scale;
-const groundOf = (setting: Setting, actor: Actor, member: Member): Ground => (x) => setting.ground(x) - member.row * ROW_LIFT * actor.scale;
+const groundOf = (setting: Setting, actor: Actor, member: Member): Ground => (x) => setting.ground(x) - member.row * (ranked(actor) ? RANK_RISE : ROW_LIFT) * actor.scale;
 const held = (actor: Actor): Holding | null => (actor.holding ? { item: actor.holding } : null);
 
 function restPose(actor: Actor, member: Member, clock: number): Pose {
@@ -197,6 +205,7 @@ interface Shot {
   look: Look;
   row: number;
   ground: Ground;
+  cut: number | null;
 }
 
 interface Speech {
@@ -239,7 +248,8 @@ interface StageOp {
 }
 
 function shot(actor: Actor, member: Member, setting: Setting, skeleton: Skeleton, holding: Holding | null, opacity = 1, tone: Tone = actor.tone, key = `m${member.index}`): Shot {
-  return { key, skeleton, holding, row: member.row, ground: groundOf(setting, actor, member), look: lookOf(tone, member.row, opacity) };
+  const cut = member.screened ? skeleton.pelvis.y + member.row * RANK_RISE * actor.scale : null;
+  return { key, skeleton, holding, row: member.row, ground: groundOf(setting, actor, member), look: lookOf(tone, member.row, opacity), cut };
 }
 
 function standing(actor: Actor, member: Member, setting: Setting, clock: number, pose = restPose(actor, member, clock), facing: number = actor.facing): Skeleton {
@@ -748,45 +758,99 @@ interface Tag {
   opacity: number;
 }
 
-const TAG_ROW = LABEL_SIZE + 14;
+interface FigureInk {
+  showing: Showing;
+  entry: Shot;
+  drawables: Drawable[];
+}
 
-function tagOf(showing: Showing): Tag | null {
+interface Obstacle {
+  left: number;
+  right: number;
+  clear: number;
+  weight: number;
+}
+
+interface Part {
+  showing: Showing;
+  own: boolean;
+  solid: number;
+  obstacle: Obstacle;
+}
+
+const TAG_ROW = LABEL_SIZE + 14;
+const LABEL_CLEARANCE = 30;
+const LABEL_MARGIN = 28;
+const FAINT_INK = 0.25;
+const INK_RAMP = 0.5;
+
+const inkWeight = (opacity: number) => smooth(clamp01((opacity - FAINT_INK) / INK_RAMP));
+
+function partOf(drawable: Drawable, weight: number): Obstacle | null {
+  const { x, y, points, r, x2, y2 } = drawable;
+  if (points) {
+    const xs = points.filter((_, i) => i % 2 === 0);
+    const ys = points.filter((_, i) => i % 2 === 1);
+    return { left: Math.min(...xs), right: Math.max(...xs), clear: Math.min(...ys) - LABEL_CLEARANCE, weight };
+  }
+  if (r !== undefined) return { left: x - r, right: x + r, clear: y - r - LABEL_CLEARANCE, weight };
+  if (x2 !== undefined && y2 !== undefined) return { left: Math.min(x, x2), right: Math.max(x, x2), clear: Math.min(y, y2) - LABEL_CLEARANCE, weight };
+  return null;
+}
+
+function partsOf({ showing, entry, drawables }: FigureInk): Part[] {
+  return drawables.flatMap((drawable) => {
+    const solid = inkWeight(drawable.opacity ?? 1);
+    const obstacle = solid > 0 ? partOf(drawable, inkWeight((drawable.opacity ?? 1) * entry.look.opacity)) : null;
+    return obstacle ? [{ showing, own: !entry.key.endsWith("~was"), solid, obstacle }] : [];
+  });
+}
+
+function tagOf(showing: Showing, own: Part[]): Tag | null {
   const visible = showing.shots.filter((entry) => !entry.key.endsWith("~was") && entry.look.opacity > 0.01);
-  if (!visible.length) return null;
+  const body = own.filter((part) => part.solid >= 1);
+  if (!visible.length || !body.length) return null;
   const front = visible.filter((entry) => entry.row === 0);
   const xs = (front.length ? front : visible).map((entry) => entry.skeleton.head.x);
   const x = (Math.min(...xs) + Math.max(...xs)) / 2;
   const { label } = showing.actor;
-  const half = label ? textWidth(label, LABEL_SIZE, "read") / 2 + 30 : 0;
+  const half = label ? textWidth(label, LABEL_SIZE, "read") / 2 + LABEL_MARGIN : 0;
   return {
     showing,
     x,
     labelX: Math.min(STAGE_W - half, Math.max(half, x)),
     half,
-    top: Math.min(...visible.map((entry) => entry.skeleton.head.y - (BONE.headRy + HAT_ROOM) * entry.skeleton.scale)),
+    top: Math.min(...body.map((part) => part.obstacle.clear)),
     opacity: Math.max(...(front.length ? front : visible).map((entry) => entry.look.opacity)),
   };
 }
 
-function stacked(tags: Tag[]): Tag[] {
-  const placed: Tag[] = [];
-  for (const tag of [...tags].sort((a, b) => b.top - a.top)) {
-    let top = tag.top;
-    const clash = () => placed.find((other) => tag.half && other.half && Math.abs(other.labelX - tag.labelX) < other.half + tag.half && Math.abs(other.top - top) < TAG_ROW);
-    for (let other = clash(); other; other = clash()) top = other.top - TAG_ROW;
-    placed.push({ ...tag, top });
-  }
-  return placed;
+function liftedOver(tag: Tag, obstacles: Obstacle[]): number {
+  if (!tag.half) return tag.top;
+  return obstacles.reduce((top, obstacle) => {
+    const overlap = Math.min(tag.labelX + tag.half, obstacle.right) - Math.max(tag.labelX - tag.half, obstacle.left);
+    if (overlap <= 0 || obstacle.clear >= tag.top) return top;
+    return Math.min(top, lerp(tag.top, obstacle.clear, smooth(clamp01(overlap / LABEL_MARGIN)) * obstacle.weight));
+  }, tag.top);
 }
 
-function overheads(showings: Showing[]): Drawable[] {
-  return stacked(showings.flatMap((showing) => tagOf(showing) ?? [])).flatMap(({ showing, x, labelX, top, opacity }) => {
+function overheads(figures: FigureInk[]): Drawable[] {
+  const parts = figures.flatMap(partsOf);
+  const showings = [...new Set(figures.map((figure) => figure.showing))];
+  const tags = showings.flatMap((showing) => tagOf(showing, parts.filter((part) => part.showing === showing && part.own)) ?? []);
+  const placed: Obstacle[] = [];
+  return tags.sort((a, b) => b.top - a.top).flatMap((tag) => {
+    const { showing, x, labelX, half, opacity } = tag;
+    const others = parts.filter((part) => part.showing !== showing).map((part) => part.obstacle);
+    const fading = parts.filter((part) => part.showing === showing && part.own && part.solid < 1).map((part) => ({ ...part.obstacle, weight: part.solid }));
+    const top = liftedOver(tag, [...others, ...fading, ...placed]);
     const out: Drawable[] = [];
     const { actor, speech } = showing;
     let bottom = top;
     if (actor.label) {
       const lead = actor.tone === "lead" || actor.tone === "lit";
       out.push({ id: `${actor.id}.label`, kind: "text", x: labelX, y: top - LABEL_SIZE / 2, text: actor.label, size: LABEL_SIZE, font: "read", fill: lead ? "accent" : "muted", opacity, z: TOP_Z });
+      placed.push({ left: labelX - half, right: labelX + half, clear: top - TAG_ROW, weight: opacity });
       bottom -= TAG_ROW;
     }
     if (speech && speech.fade > 0) out.push(...bubble(actor.id, speech, x, bottom, opacity));
@@ -854,6 +918,12 @@ function performances(state: StageState, running: { op: LabOp; before: StageStat
   };
 }
 
+function behindRank(entry: Shot, drawables: Drawable[]): Drawable[] {
+  if (entry.cut === null) return drawables;
+  const clip = { x: -STAGE_W, y: -STAGE_H, w: STAGE_W * 3, h: entry.cut + STAGE_H };
+  return drawables.map((drawable) => ({ ...drawable, clip }));
+}
+
 function scene(state: StageState, running: { op: LabOp; before: StageState; after: StageState; progress: number }[], clock: number): Drawable[] {
   const setting = settingFor(state);
   const out: Drawable[] = [...setting.draw(clock)];
@@ -861,14 +931,15 @@ function scene(state: StageState, running: { op: LabOp; before: StageState; afte
   const shown = performances(state, running, setting, clock);
   shown.things.forEach(({ thing, opacity, fire }) => out.push(...drawThing(thing.id, thing.kind, thing.x, thing.facing, setting.ground, thingLook(opacity), clock, fire)));
   shown.actors.forEach((showing) => out.push(...pools(showing)));
-  shown.actors
+  const figures: FigureInk[] = shown.actors
     .flatMap((showing) => showing.shots.map((entry) => ({ showing, entry })))
     .sort((a, b) => b.entry.row - a.entry.row)
-    .forEach(({ showing, entry }) => out.push(...drawFigure({
+    .map(({ showing, entry }) => ({ showing, entry, drawables: behindRank(entry, drawFigure({
       id: `${showing.actor.id}.${entry.key}`, skeleton: entry.skeleton, costume: COSTUMES[showing.actor.as], look: entry.look,
       holding: entry.holding ?? undefined, ground: entry.ground, clock,
-    }, FIGURE_Z)));
-  out.push(...overheads(shown.actors));
+    }, FIGURE_Z)) }));
+  figures.forEach((figure) => out.push(...figure.drawables));
+  out.push(...overheads(figures));
   return out;
 }
 
@@ -968,6 +1039,7 @@ export const primitive: LabDef<Record<string, unknown>, StageState> = {
     });
   },
   size: () => ({ w: STAGE_W, h: STAGE_H }),
+  unfilled: (state) => !state.actors.some((actor) => actor.on),
   draw: (state) => scene(state, [], 0),
   live: (state, running, ctx) => scene(state, running, ctx.clock),
 };

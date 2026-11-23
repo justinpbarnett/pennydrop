@@ -7,6 +7,7 @@ CUE_TOLERANCE_SECONDS = 0.033
 EDGE_MARGIN = 40
 SMALLEST_READABLE_TEXT = 26
 LONGEST_UNFILLED_WAIT = 4
+LONGEST_EMPTY_STAGE = 3
 LINES_PER_CARD = 4
 CARD_KINDS = {"keyword", "quote", "counter", "compare", "tracker", "timeline", "text"}
 ACTING_KINDS = {"stage", "map"}
@@ -32,6 +33,8 @@ def audit_problems(audit: list[dict]) -> list[str]:
             problems.append(f"{where}: {', '.join(shot['peeking'])} peek into the frame at its edge; place the object farther from them along the route, or place the older pieces behind the route")
         if shot["wait"] is not None and shot["wait"] > LONGEST_UNFILLED_WAIT:
             problems.append(f"{where}: the camera arrives {shot['wait']:.0f} s before the first operation on {shot['object']}, so the viewer watches an unfilled piece; cue the camera move on a word nearer that operation, so the piece fills as the camera lands")
+        if shot["empty"] > LONGEST_EMPTY_STAGE:
+            problems.append(f"{where}: everyone has left and the piece stands empty for {shot['empty']:.0f} s while the narration goes on; cue the next entrance or appearance on a word nearer the exit, or the exit on a later word, so someone is always acting")
     return problems
 
 

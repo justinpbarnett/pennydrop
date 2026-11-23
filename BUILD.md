@@ -236,10 +236,12 @@ The `at` field of a scene object is `{relation: id}` with the relations `right o
 The pieces are the cards `keyword`, `quote`, `counter`, `compare`, `tracker`, `timeline` and `question`, the line drawing `figure`, the acted scene `stage` and the campaign map `map`, and Labs draw on their own planes unchanged.
 A `stage` puts line-drawn people on a set, where they walk, pose, hand things over, speak quoted words, fall and fire cannon.
 It refuses blocking where people or crowds overlap, where anyone stands in front of a muzzle, or where a shot passes through someone.
+A crowd of soldiers, grenadiers or cadets stands in ranks that step back up and to the right, and the front rank hides the legs of the ranks behind it.
 Every person and crowd is kept inside the 2400 x 1350 stage, and every set drawing is clipped to it, because the camera frames all the ink in a shot.
 A walk or entrance ends standing unless it names a pose, keeping a bearing that carries through a walk, such as a hand in the coat.
 A `map` draws places, journeys, marching armies and clashes inside a tight region, and refuses a layout whose names have no room.
 The plan check holds a Film to acting: every line but the last has an op on a stage, a map or a Lab, at most one line in four adds a card, and a person takes one op per word.
+It also refuses a stage left empty for more than 3 seconds while the narration goes on, once someone has acted on it.
 The film page `player/film.html` draws a pure function of (film, time, Theme) through `window.film` with `load`, `seek` and `regions`.
 `bun player/tools/film.ts render` draws 1920x1080 frames at 30 fps in parallel headless pages, pipes them to ffmpeg as H.264 yuv420p, writes `<out>.manifest.json`, and reports frames per second.
 `pd film render <film> [--out]` voices each line through the TTS seam, builds a seeded sound kit and a bed ducked under speech, normalizes to -14 LUFS with true peak at most -1.5 dBTP through a limiter with a 0.3 dB margin, and muxes into the MP4.

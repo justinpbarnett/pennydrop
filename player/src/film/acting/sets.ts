@@ -167,7 +167,7 @@ const SETTINGS: Record<string, SetMaker> = {
     },
   }),
   hall: () => {
-    const ground = steps(FLOOR, [{ from: 1440, to: 1480, drop: 40 }, { from: 1480, to: 1960, drop: 88 }]);
+    const ground = steps(FLOOR, [{ from: 1400, to: 1480, drop: 40 }, { from: 1480, to: 1960, drop: 88 }]);
     return {
       marks: { tribune: 1720, floor: 800, benches: 400 },
       ground,
@@ -178,7 +178,7 @@ const SETTINGS: Record<string, SetMaker> = {
         sketch.line([-200, 320, 2600, 320], "edge", LINE, 0.7);
         sketch.line([-200, 290, 2600, 290], "edge", LINE, 0.5);
         sketch.rect(1480, FLOOR - 88, 480, 88, "edge", LINE, 0.85);
-        sketch.line([1440, FLOOR, 1440, FLOOR - 40, 1480, FLOOR - 40], "edge", LINE, 0.85);
+        sketch.line([1400, FLOOR, 1400, FLOOR - 40, 1480, FLOOR - 40], "edge", LINE, 0.85);
         sketch.line([1560, FLOOR - 88, 1560, FLOOR - 230, 1880, FLOOR - 230, 1880, FLOOR - 88], "edge", LINE, 0.6);
         floorLine(sketch, ground);
         return sketch.drawables;

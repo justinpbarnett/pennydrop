@@ -343,9 +343,26 @@ export function framedRegion(film: Film, shot: number, frame: FilmFrame, plane: 
 }
 
 export function unfilledAt(film: Film, time: number, theme: Theme, id: string): boolean {
-  const scene = film.timeline.locate(time - film.lead, theme.motionScale, easeFor({ ...theme, ease: ON_CUE_EASE })).after;
-  const object = scene.objects.find((candidate) => candidate.id === id);
-  return object ? definitionOf(object).unfilled?.(object.state) === true : false;
+  const located = film.timeline.locate(time - film.lead, theme.motionScale, easeFor({ ...theme, ease: ON_CUE_EASE }));
+  const unfilled = (scene: SceneState) => {
+    const object = scene.objects.find((candidate) => candidate.id === id);
+    return object ? definitionOf(object).unfilled?.(object.state) === true : false;
+  };
+  return unfilled(located.before) && unfilled(located.after) && !located.carried.some((run) => run.touch.objectId === id);
+}
+
+export function longestEmpty(film: Film, shot: number, theme: Theme, id: string): number {
+  const step = 1 / 4;
+  let filled = false;
+  let run = 0;
+  let longest = 0;
+  for (let time = film.shots[shot]!.end; time < holdEnd(film, shot); time += step) {
+    const empty = unfilledAt(film, time, theme, id);
+    filled ||= !empty;
+    run = empty && filled ? run + step : 0;
+    longest = Math.max(longest, run);
+  }
+  return longest;
 }
 
 export function loadFilmError(error: unknown): Error {
