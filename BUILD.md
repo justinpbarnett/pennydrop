@@ -166,6 +166,7 @@ export const lab: LabDef<Spec, State> = {
   id, title,
   reading: "required" | "optional",
   catalog: { summary, spec, example: [/* Step lines */] },
+  concurrentParts?: boolean,
   ops: { name: { doc, seconds, apply, during?, sound?, trueTime? } },
   prepare?(): Promise<void>,
   init(spec, objectId): State,
@@ -180,7 +181,11 @@ The catalog, routing, duration and unknown-op message are derived from it.
 `seconds` can be a function of the op and the state before it, so a long run can take longer.
 A Lab that needs assets declares `prepare()`, and `prepareStepAssets` calls it for playback and validation alike.
 A trueTime op is a simulation that runs in real seconds.
-The timeline never cuts or squeezes it, later entries wait for it, and exits pre-roll to end on their Cue.
+The timeline never cuts or squeezes it, and exits pre-roll to end on their Cue.
+Later entries wait for it only where they clash with what it holds.
+On a Lab with `concurrentParts`, such as the stage, a trueTime op holds only the parts it names, so one person walks while the others act on their own cues.
+On any other Lab it holds everything, a scene change waits for every hold, and an object arriving or leaving waits for holds on itself.
+A trueTime op still running when the next segment starts carries into it and draws by the clock.
 `segmentProgress` and `trueProgress` in `timeline.ts` are the one place segment time becomes progress, and every renderer, the Film included, uses them.
 `DRAWABLE_KINDS` in `render.ts` is the painter's table, and `Painted` is derived from `Drawable`.
 The code listing is shared through `codeListing` and `languageField` in `highlight.ts`.
@@ -231,6 +236,8 @@ The `at` field of a scene object is `{relation: id}` with the relations `right o
 The pieces are the cards `keyword`, `quote`, `counter`, `compare`, `tracker`, `timeline` and `question`, the line drawing `figure`, the acted scene `stage` and the campaign map `map`, and Labs draw on their own planes unchanged.
 A `stage` puts line-drawn people on a set, where they walk, pose, hand things over, speak quoted words, fall and fire cannon.
 It refuses blocking where people or crowds overlap, where anyone stands in front of a muzzle, or where a shot passes through someone.
+Every person and crowd is kept inside the 2400 x 1350 stage, and every set drawing is clipped to it, because the camera frames all the ink in a shot.
+A walk or entrance ends standing unless it names a pose, keeping a bearing that carries through a walk, such as a hand in the coat.
 A `map` draws places, journeys, marching armies and clashes inside a tight region, and refuses a layout whose names have no room.
 The plan check holds a Film to acting: every line but the last has an op on a stage, a map or a Lab, at most one line in four adds a card, and a person takes one op per word.
 The film page `player/film.html` draws a pure function of (film, time, Theme) through `window.film` with `load`, `seek` and `regions`.
