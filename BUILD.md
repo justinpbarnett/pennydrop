@@ -292,14 +292,13 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 - The judge calls the music `tempo` op a no-op though it plays the roll, and music Lessons still carry some tempo filler.
 - The plot Lab rarely holds its reveal back for the hinge.
 - The memory Lab's heap shows at most two blocks.
-- The words Lab spaces its dots unevenly.
 - The non-reading kids stage shows dots that carry no meaning.
 - The hash Lab's note and the "checks out" mark read as filler.
 - Trace counters change without narration in some array Lessons.
 - The review view's reveal has only been checked over the API, not in a browser.
 - 13 older stored Lessons predate the current validator and skip ops when played.
 - Kokoro speaks a name missing from `server/pennydrop/tts/pronunciations.py` through misaki alone, because espeak-ng is not installed for its fallback.
-- Superseded Film backups (Napoleon v1 to v4, page table walk v1 to v3) sit in their `data/films` workspaces and wait for a decision before deletion.
+- Superseded Film backups (Napoleon v1 to v5, page table walk v1 to v4) sit in their `data/films` workspaces and wait for a decision before deletion.
 - An algorithm outline plays the same small runs at every level, so an advanced Lesson still walks a seven value trace its learner already knows, and the judge fails it on `pitched_to_level` even when its words fit.
 - A Course Topic Lesson is written with no Profile, so all 39 CS 6200 Topic Lessons are pitched at beginner, though CS 6200 is a graduate course.
 - A Profile has one Level for every subject, so an engineer who is advanced in computing is pitched advanced in biology too.
