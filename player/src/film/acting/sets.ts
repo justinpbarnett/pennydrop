@@ -8,6 +8,7 @@ export const FLOOR = 1180;
 export const MUZZLE_REACH = 170;
 const SET_Z = 1;
 const LINE = 3.5;
+const RANKS_CLIMB = 390;
 
 export const GENERAL_MARKS: Record<string, number> = {
   "off left": -260, "far left": 300, left: 650, "center left": 950, center: 1200,
@@ -20,12 +21,69 @@ export interface Setting {
   draw(clock: number): Drawable[];
 }
 
+type Edge = { inside: (point: Point) => boolean; cross: (from: Point, to: Point) => Point };
+
+const across = (from: Point, to: Point, t: number): Point => ({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
+
+const STAGE_EDGES: Edge[] = [
+  { inside: (p) => p.x >= 0, cross: (a, b) => across(a, b, a.x / (a.x - b.x)) },
+  { inside: (p) => p.x <= STAGE_W, cross: (a, b) => across(a, b, (STAGE_W - a.x) / (b.x - a.x)) },
+  { inside: (p) => p.y >= 0, cross: (a, b) => across(a, b, a.y / (a.y - b.y)) },
+  { inside: (p) => p.y <= STAGE_H, cross: (a, b) => across(a, b, (STAGE_H - a.y) / (b.y - a.y)) },
+];
+
+function pointsOf(flat: number[]): Point[] {
+  const points: Point[] = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) points.push({ x: flat[i]!, y: flat[i + 1]! });
+  return points;
+}
+
+const flatten = (points: Point[]): number[] => points.flatMap((point) => [point.x, point.y]);
+
+function clipShape(points: Point[]): Point[] {
+  return STAGE_EDGES.reduce((shape, edge) => shape.flatMap((point, index) => {
+    const previous = shape.at(index - 1)!;
+    if (edge.inside(point)) return edge.inside(previous) ? [point] : [edge.cross(previous, point), point];
+    return edge.inside(previous) ? [edge.cross(previous, point)] : [];
+  }), points);
+}
+
+export function clipToStage(shape: number[]): number[] {
+  return flatten(clipShape(pointsOf(shape)));
+}
+
+function clipRun(points: Point[], edge: Edge): Point[][] {
+  const runs: Point[][] = [];
+  let run: Point[] = [];
+  points.forEach((point, index) => {
+    const previous = points[index - 1];
+    if (edge.inside(point)) {
+      if (previous && !edge.inside(previous)) run.push(edge.cross(previous, point));
+      run.push(point);
+    } else if (previous && edge.inside(previous)) {
+      run.push(edge.cross(previous, point));
+      runs.push(run);
+      run = [];
+    }
+  });
+  if (run.length) runs.push(run);
+  return runs;
+}
+
+function clipLine(points: Point[]): Point[][] {
+  return STAGE_EDGES.reduce<Point[][]>((runs, edge) => runs.flatMap((run) => clipRun(run, edge)), [points]);
+}
+
 class Sketch {
   readonly drawables: Drawable[] = [];
   private count = 0;
 
   line(points: number[], paint: Paint = "edge", width = LINE, opacity = 0.8, closed = false, fill: Paint = "none"): void {
-    this.drawables.push({ id: `set.${this.count++}`, kind: "path", x: 0, y: 0, points, closed, fill, stroke: paint, strokeWidth: width, opacity, z: SET_Z });
+    const id = `set.${this.count++}`;
+    const pieces = closed ? [clipShape(pointsOf(points))] : clipLine(pointsOf(points));
+    pieces.filter((piece) => piece.length > 1).forEach((piece, index) => {
+      this.drawables.push({ id: index ? `${id}.${index}` : id, kind: "path", x: 0, y: 0, points: flatten(piece), closed, fill, stroke: paint, strokeWidth: width, opacity, z: SET_Z });
+    });
   }
 
   text(content: string, at: Point, size = 40, paint: Paint = "muted", opacity = 0.9): void {
@@ -234,7 +292,9 @@ const SETTINGS: Record<string, SetMaker> = {
       [1340, 1390, 1440, 1490].forEach((x) => sketch.line([x + 10, 420, x + 10, 640], "muted", 5, 0.85));
       sketch.line([1300, 530, 1550, 530], "muted", 5, 0.85);
       sketch.line([300, FLOOR, 300, 600, 500, 600, 500, FLOOR], "edge", LINE, 0.7);
+      sketch.rect(1720, FLOOR - 158, 460, 38, "edge", LINE, 0.7);
       sketch.line([1700, FLOOR - 120, 2200, FLOOR - 120], "edge", LINE, 0.7);
+      [1730, 2170].forEach((x) => sketch.line([x, FLOOR - 120, x, FLOOR], "edge", LINE, 0.7));
       floorLine(sketch, flat);
       return sketch.drawables;
     },
@@ -260,7 +320,7 @@ const SETTINGS: Record<string, SetMaker> = {
     const count = Math.max(1, labels.length);
     const from = 200;
     const width = (STAGE_W - 2 * from) / count;
-    const rise = Math.min(110, 560 / count);
+    const rise = Math.min(110, RANKS_CLIMB / count);
     const tread = (i: number) => FLOOR - (i + 1) * rise;
     const ground: Ground = (x) => {
       const i = Math.floor((x - from) / width);

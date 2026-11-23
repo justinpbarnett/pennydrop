@@ -66,7 +66,7 @@ function scaleOf(state: MapState): { kx: number; ky: number; height: number } {
 
 function sizesOf(state: MapState): Sizes {
   const k = Math.max(1, (scaleOf(state).height * FRAME_ASPECT) / WIDTH);
-  return { k, dot: 15 * k, route: 9 * k, name: 60 * k, gap: 36 * k, w: 96 * k, h: 62 * k, trail: 30 * k, label: 50 * k, sabre: 30 * k };
+  return { k, dot: 15 * k, route: 9 * k, name: 60 * k, gap: 36 * k, w: 96 * k, h: 62 * k, trail: 30 * k, label: 56 * k, sabre: 30 * k };
 }
 
 function project(state: MapState, lon: number, lat: number): Point {
@@ -284,11 +284,21 @@ function layoutOf(state: MapState, s: Sizes): Layout {
   const labels = new Map(state.armies.map((army) => {
     const size = { w: textWidth(army.label, s.label, "read"), h: s.label };
     const rest = stopPoint(state, s, army, army.stops.length - 1);
-    return [army.id, settle(`army ${army.id}`, `the label ${army.label}`, rest, LABEL_SPOTS, size, { w: s.w / 2, h: s.h / 2 }, { x: s.gap * 0.5, y: s.gap * 0.4 })] as const;
+    return [army.id, settle(`army ${army.id}`, `the label ${army.label}`, rest, LABEL_SPOTS, size, { w: s.w / 2, h: s.h / 2 }, labelGap(s))] as const;
   }));
   const layout = { names, labels, problem };
   LAYOUTS.set(state, layout);
   return layout;
+}
+
+const labelGap = (s: Sizes): Point => ({ x: s.gap * 0.5, y: s.gap * 0.4 });
+
+function clearOfMarker(offset: Point, fallback: Point, s: Sizes, army: Army): Point {
+  const gap = labelGap(s);
+  const room = { x: s.w / 2 + gap.x + textWidth(army.label, s.label, "read") / 2, y: s.h / 2 + gap.y + s.label / 2 };
+  if (Math.abs(offset.x) >= room.x || Math.abs(offset.y) >= room.y) return offset;
+  const stretch = Math.min(offset.x ? room.x / Math.abs(offset.x) : Infinity, offset.y ? room.y / Math.abs(offset.y) : Infinity);
+  return Number.isFinite(stretch) ? { x: offset.x * stretch, y: offset.y * stretch } : fallback;
 }
 
 function labelOffset(state: MapState, s: Sizes, id: string): Point | null {
@@ -435,7 +445,7 @@ function drawMap(state: MapState, now: Running<MapState>[], clock: number): Draw
   for (const token of tokens) {
     const after = labelOffset(state, s, token.army.id)!;
     const before = settling ? labelOffset(settling.before, s, token.army.id) ?? after : after;
-    out.push(...tokenDrawables(s, token.army, token.at, along(before, after, glide)));
+    out.push(...tokenDrawables(s, token.army, token.at, clearOfMarker(along(before, after, glide), after, s, token.army)));
   }
 
   for (const place of state.clashes) show(place, 1);
