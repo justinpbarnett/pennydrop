@@ -7,7 +7,7 @@ from itertools import pairwise
 CUE_TOLERANCE_SECONDS = 0.033
 EDGE_MARGIN = 40
 SMALLEST_READABLE_TEXT = 26
-LONGEST_UNFILLED_WAIT = 4
+LONGEST_UNFILLED_WAIT = 1
 LONGEST_EMPTY_STAGE = 3
 LONGEST_STILL = 3
 LONGEST_SILENCE = 1.5
@@ -46,7 +46,7 @@ def audit_problems(audit: list[dict]) -> list[str]:
         if shot["unfilled"] and shot["wait"] is None:
             problems.append(f"{where}: the camera lands on {shot['object']} while it is still blank, and no later op fills it, so the viewer sees an empty piece; give it its first op on a word the narration reads in this shot, such as the write of a card or the entrance of a person")
         elif shot["wait"] is not None and shot["wait"] > LONGEST_UNFILLED_WAIT:
-            problems.append(f"{where}: the camera arrives {shot['wait']:.0f} s before the first operation on {shot['object']}, so the viewer watches an unfilled piece; cue the camera move on a word nearer that operation, so the piece fills as the camera lands")
+            problems.append(f"{where}: the camera arrives {shot['wait']:.1f} s before the first operation on {shot['object']}, so the viewer watches a blank piece while nothing happens; cue the camera move on a word nearer that operation, so the piece fills as the camera lands")
         if shot["empty"] > LONGEST_EMPTY_STAGE:
             problems.append(f"{where}: everyone has left and the piece stands empty for {shot['empty']:.0f} s while the narration goes on; cue the next entrance or appearance on a word nearer the exit, or the exit on a later word, so someone is always acting")
         if shot["still"] > LONGEST_STILL:
