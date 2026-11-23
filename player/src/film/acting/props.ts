@@ -1,4 +1,4 @@
-import type { Drawable, Point } from "../../lab";
+import type { Credit, Drawable, Point } from "../../lab";
 import { Ink, type Look } from "./body";
 import ICONS from "./prop-icons.json";
 import { PROP_TABLE, type PropName, type PropSpec } from "./prop-table";
@@ -10,6 +10,7 @@ export interface PropPlace {
   name: PropName;
   x: number;
   base: number;
+  ground: number;
   facing: 1 | -1;
   scale: number;
 }
@@ -22,6 +23,7 @@ export interface FireMoment {
 interface Icon {
   d: string;
   backing: number[];
+  fill?: string;
   box: number[];
 }
 
@@ -29,9 +31,9 @@ const PROP_Z = 2;
 const FIGURE_METERS = 1.75;
 const METER = (STANDING_PELVIS + BONE.torso + BONE.neck + 2 * BONE.headRy) / FIGURE_METERS;
 const RECOIL = { share: 0.45, reach: 0.05 } as const;
-const BOB = { lift: 0.012, tilt: 1.2 } as const;
+const BOB = { lift: 0.012, tilt: 1.2, draft: 0.06 } as const;
 const SWAY_DEGREES = 2.4;
-const GLOW = { reach: 0.35, pad: 40 } as const;
+const GLOW = { reach: 0.45, pad: 110 } as const;
 
 const specOf = (name: PropName): PropSpec => PROP_TABLE[name];
 const iconOf = (name: PropName): Icon => ICONS.icons[specOf(name).icon as keyof typeof ICONS.icons];
@@ -47,6 +49,7 @@ function backingOf(icon: Icon): string {
 
 export const PROP_NAMES = Object.keys(PROP_TABLE) as PropName[];
 export const GUNS = PROP_NAMES.filter((name) => specOf(name).effect === "gun");
+export const BOATS = PROP_NAMES.filter((name) => specOf(name).effect === "boat");
 export const SURFACES = PROP_NAMES.filter((name) => specOf(name).surface);
 
 export function propSize(name: PropName, scale: number): { w: number; h: number } {
@@ -73,10 +76,9 @@ export function muzzleOf(place: PropPlace): Point | null {
   return spotOf(place, { x: place.x, y: place.base - propSize(place.name, place.scale).h / 2 });
 }
 
-export function propCredit(names: Iterable<PropName>): string {
-  const authors = [...new Set([...names].map((name) => specOf(name).by))].sort();
-  const who = authors.length > 1 ? `${authors.slice(0, -1).join(", ")} and ${authors.at(-1)}` : authors[0];
-  return `Icons by ${who}, game-icons.net, ${ICONS.source.license}`;
+export function propCredit(names: Iterable<PropName>): Credit | null {
+  const authors = [...new Set([...names].map((name) => specOf(name).by))];
+  return authors.length ? { what: "Icons", authors, source: "game-icons.net", license: ICONS.source.license } : null;
 }
 
 function seedOf(id: string): number {
@@ -100,7 +102,7 @@ function poseOf(place: PropPlace, clock: number, fire: FireMoment | null, seed: 
       return { center: { x: center.x - place.facing * RECOIL.reach * w * kick, y: center.y }, rotation: 0 };
     }
     case "boat":
-      return { center: { x: center.x, y: center.y + BOB.lift * h * Math.sin(clock * 1.3 + seed) }, rotation: BOB.tilt * Math.sin(clock * 0.9 + seed * 2) };
+      return { center: { x: center.x, y: center.y + h * (BOB.draft + BOB.lift * Math.sin(clock * 1.3 + seed)) }, rotation: BOB.tilt * Math.sin(clock * 0.9 + seed * 2) };
     case "sway": {
       const degrees = (SWAY_DEGREES / Math.sqrt(spec.meters)) * (Math.sin(clock * 0.8 + seed) + 0.35 * Math.sin(clock * 1.9 + seed * 3)) / 1.35;
       const turn = (degrees * Math.PI) / 180;
@@ -118,15 +120,18 @@ export function drawProp(id: string, place: PropPlace, look: Look, clock: number
   const [x, y, cropW, cropH] = icon.box as [number, number, number, number];
   const pose = poseOf(place, clock, fire, seedOf(id));
   const ink = new Ink(id, PROP_Z, look.opacity);
+  const placed = { kind: "silhouette" as const, x: pose.center.x, y: pose.center.y, w, h, crop: { x, y, w: cropW, h: cropH }, mirror: mirrored(place), rotation: pose.rotation };
+  const backing = { ...placed, fill: look.line, stroke: look.line, strokeWidth: look.width * 2 };
+  if (icon.fill) ink.add({ ...backing, name: "fill", d: icon.fill });
   const flame = spec.effect === "flame" ? spotOf(place, pose.center) : null;
   if (flame) {
     const flicker = (Math.sin(clock * 9 + seedOf(id)) + 0.6 * Math.sin(clock * 13.7)) / 1.6;
     const r = (GLOW.reach * Math.max(w, h) + GLOW.pad) * (1 + 0.04 * Math.sin(clock * 7.3));
-    ink.add({ name: "glow", kind: "circle", x: flame.x, y: flame.y, r, fill: "highlight", stroke: "none", opacity: 0.11 + 0.04 * flicker });
-    ink.add({ name: "core", kind: "circle", x: flame.x, y: flame.y, r: r * 0.45, fill: "highlight", stroke: "none", opacity: 0.16 + 0.06 * flicker });
+    const clip = { x: flame.x - r, y: flame.y - r, w: 2 * r, h: Math.max(0, Math.min(2 * r, place.ground - (flame.y - r))) };
+    ink.add({ name: "glow", kind: "circle", soft: true, clip, x: flame.x, y: flame.y, r, fill: "highlight", stroke: "none", opacity: 0.34 + 0.06 * flicker });
+    ink.add({ name: "core", kind: "circle", soft: true, clip, x: flame.x, y: flame.y, r: r * 0.45, fill: "highlight", stroke: "none", opacity: 0.26 + 0.08 * flicker });
   }
-  const placed = { kind: "silhouette" as const, x: pose.center.x, y: pose.center.y, w, h, crop: { x, y, w: cropW, h: cropH }, mirror: mirrored(place), rotation: pose.rotation };
-  ink.add({ ...placed, name: "back", d: backingOf(icon), fill: look.line, stroke: look.line, strokeWidth: look.width * 2 });
+  ink.add({ ...backing, name: "back", d: backingOf(icon) });
   ink.add({ ...placed, name: "face", d: icon.d, fill: look.fill, stroke: "none", strokeWidth: 0 });
   const muzzle = fire && spec.effect === "gun" ? spotOf(place, pose.center) : null;
   return muzzle && fire ? [...ink.drawables, ...drawShot(id, muzzle, place.facing, fire, clock, look.opacity)] : ink.drawables;

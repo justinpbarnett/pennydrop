@@ -69,12 +69,15 @@ interface Live {
   kind: string;
   signature: string;
   clip: SVGClipPathElement | null;
+  fade: SVGRadialGradientElement | null;
 }
 
 const imagesInFrame = new Set<string>();
 
 let definitions = 0;
 const definitionId = (prefix: string) => `${prefix}-${definitions++}`;
+
+const FADE_STOPS = Array.from({ length: 9 }, (_, i) => ({ offset: i / 8, opacity: (1 - (i / 8) ** 2) ** 3 }));
 
 interface KindRenderer {
   create(): SVGElement;
@@ -353,7 +356,7 @@ export class StageRenderer {
     if (existing && existing.kind === item.kind) return existing;
     if (existing) this.discard(existing);
     const element = DRAWABLE_KINDS[item.kind].create();
-    const live = { element, kind: item.kind, signature: "", clip: null };
+    const live = { element, kind: item.kind, signature: "", clip: null, fade: null };
     this.live.set(item.id, live);
     return live;
   }
@@ -361,6 +364,7 @@ export class StageRenderer {
   private discard(live: Live): void {
     live.element.remove();
     live.clip?.remove();
+    live.fade?.remove();
   }
 
   private clipTo(live: Live, clip: Painted["clip"]): void {
@@ -381,6 +385,22 @@ export class StageRenderer {
     setAttributes(live.clip.firstElementChild!, { x: clip.x, y: clip.y, width: clip.w, height: clip.h });
   }
 
+  private fadeFill(live: Live, item: Painted): void {
+    if (!item.soft || !item.fill) {
+      live.fade?.remove();
+      live.fade = null;
+      return;
+    }
+    if (!live.fade) {
+      live.fade = svg("radialGradient", { id: definitionId("fade") });
+      live.fade.append(...FADE_STOPS.map(({ offset }) => svg("stop", { offset })));
+      this.clips.append(live.fade);
+    }
+    const color = cssRgba(item.fill);
+    [...live.fade.children].forEach((stop, i) => setAttributes(stop, { "stop-color": color, "stop-opacity": FADE_STOPS[i]!.opacity }));
+    live.element.setAttribute("fill", `url(#${live.fade.id})`);
+  }
+
   private update(live: Live, item: Painted): void {
     setAttributes(live.element, {
       opacity: Math.max(0, Math.min(1, item.opacity)),
@@ -389,6 +409,7 @@ export class StageRenderer {
     });
     this.clipTo(live, item.clip);
     DRAWABLE_KINDS[item.kind].update(live.element, item, live);
+    this.fadeFill(live, item);
   }
 
   private invalidateEverything(): void {

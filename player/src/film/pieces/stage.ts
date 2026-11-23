@@ -3,7 +3,7 @@ import { textWidth } from "../../text-metrics";
 import { COSTUMES, type CostumeName, drawFigure, type Holding, type Item, ITEMS, type Look } from "../acting/body";
 import { alive, arrivingPose, jittered, POSE_NAMES, POSES, type PoseName, walkingPose } from "../acting/poses";
 import { type Gait, GAITS, type GaitName, type Ground, lerpPose, type Pose, posed, type Skeleton, smooth, travelled, travelSeconds, walking } from "../acting/rig";
-import { drawProp, type FireMoment, GUNS, muzzleOf, PROP_NAMES, propCredit, type PropName, type PropPlace, propSize, SURFACES } from "../acting/props";
+import { BOATS, drawProp, type FireMoment, GUNS, muzzleOf, PROP_NAMES, propCredit, type PropName, type PropPlace, propSize, SURFACES } from "../acting/props";
 import { clipToStage, GENERAL_MARKS, SET_NAMES, type Setting, settingOf, STAGE_H, STAGE_W } from "../acting/sets";
 
 const TONES = ["lead", "plain", "dim", "lit"] as const;
@@ -69,7 +69,6 @@ const SPEECH_SIZE = 44;
 const SPEECH_LINE = 56;
 const SPEECH_WIDTH = 660;
 const CAPTION_SIZE = 42;
-const CREDIT_SIZE = 22;
 const ROW_LIFT = 46;
 const RANK_RISE = 18;
 const RANK_STEP = 26;
@@ -97,8 +96,10 @@ const SETTING_CACHE = new Map<string, Setting>();
 
 function placeOf(thing: Thing, things: Thing[], setting: Setting): PropPlace {
   const support = things.find((entry) => entry.id === thing.atop);
-  const base = support ? placeOf(support, things, setting).base - propSize(support.kind, FIGURE_SCALE).h : setting.ground(thing.x);
-  return { name: thing.kind, x: thing.x, base, facing: thing.facing, scale: FIGURE_SCALE };
+  const below = support && placeOf(support, things, setting);
+  const ground = below ? below.ground : setting.ground(thing.x);
+  const base = below ? below.base - propSize(below.name, FIGURE_SCALE).h : ground;
+  return { name: thing.kind, x: thing.x, base, ground, facing: thing.facing, scale: FIGURE_SCALE };
 }
 
 function settingFor(state: Pick<StageState, "set" | "steps">): Setting {
@@ -940,10 +941,13 @@ function behindRank(entry: Shot, drawables: Drawable[]): Drawable[] {
 
 function scene(state: StageState, running: { op: LabOp; before: StageState; after: StageState; progress: number }[], clock: number): Drawable[] {
   const setting = settingFor(state);
-  const out: Drawable[] = [...setting.draw(clock)];
+  const afloat = state.things.filter((thing) => BOATS.includes(thing.kind)).map((thing) => {
+    const half = propSize(thing.kind, FIGURE_SCALE).w / 2;
+    return [thing.x - half, thing.x + half] as const;
+  });
+  const out: Drawable[] = [...setting.draw(clock, afloat)];
   if (state.caption) out.push({ id: "caption", kind: "text", x: CENTER, y: 84, text: state.caption.toUpperCase(), size: CAPTION_SIZE, font: "read", fill: "muted", opacity: 0.9, z: TOP_Z });
   const shown = performances(state, running, setting, clock);
-  if (state.things.length) out.push({ id: "credit", kind: "text", x: STAGE_W - 36, y: STAGE_H - 30, text: propCredit(state.things.map((thing) => thing.kind)), size: CREDIT_SIZE, font: "read", fill: "muted", anchor: "end", opacity: 0.6, z: TOP_Z });
   shown.things.forEach(({ thing, opacity, fire }) => out.push(...drawProp(thing.id, placeOf(thing, state.things, setting), thingLook(opacity), clock, fire)));
   shown.actors.forEach((showing) => out.push(...pools(showing)));
   const figures: FigureInk[] = shown.actors
@@ -1039,7 +1043,7 @@ export const primitive: LabDef<Record<string, unknown>, StageState> = {
       steps: 'ranks only: the step labels from the bottom up, at most 6, such as ["lieutenant","captain","general"]',
       caption: 'optional small line at the top naming place and year, such as "Toulon, 1793"',
       cast: `people by id: {"as": ${COSTUME_NAMES.join(", ")}; "at": a mark or an x from 0 to 2400 ("off left" or "off right" to wait offstage for "enter"); "label": optional name over the head; "facing": left, right or a cast id; "pose": ${POSE_NAMES.join(", ")}; "holding": ${ITEMS.join(", ")}; "tone": lead (the protagonist, gold), plain, dim or lit (spotlit); "count": up to ${MAX_CROWD} for a crowd or ranks of soldiers; "rows"; "scale" 0.3 to 1.3; "hidden": true to wait unseen for "appear"}`,
-      things: `optional props by id, drawn at real size behind the people: {"kind": ${PROP_NAMES.join(", ")}; "at": a mark or an x; "atop": the id of a ${SURFACES.join(", ")} listed before it, to rest on its top ("at" then optional); "facing": left or right; "hidden": true}. A ${GUNS.join(", ")} can "fire"`,
+      things: `optional props by id, drawn at real size behind the people: {"kind": ${PROP_NAMES.join(", ")}; "at": a mark or an x; "atop": the id of a ${SURFACES.join(", ")} listed before it, to rest on its top ("at" then optional); "facing": left or right; "hidden": true}. A ${GUNS.join(", ")} can "fire". A ${BOATS.join(", ")} sits low in the water and bobs, and takes the place of any ship the set sketches behind it`,
     },
     example: [
       '{"scene":{"toulon":{"kind":"stage","set":"harbor","caption":"Toulon, 1793","cast":{"deputy":{"as":"deputy","at":"far right","label":"Saliceti","holding":"orb","facing":"left"},"bonaparte":{"as":"officer","at":"off left","label":"Bonaparte","tone":"lead"}},"things":{"gun":{"kind":"cannon","at":"battery","facing":"right"}}}},"do":[{"cue":"a young captain","op":"enter","on":["toulon[bonaparte]"],"to":"deputy"},{"cue":"gives him the guns","op":"give","on":["toulon[deputy]","toulon[bonaparte]"]},{"cue":"opens fire","op":"fire","on":["toulon[gun]"],"at":"sea"}]}',
@@ -1076,4 +1080,8 @@ export const primitive: LabDef<Record<string, unknown>, StageState> = {
   unfilled: (state) => !state.actors.some((actor) => actor.on),
   draw: (state) => scene(state, [], 0),
   live: (state, running, ctx) => scene(state, running, ctx.clock),
+  credits: (state) => {
+    const credit = propCredit(state.things.map((thing) => thing.kind));
+    return credit ? [credit] : [];
+  },
 };

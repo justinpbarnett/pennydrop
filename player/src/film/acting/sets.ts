@@ -13,10 +13,12 @@ export const GENERAL_MARKS: Record<string, number> = {
   "center right": 1450, right: 1750, "far right": 2100, "off right": 2660,
 };
 
+export type Span = readonly [from: number, to: number];
+
 export interface Setting {
   marks: Record<string, number>;
   ground: Ground;
-  draw(clock: number): Drawable[];
+  draw(clock: number, afloat: readonly Span[]): Drawable[];
 }
 
 type Edge = { inside: (point: Point) => boolean; cross: (from: Point, to: Point) => Point };
@@ -131,10 +133,13 @@ function steps(ground: number, rises: { from: number; to: number; drop: number }
   return (x) => rises.reduce((y, step) => (x >= step.from && x < step.to ? ground - step.drop : y), ground);
 }
 
+const SHIP_HALF = 150;
+const MOORED = [{ x: 1700, y: FLOOR - 4, scale: 0.95 }, { x: 2180, y: FLOOR - 30, scale: 0.7 }];
+
 function ship(sketch: Sketch, x: number, y: number, scale: number, clock: number): void {
   const bob = Math.sin(clock * 0.9 + x) * 4;
   const s = (px: number, py: number) => [x + px * scale, y + bob + py * scale];
-  sketch.line([...s(-150, 0), ...s(150, 0), ...s(115, 50), ...s(-115, 50)], "muted", LINE, 0.75, true, "ground");
+  sketch.line([...s(-SHIP_HALF, 0), ...s(SHIP_HALF, 0), ...s(115, 50), ...s(-115, 50)], "muted", LINE, 0.75, true, "ground");
   sketch.line([...s(-50, 0), ...s(-50, -230)], "muted", LINE, 0.75);
   sketch.line([...s(50, 0), ...s(50, -260)], "muted", LINE, 0.75);
   sketch.line([...s(-50, -210), ...s(-50, -40), ...s(-130, -60)], "edge", 3, 0.75, true);
@@ -221,13 +226,12 @@ const SETTINGS: Record<string, SetMaker> = {
   harbor: () => ({
     marks: { fort: 420, battery: 760, quay: 1150, shore: 1260, sea: 1900 },
     ground: flat,
-    draw(clock) {
+    draw(clock, afloat) {
       const sketch = new Sketch();
       sketch.line([-200, 1000, 120, 860, 520, 820, 880, 900, 1180, 1000], "rule", 3, 0.9);
       sketch.line([260, 850, 260, 760, 330, 760, 330, 790, 400, 790, 400, 760, 470, 760, 470, 790, 540, 790, 540, 760, 610, 760, 610, 860], "edge", LINE, 0.8);
       sketch.waves(1330, 2560, FLOOR + 6, clock, 3);
-      ship(sketch, 1700, FLOOR - 4, 0.95, clock);
-      ship(sketch, 2180, FLOOR - 30, 0.7, clock);
+      MOORED.filter(({ x, scale }) => afloat.every(([from, to]) => to < x - SHIP_HALF * scale || from > x + SHIP_HALF * scale)).forEach(({ x, y, scale }) => ship(sketch, x, y, scale, clock));
       floorLine(sketch, flat, -200, 1320);
       sketch.line([1320, FLOOR, 1340, FLOOR + 60], "edge", 4, 0.9);
       return sketch.drawables;

@@ -7,7 +7,7 @@ export interface PropSpec {
   faces?: 1 | -1;
   effect?: PropEffect;
   spot?: readonly [number, number];
-  open?: boolean;
+  holes?: "open" | "solid";
   surface?: boolean;
 }
 
@@ -29,10 +29,10 @@ export const PROP_TABLE = {
   urn: { icon: "amphora", by: "Delapouite", meters: 0.7 },
   vase: { icon: "porcelain-vase", by: "Delapouite", meters: 0.45 },
   cauldron: { icon: "cauldron", by: "Lorc", meters: 0.6 },
-  tent: { icon: "camping-tent", by: "Delapouite", meters: 1.3 },
-  marquee: { icon: "barracks-tent", by: "Delapouite", meters: 3 },
+  tent: { icon: "camping-tent", by: "Delapouite", meters: 1.3, holes: "solid" },
+  marquee: { icon: "barracks-tent", by: "Delapouite", meters: 3, holes: "solid" },
   campfire: { icon: "campfire", by: "Lorc", meters: 0.7, effect: "flame", spot: [0.5, 0.4] },
-  fireplace: { icon: "fireplace", by: "Delapouite", meters: 1.3, effect: "flame", spot: [0.5, 0.7] },
+  fireplace: { icon: "fireplace", by: "Delapouite", meters: 1.3, effect: "flame", spot: [0.5, 0.7], holes: "solid" },
   ship: { icon: "galleon", by: "Lorc", meters: 2.6, faces: 1, effect: "boat" },
   sailboat: { icon: "sailboat", by: "Delapouite", meters: 1.6, faces: 1, effect: "boat" },
   schooner: { icon: "shooner-sailboat", by: "Pierre Leducq", meters: 2.2, faces: 1, effect: "boat" },
@@ -76,7 +76,7 @@ export const PROP_TABLE = {
   "test-tubes": { icon: "test-tubes", by: "Lorc", meters: 0.25 },
   locomotive: { icon: "steam-locomotive", by: "Delapouite", meters: 3, faces: 1 },
   fence: { icon: "wooden-fence", by: "Lorc", meters: 1.2 },
-  railing: { icon: "spiked-fence", by: "Lorc", meters: 1.4, open: true },
+  railing: { icon: "spiked-fence", by: "Lorc", meters: 1.4, holes: "open" },
   ladder: { icon: "ladder", by: "Delapouite", meters: 3 },
 } as const satisfies Record<string, PropSpec>;
 

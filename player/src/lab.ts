@@ -43,6 +43,7 @@ export interface Drawable {
   y2?: number;
   points?: number[];
   closed?: boolean;
+  soft?: boolean;
   d?: string;
   mirror?: boolean;
   text?: string;
@@ -130,6 +131,13 @@ export interface OpDef<State = unknown> {
   trueTime?: boolean;
 }
 
+export interface Credit {
+  what: string;
+  authors: readonly string[];
+  source: string;
+  license: string;
+}
+
 export interface LabDef<Spec = Record<string, unknown>, State = unknown> {
   id: string;
   title: string;
@@ -147,6 +155,7 @@ export interface LabDef<Spec = Record<string, unknown>, State = unknown> {
   draw(state: State, ctx: LabCtx): Drawable[];
   live?(state: State, running: Running<State>[], ctx: LiveCtx): Drawable[];
   unfilled?(state: State): boolean;
+  credits?(state: State): Credit[];
 }
 
 export type AnyLabDef = LabDef<any, any>;

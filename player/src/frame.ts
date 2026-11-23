@@ -65,6 +65,7 @@ function paintDrawable(drawable: Drawable, theme: Theme): Painted {
     y2: drawable.y2,
     points: drawable.points,
     closed: drawable.closed,
+    soft: drawable.soft,
     d: drawable.d,
     mirror: drawable.mirror,
     text: shownText(drawable, theme),

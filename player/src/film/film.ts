@@ -2,7 +2,7 @@ import { prepareStepAssets } from "../assets";
 import { THEMES } from "../theme";
 import { easeFor, type Painted, renderFrame } from "../frame";
 import type { Voice } from "../format";
-import { LabError } from "../lab";
+import { type Credit, LabError } from "../lab";
 import type { Layout } from "../layout";
 import { narrate, resolveCues } from "../narration";
 import { applySceneSpecs, definitionOf, EMPTY_SCENE, type SceneState } from "../scene";
@@ -17,6 +17,8 @@ import { centerOf, focusedOn, layoutWorld, type Placement } from "./world";
 
 const DEFAULT_LEAD_SECONDS = 2;
 const DEFAULT_TAIL_SECONDS = 3;
+const CREDIT_SECONDS = 3;
+const CREDIT_FADE_SECONDS = 0.8;
 const DEFAULT_MOVE_SECONDS = 3.2;
 const FOG_START = 3200;
 const FOG_SCALE = 4500;
@@ -61,6 +63,8 @@ export interface Film {
   lineStarts: number[];
   bounds: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
   inks: InkRecord;
+  credits: string[];
+  creditsFrom: number;
 }
 
 function planeLayout(scene: SceneState): Layout {
@@ -191,7 +195,9 @@ export async function buildFilm(source: FilmSource, inks = new InkRecord()): Pro
   const requests = [...shotRequests].sort((a, b) => a.time - b.time);
   const opening = openingPose(source, everyScene, errors, inks, requests[0]?.time ?? Infinity);
   timeline.finish();
-  const duration = lead + timeline.duration + (header.tail ?? DEFAULT_TAIL_SECONDS);
+  const credits = creditLines(everyScene);
+  const tail = Math.max(header.tail ?? DEFAULT_TAIL_SECONDS, credits.length ? CREDIT_SECONDS : 0);
+  const duration = lead + timeline.duration + tail;
   const shots: Shot[] = [];
   const settle = THEMES[header.theme];
   requests.forEach(({ move, time, seconds, line }, order) => {
@@ -231,7 +237,24 @@ export async function buildFilm(source: FilmSource, inks = new InkRecord()): Pro
     lineStarts,
     bounds,
     inks,
+    credits,
+    creditsFrom: duration - tail,
   };
+}
+
+const listed = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? ""));
+
+function creditLines(scenes: SceneState[]): string[] {
+  const merged = new Map<string, { credit: Credit; authors: Set<string> }>();
+  for (const object of scenes.flatMap((scene) => scene.objects)) {
+    for (const credit of definitionOf(object).credits?.(object.state) ?? []) {
+      const key = [credit.what, credit.source, credit.license].join("|");
+      const entry = merged.get(key) ?? { credit, authors: new Set<string>() };
+      credit.authors.forEach((author) => entry.authors.add(author));
+      merged.set(key, entry);
+    }
+  }
+  return [...merged.values()].map(({ credit, authors }) => `${credit.what} by ${listed([...authors].sort())}, ${credit.source}, ${credit.license}`);
 }
 
 function openingPose(source: FilmSource, scenes: SceneState[], errors: string[], inks: InkRecord, firstShot: number): Pose {
@@ -265,6 +288,7 @@ export interface FilmFrame {
   matrix: string;
   pose: Pose;
   time: number;
+  credits: { lines: string[]; opacity: number };
 }
 
 function objectOf(id: string): string {
@@ -331,7 +355,8 @@ export function frameAt(film: Film, time: number, theme: Theme): FilmFrame {
     const blur = Math.min(BLUR_LIMIT, Math.max(0, (Math.abs(depth - focusDepth) - BLUR_FREE_RANGE) * BLUR_PER_UNIT));
     return { ...placement, items, opacity: fog, blur, visible: screen !== null, region: regionOf(pose, placement), ink: regionOf(pose, inked(placement, film.inks.at(id, time))) };
   });
-  return { planes, matrix: cssMatrix(pose), pose, time };
+  const credits = { lines: film.credits, opacity: Math.min(1, Math.max(0, (time - film.creditsFrom) / CREDIT_FADE_SECONDS)) };
+  return { planes, matrix: cssMatrix(pose), pose, time, credits };
 }
 
 export function holdEnd(film: Film, shot: number): number {
