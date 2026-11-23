@@ -12,8 +12,8 @@ The catalog of pieces, Labs, relations and ops you may use:
 {catalog}
 
 The Film file is JSON Lines.
-The first line is the header: {{"film": {{"title": "...", "theme": "{theme}", "thread": "{thread}", "armature": "...", "spine": [eight spine sentences], "lead": 1.5, "tail": 4}}}}
-Copy `title`, `armature` and `spine` from the script. Keep lead 1.5 and tail 4.
+The first line is the header: {{"film": {{"title": "...", "theme": "{theme}", "thread": "{thread}", "armature": "...", "spine": [eight spine sentences]}}}}
+Copy `title`, `armature` and `spine` from the script. Leave out `lead` and `tail`, so the narration starts at once and the Film ends with its last words.
 Each next line is one scene: {{"line": N, "spine": S, "say": "...", "scene": {{...}}, "do": [...], "camera": [...], "sound": [...]}}.
 `line` counts 1, 2, 3 in order. `spine` is the scene's spine number from the script.
 `scene` adds or changes objects, and an object only needs to be listed in the line where it first appears.
@@ -27,7 +27,9 @@ Rules to hold.
 - Every line that adds an object has a camera move that flies to it.
 - Every `do`, `camera` and `sound` entry has a `cue` that is an exact phrase of its line's `say`.
 - The first line opens on the Film's promise as a picture: a stage, a map or a Lab, with a keyword card only when no picture holds it.
-- Every line except the last has at least one `do` op on a stage, a map or a Lab, so something happens on screen in every line.
+- Something is always happening on screen, so no scene freezes: while the narration runs, never let more than 3 seconds pass without an op running on something in view, such as a walk, a gesture, a give, a mark on a map or the next step of a Lab. Plan several ops per line, cued on words spread through it, the last line included.
+- The narration never stops: end each line's ops with its words, so the next line follows at once.
+- Give each camera move time to land: cue the next move at least its `seconds` plus 1.5 seconds later.
 - While the camera holds on a stage, someone stays on it: once everyone has exited, the next person enters or appears within 3 seconds.
 - At most one line in four adds a card (keyword, quote, counter, compare, tracker, timeline, text), counting cards brought in with `create`. The closing question card does not count.
 - The final line adds a question card.

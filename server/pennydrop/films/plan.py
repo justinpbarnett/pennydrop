@@ -10,6 +10,8 @@ from .ask import answer, craft, prompt
 from .audit import (
     audit_problems,
     cue_problems,
+    settles,
+    silence_problems,
     staging_problems,
     text_too_small,
     tight_edges,
@@ -95,7 +97,7 @@ def adjusted_views(rows: list[dict], audit: list[dict], moved_closer: set[int]) 
     moves = [move for row in rows[1:] for move in row.get("camera", []) if isinstance(move, dict)]
     changed = False
     for shot in audit:
-        if shot["shot"] >= len(moves) or moves[shot["shot"]].get("go") != shot["object"]:
+        if shot["shot"] >= len(moves) or moves[shot["shot"]].get("go") != shot["object"] or not settles(shot):
             continue
         move = moves[shot["shot"]]
         view = move.get("view")
@@ -145,15 +147,16 @@ def plan_problems(services: Services, workspace: Workspace, rows: list[dict], sc
     try:
         moved_closer: set[int] = set()
         for _ in range(MEND_PASSES):
+            voiced = planned[:1] + [{**row, "voice": voice} for row, voice in zip(planned[1:], voices, strict=True)]
             workspace.film.write_text(as_jsonl(planned))
-            workspace.voiced_film.write_text(as_jsonl(planned[:1] + [{**row, "voice": voice} for row, voice in zip(planned[1:], voices, strict=True)]))
+            workspace.voiced_film.write_text(as_jsonl(voiced))
             manifest = json.loads(film_tool(services, "plan", "--film", str(workspace.voiced_film), capture=True).stdout)
             audit = json.loads(film_tool(services, "audit", "--film", str(workspace.voiced_film), capture=True).stdout)
             if not adjusted_views(planned, audit, moved_closer):
                 break
     except FilmError as error:
         return [*found, str(error)]
-    return found + cue_problems(manifest) + audit_problems(audit)
+    return found + silence_problems(voiced, manifest) + cue_problems(manifest) + audit_problems(audit)
 
 
 async def plan(services: Services, workspace: Workspace) -> dict:

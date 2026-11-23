@@ -15,8 +15,8 @@ import type { CameraMove, FilmLine, FilmSource } from "./format";
 import { type InkBox, InkRecord } from "./inks";
 import { centerOf, focusedOn, layoutWorld, type Placement } from "./world";
 
-const DEFAULT_LEAD_SECONDS = 2;
-const DEFAULT_TAIL_SECONDS = 3;
+const DEFAULT_LEAD_SECONDS = 0.5;
+const DEFAULT_TAIL_SECONDS = 0.5;
 const CREDIT_SECONDS = 3;
 const CREDIT_FADE_SECONDS = 0.8;
 const DEFAULT_MOVE_SECONDS = 3.2;
@@ -360,7 +360,7 @@ export function frameAt(film: Film, time: number, theme: Theme): FilmFrame {
 }
 
 export function holdEnd(film: Film, shot: number): number {
-  return film.shots[shot + 1]?.start ?? film.duration;
+  return film.shots[shot + 1]?.start ?? film.creditsFrom;
 }
 
 export function framedRegion(film: Film, shot: number, frame: FilmFrame, plane: PlaneFrame): ScreenRegion | null {

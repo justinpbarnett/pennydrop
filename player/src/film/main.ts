@@ -20,6 +20,7 @@ export interface FilmManifest {
   title: string;
   lineStarts: number[];
   lineNumbers: number[];
+  creditsFrom: number;
   cues: (CueRecord & { region?: { x: number; y: number; w: number; h: number } | null })[];
   accents: Film["accents"];
 }
@@ -99,6 +100,7 @@ window.film = {
       title: source.header.title,
       lineStarts: film.lineStarts,
       lineNumbers: source.lines.map((line) => line.line),
+      creditsFrom: film.creditsFrom,
       cues: film.cues,
       accents: film.accents,
     };

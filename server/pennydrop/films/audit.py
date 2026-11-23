@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterator
+from itertools import pairwise
 
 CUE_TOLERANCE_SECONDS = 0.033
 EDGE_MARGIN = 40
 SMALLEST_READABLE_TEXT = 26
 LONGEST_UNFILLED_WAIT = 4
 LONGEST_EMPTY_STAGE = 3
+LONGEST_STILL = 3
+LONGEST_SILENCE = 1.5
+SHORTEST_HOLD = 1.5
 LINES_PER_CARD = 4
 CARD_KINDS = {"keyword", "quote", "counter", "compare", "tracker", "timeline", "text"}
 ACTING_KINDS = {"stage", "map"}
@@ -21,10 +25,18 @@ def text_too_small(shot: dict) -> bool:
     return shot["smallestText"] is not None and shot["smallestText"] < SMALLEST_READABLE_TEXT
 
 
+def settles(shot: dict) -> bool:
+    return shot["hold"] >= SHORTEST_HOLD
+
+
 def audit_problems(audit: list[dict]) -> list[str]:
     problems = []
     for shot in audit:
         where = f"camera shot {shot['shot']} at {shot['at']:.0f} s on {shot['object']}"
+        if not settles(shot):
+            moment = f"{-shot['hold']:.1f} s before it lands there" if shot["hold"] < 0 else f"{shot['hold']:.1f} s after it lands there"
+            problems.append(f"{where}: the next camera move leaves {shot['object']} {moment}, so the viewer never sees it at rest; cue the next move on a later word, give this move fewer seconds, or drop it")
+            continue
         if tight := tight_edges(shot):
             problems.append(f"{where}: the card ends with under {EDGE_MARGIN} px of room at its {', '.join(tight)}, so it is cut off or touches the frame edge; use a smaller view or reshape the card")
         if text_too_small(shot):
@@ -35,6 +47,25 @@ def audit_problems(audit: list[dict]) -> list[str]:
             problems.append(f"{where}: the camera arrives {shot['wait']:.0f} s before the first operation on {shot['object']}, so the viewer watches an unfilled piece; cue the camera move on a word nearer that operation, so the piece fills as the camera lands")
         if shot["empty"] > LONGEST_EMPTY_STAGE:
             problems.append(f"{where}: everyone has left and the piece stands empty for {shot['empty']:.0f} s while the narration goes on; cue the next entrance or appearance on a word nearer the exit, or the exit on a later word, so someone is always acting")
+        if shot["still"] > LONGEST_STILL:
+            problems.append(f"{where}: nothing moves in view for {shot['still']:.0f} s from {shot['stillFrom']:.0f} s while the narration goes on, so the scene freezes; cue an op on a word in that stretch, such as a walk, a gesture, a give, a mark on the map or the next step of the Lab, so something is always happening")
+    return problems
+
+
+def silence_problems(rows: list[dict], manifest: dict) -> list[str]:
+    spoken = [(start + word["start"], start + word["end"], row["line"]) for start, row in zip(manifest["lineStarts"], rows[1:], strict=True) for word in row["voice"]["words"]]
+    if not spoken:
+        return []
+    problems = []
+    if spoken[0][0] > LONGEST_SILENCE:
+        problems.append(f'the Film opens with {spoken[0][0]:.1f} s of silence before the first word; lower "lead" in the header, or leave it out')
+    for said, next_said in pairwise(spoken):
+        gap = next_said[0] - said[1]
+        if said[2] != next_said[2] and gap > LONGEST_SILENCE:
+            problems.append(f"line {said[2]}: the narration stops for {gap:.1f} s before line {next_said[2]}, because the line's ops run on after its last word; cue them on earlier words or give them fewer seconds, so the next line starts as this one ends")
+    ending = manifest["creditsFrom"] - spoken[-1][1]
+    if ending > LONGEST_SILENCE:
+        problems.append(f'the Film runs {ending:.1f} s of silence after its last word; lower "tail" in the header, or leave it out')
     return problems
 
 
