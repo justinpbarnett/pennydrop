@@ -251,10 +251,13 @@ A crowd of soldiers, grenadiers or cadets stands in ranks that step back up and 
 Every person and crowd is kept inside the 2400 x 1350 stage, and every set drawing is clipped to it, because the camera frames all the ink in a shot.
 A walk or entrance ends standing unless it names a pose, keeping a bearing that carries through a walk, such as a hand in the coat.
 A `map` draws places, journeys, marching armies and clashes inside a tight region, and refuses a layout whose names have no room.
+It refuses a march that takes an army straight back to the place it just left, unless a battle where it stands came between.
+Once a plan passes every other check, a second model on the factcheck route reads the narration and each map event in plain words, and every event the narration does not tell goes back to the planner, so a plan or a report is never drawn as a march.
 The plan check holds a Film to acting: every line but the last has an op on a stage, a map or a Lab, at most one line in four adds a card, and a person takes one op per word.
 It also refuses a stage left empty for more than 3 seconds while the narration goes on, once someone has acted on it.
 Something is always happening on screen and someone is always speaking: the check refuses a shot where nothing in view moves for more than 3 seconds, and a silence of more than 1.5 seconds before the first word, between lines or after the last word.
 Figures breathe on an idle loop, so stillness is read from the timeline, where an op, an entrance, an exit or a camera flight counts as motion, not from pixels.
+A pulse only points at a thing, so it does not count: on a large Lab its swell is a few pixels, and a Lab line held up by pulses reads as frozen.
 So an op that would change nothing on screen is refused: a pulse, trace or swap on a stage or map, which draw themselves as they act, and a pose, turn, light, hold or go that repeats what is already there.
 It refuses a camera move that leaves less than 1.5 seconds after the one before it lands, because the viewer never sees that shot at rest.
 `pd film revise <thread>` hands the current Film and its problems back to the planner, instead of planning the Film again from the script.
@@ -298,7 +301,7 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 - The review view's reveal has only been checked over the API, not in a browser.
 - 13 older stored Lessons predate the current validator and skip ops when played.
 - Kokoro speaks a name missing from `server/pennydrop/tts/pronunciations.py` through misaki alone, because espeak-ng is not installed for its fallback.
-- Superseded Film backups (Napoleon v1 to v5, page table walk v1 to v4) sit in their `data/films` workspaces and wait for a decision before deletion.
+- Superseded Film backups (Napoleon v1 to v7, page table walk v1 to v5) sit in their `data/films` workspaces and wait for a decision before deletion.
 - An algorithm outline plays the same small runs at every level, so an advanced Lesson still walks a seven value trace its learner already knows, and the judge fails it on `pitched_to_level` even when its words fit.
 - A Course Topic Lesson is written with no Profile, so all 39 CS 6200 Topic Lessons are pitched at beginner, though CS 6200 is a graduate course.
 - A Profile has one Level for every subject, so an engineer who is advanced in computing is pitched advanced in biology too.
