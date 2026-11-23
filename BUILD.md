@@ -26,6 +26,12 @@ The goal and the design live outside the repo, in the workshop initiative `penny
   The `pennydrop` node is the workshop's `com.workshop.tailnet-alias.pennydrop` launchd agent, described in `~/dev/workshop/docs/infrastructure.md`.
 - The tailnet holds the Mac and an iPhone, and no iPad yet.
 - Server port 8740, Vite dev port 5173 with a proxy to 8740.
+  The live server is the launchd agent `com.pennydrop.serve`, which runs `deploy/serve.sh` at login and again after a crash.
+  Each start moves the worktree at `~/.local/share/pennydrop/live` to the latest commit on `main`, builds the player there and serves it, so uncommitted edits never go live.
+  The worktree links `data` and `.env` back to the repo, so Lessons, Profiles and Films stay shared.
+  Deploy `main` with `launchctl kickstart -k gui/$(id -u)/com.pennydrop.serve`, never with a hand-started `pd serve`, which would fight launchd for the port.
+  The log is `~/Library/Logs/pennydrop/serve.log`.
+  Install it on a new Mac with `mkdir -p ~/Library/Logs/pennydrop && cp deploy/com.pennydrop.serve.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pennydrop.serve.plist`.
 - `claude -p` measured at 1.5 s to first token for Haiku 5.5 and 1.6 s total for a short Sonnet 5.5 answer.
   `--bare` is never used, because it skips subscription OAuth.
 - `codex exec -m gpt-6.2-astra` answers a short prompt in about 5 s.
