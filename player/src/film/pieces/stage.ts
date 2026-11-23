@@ -3,7 +3,7 @@ import { textWidth } from "../../text-metrics";
 import { COSTUMES, type CostumeName, drawFigure, type Holding, type Item, ITEMS, type Look } from "../acting/body";
 import { alive, jittered, POSE_NAMES, POSES, type PoseName, walkingPose } from "../acting/poses";
 import { BONE, type Gait, GAITS, type GaitName, type Ground, lerpPose, type Pose, posed, type Skeleton, smooth, travelled, travelSeconds, walking } from "../acting/rig";
-import { drawThing, type FireMoment, GENERAL_MARKS, SET_NAMES, type Setting, settingOf, STAGE_H, STAGE_W, THING_KINDS, type ThingKind } from "../acting/sets";
+import { drawThing, type FireMoment, GENERAL_MARKS, MUZZLE_REACH, SET_NAMES, type Setting, settingOf, STAGE_H, STAGE_W, THING_KINDS, type ThingKind } from "../acting/sets";
 
 const TONES = ["lead", "plain", "dim", "lit"] as const;
 type Tone = (typeof TONES)[number];
@@ -57,6 +57,8 @@ const CROWD_STAGGER = 0.45;
 const MAX_CROWD = 60;
 const MAX_WORDS = 16;
 const FACE_GAP = 250;
+const SIDE_BY_SIDE = 0.8;
+const MUZZLE_CLEAR = 420;
 const FIGURE_SCALE = 1.25;
 const LABEL_SIZE = 44;
 const SPEECH_SIZE = 44;
@@ -467,6 +469,59 @@ function shownAs(state: StageState, op: LabOp, shown: boolean): StageState {
   return withActor(state, { ...actor, on: shown });
 }
 
+const who = (state: StageState, entry: { id: string }) => `${state.objectId}[${entry.id}]`;
+
+interface Reach {
+  from: number;
+  to: number;
+}
+
+const reachOf = (actor: Actor): Reach => ({ from: actor.x - halfWidth(actor), to: actor.x + halfWidth(actor) });
+const between = (a: number, b: number): Reach => ({ from: Math.min(a, b), to: Math.max(a, b) });
+const meets = (a: Reach, b: Reach) => a.from < b.to && b.from < a.to;
+
+function crowding(state: StageState, a: Actor, b: Actor): string | null {
+  const apart = Math.abs(a.x - b.x);
+  const room = halfWidth(a) + halfWidth(b);
+  if (a.count > 1 && b.count > 1 && apart < room) {
+    return `the crowds ${who(state, a)} and ${who(state, b)} overlap and would read as one crowd: keep their centers at least ${Math.ceil(room)} apart, make a crowd smaller, or walk one up to the other by its cast id`;
+  }
+  if (a.count === 1 && b.count === 1 && apart < room * SIDE_BY_SIDE) {
+    return `${who(state, a)} and ${who(state, b)} stand on top of each other: keep two people at least ${Math.ceil(room * SIDE_BY_SIDE)} apart, or walk one up to the other by its cast id`;
+  }
+  if (a.count === 1 && b.count > 1 && apart < halfWidth(b)) {
+    return `${who(state, a)} stands inside the crowd ${who(state, b)} and is hidden behind it: list the crowd before ${a.id} in the cast so ${a.id} stands in front, or move ${a.id} clear of it`;
+  }
+  return null;
+}
+
+function inFrontOfMuzzle(state: StageState, actor: Actor): string | null {
+  const gun = state.things.find((thing) => thing.on && thing.kind === "cannon" && meets(reachOf(actor), between(thing.x + thing.facing * MUZZLE_REACH, thing.x + thing.facing * (MUZZLE_REACH + MUZZLE_CLEAR))));
+  if (!gun) return null;
+  const [faces, behind] = gun.facing > 0 ? ["right", "left"] : ["left", "right"];
+  return `${who(state, actor)} stands in front of the muzzle of ${who(state, gun)}: people stand beside or behind a gun (this one faces ${faces}, so to its ${behind}), never in front of it`;
+}
+
+function roomy(state: StageState): StageState {
+  const shown = state.actors.filter((actor) => actor.on);
+  for (const [index, actor] of shown.entries()) {
+    const problem = inFrontOfMuzzle(state, actor) ?? shown.slice(index + 1).reduce<string | null>((found, other) => found ?? crowding(state, actor, other), null);
+    if (problem) fail(problem);
+  }
+  return state;
+}
+
+function lineOfFire(state: StageState, gun: Thing, at: Point | null): void {
+  const muzzle = gun.x + gun.facing * MUZZLE_REACH;
+  const end = at?.x ?? muzzle + gun.facing * STAGE_W;
+  const struck = state.actors.find((actor) => {
+    const reach = reachOf(actor);
+    const isTarget = reach.from <= end && end <= reach.to;
+    return actor.on && !isTarget && meets(reach, between(muzzle, end));
+  });
+  if (struck) fail(`op "fire": ${who(state, struck)} stands in the line of fire between ${who(state, gun)} and what it fires at: walk them behind the gun first, or fire "at" them`);
+}
+
 const STAGE_OPS: Record<string, StageOp> = {
   enter: {
     doc: 'walks a person or crowd in from the side they wait on ("at": "off left" or "off right") to "to": a mark, an x or a cast id to walk up to; optional "pace" (walk, run or march), "face" and "pose" to end in',
@@ -621,7 +676,7 @@ const STAGE_OPS: Record<string, StageOp> = {
       const gun = findThing(state, op.parts[0], op.name);
       if (gun.kind !== "cannon") fail(`op "fire": ${state.objectId}[${gun.id}] is a ${gun.kind}, not a cannon`);
       if (!gun.on) fail(`op "fire": ${state.objectId}[${gun.id}] is not shown`);
-      target(state, settingFor(state), op.args.at);
+      lineOfFire(state, gun, target(state, settingFor(state), op.args.at));
       return state;
     },
     act(cue) {
@@ -873,13 +928,13 @@ export const primitive: LabDef<Record<string, unknown>, StageState> = {
       things: `optional props by id: {"kind": ${THING_KINDS.join(", ")}; "at": a mark or an x; "facing": left or right; "hidden": true}`,
     },
     example: [
-      '{"scene":{"toulon":{"kind":"stage","set":"harbor","caption":"Toulon, 1793","cast":{"deputy":{"as":"deputy","at":"center right","label":"Saliceti","holding":"orb","facing":"left"},"bonaparte":{"as":"officer","at":"off left","label":"Bonaparte","tone":"lead"}},"things":{"gun":{"kind":"cannon","at":"battery","facing":"right"}}}},"do":[{"cue":"a young captain","op":"enter","on":["toulon[bonaparte]"],"to":"deputy"},{"cue":"gives him the guns","op":"give","on":["toulon[deputy]","toulon[bonaparte]"]},{"cue":"opens fire","op":"fire","on":["toulon[gun]"],"at":"sea"}]}',
+      '{"scene":{"toulon":{"kind":"stage","set":"harbor","caption":"Toulon, 1793","cast":{"deputy":{"as":"deputy","at":"far right","label":"Saliceti","holding":"orb","facing":"left"},"bonaparte":{"as":"officer","at":"off left","label":"Bonaparte","tone":"lead"}},"things":{"gun":{"kind":"cannon","at":"battery","facing":"right"}}}},"do":[{"cue":"a young captain","op":"enter","on":["toulon[bonaparte]"],"to":"deputy"},{"cue":"gives him the guns","op":"give","on":["toulon[deputy]","toulon[bonaparte]"]},{"cue":"opens fire","op":"fire","on":["toulon[gun]"],"at":"sea"}]}',
     ],
   },
   ops: Object.fromEntries(Object.entries(STAGE_OPS).map(([name, op]) => [name, {
     doc: op.doc,
     seconds: (labOp: LabOp, state: StageState) => op.seconds(labOp, state),
-    apply: (state: StageState, labOp: LabOp) => op.apply(state, labOp),
+    apply: (state: StageState, labOp: LabOp) => roomy(op.apply(state, labOp)),
     trueTime: true,
   }])),
   init(spec, objectId) {
@@ -895,13 +950,13 @@ export const primitive: LabDef<Record<string, unknown>, StageState> = {
     if (twice) fail(`${objectId}[${twice}] is both in the cast and a thing: give each a different id`);
     const state: StageState = { objectId, set, steps, caption: stringField(spec, "caption", objectId, ""), actors, things };
     const cast = record(spec.cast, objectId);
-    return {
+    return roomy({
       ...state,
       actors: actors.map((actor) => {
         const facing = record(cast[actor.id], objectId).facing;
         return facing === undefined ? actor : { ...actor, facing: facingArg(facing, actor.x, state, `${objectId}[${actor.id}] "facing"`) };
       }),
-    };
+    });
   },
   size: () => ({ w: STAGE_W, h: STAGE_H }),
   draw: (state) => scene(state, [], 0),

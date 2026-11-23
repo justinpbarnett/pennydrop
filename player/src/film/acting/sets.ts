@@ -5,6 +5,7 @@ import type { Ground } from "./rig";
 export const STAGE_W = 2400;
 export const STAGE_H = 1350;
 export const FLOOR = 1180;
+export const MUZZLE_REACH = 170;
 const SET_Z = 1;
 const LINE = 3.5;
 
@@ -311,7 +312,7 @@ export function drawThing(id: string, kind: ThingKind, x: number, facing: number
       const kick = fire ? -f * 34 * Math.sin(Math.PI * Math.min(1, fire.progress / 0.45)) * (fire.progress < 0.45 ? 1 : 0) : 0;
       const cx = x + kick;
       const breech = { x: cx - f * 90, y: y - 104 };
-      const muzzle = { x: cx + f * 170, y: y - 134 };
+      const muzzle = { x: cx + f * MUZZLE_REACH, y: y - 134 };
       const wheel: number[] = [];
       for (let i = 0; i < 20; i++) wheel.push(cx + 62 * Math.cos((i / 20) * Math.PI * 2), y - 62 + 62 * Math.sin((i / 20) * Math.PI * 2));
       ink.group("trail", [capsule({ x: cx - f * 40, y: y - 80 }, 14, { x: cx - f * 200, y: y - 10 }, 10)], look);
