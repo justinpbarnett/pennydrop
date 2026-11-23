@@ -36,8 +36,6 @@ export async function registerAllLabs(): Promise<void> {
   await registerMintedLabs();
 }
 
-export const registerFilmPieces = () => registerSources(["film/pieces/*.ts"]);
-
 export async function readLessonFile(pathOrId: string) {
   const path = pathOrId.endsWith(".jsonl") ? resolve(pathOrId) : resolve(LESSONS_ROOT, `${pathOrId}.jsonl`);
   const id = path.split("/").pop()!.replace(/\.jsonl$/, "");

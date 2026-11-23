@@ -9,7 +9,7 @@ The claim table:
 
 {claims}
 
-{craft_narration}
+{craft}
 
 Rules.
 

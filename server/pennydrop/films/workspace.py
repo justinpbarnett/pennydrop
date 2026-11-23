@@ -12,9 +12,10 @@ STAGE_FILES = {
     "pattern": "pattern.json",
     "script": "script.json",
     "factcheck": "fact-check.json",
-    "plan": "plan.json",
+    "storyboard": "storyboard.json",
+    "design": "design.json",
 }
-BRIEF_FIELDS = ("topic", "thread", "minutes", "theme")
+BRIEF_FIELDS = ("topic", "thread", "minutes")
 
 
 @dataclass(frozen=True)
@@ -26,16 +27,24 @@ class Workspace:
         return self.home.name
 
     @property
-    def film(self) -> Path:
-        return self.home / f"{self.thread}.film.jsonl"
-
-    @property
-    def voiced_film(self) -> Path:
-        return self.home / f"{self.thread}.voiced.jsonl"
-
-    @property
     def fact_check_table(self) -> Path:
         return self.home / "fact-check.md"
+
+    @property
+    def narration(self) -> Path:
+        return self.home / "narration"
+
+    @property
+    def sheets(self) -> Path:
+        return self.home / "sheets"
+
+    @property
+    def shots(self) -> Path:
+        return self.home / "shots"
+
+    @property
+    def frames(self) -> Path:
+        return self.home / "frames"
 
     @property
     def measures(self) -> Path:

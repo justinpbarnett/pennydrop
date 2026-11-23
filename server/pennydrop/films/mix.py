@@ -11,7 +11,6 @@ import soundfile
 
 from .. import loudness
 from .kits import SAMPLE_RATE, SoundKit
-from .voices import SpokenLine
 
 VOICE_RMS_DB = -20.0
 BED_RMS_DB = -34.0
@@ -21,7 +20,13 @@ DUCK_ATTACK_SECONDS = 0.08
 DUCK_RELEASE_SECONDS = 0.6
 SPEECH_FLOOR = 0.01
 ENVELOPE_RATE = 100
-VIDEO_FPS = 30
+
+
+@dataclass(frozen=True)
+class Accent:
+    time: float
+    tone: str
+    gain: float
 
 
 @dataclass(frozen=True)
@@ -61,17 +66,13 @@ def _duck_gain(voice: numpy.ndarray, count: int) -> numpy.ndarray:
     return numpy.interp(numpy.arange(count) / step, numpy.arange(frames), gain)
 
 
-def build_mix(manifest: dict, spoken: list[SpokenLine], kit: SoundKit, directory: Path) -> MixReport:
+def build_mix(narration: Path, accents: list[Accent], seconds: float, kit: SoundKit, directory: Path) -> MixReport:
+    """Lays the narration over the kit's bed, ducked under speech, with accents a little below the voice, mastered to the delivery loudness."""
     directory.mkdir(parents=True, exist_ok=True)
-    seconds = math.ceil(manifest["duration"] * VIDEO_FPS) / VIDEO_FPS
     count = round(seconds * SAMPLE_RATE)
-
     voice = numpy.zeros(count)
-    for line, start in zip(spoken, manifest["lineStarts"], strict=True):
-        clip = _decode_mono(line.path)
-        offset = round(start * SAMPLE_RATE)
-        end = min(count, offset + len(clip))
-        voice[offset:end] += clip[: end - offset]
+    spoken = _decode_mono(narration)[:count]
+    voice[: len(spoken)] = spoken
     speaking = numpy.abs(voice) > SPEECH_FLOOR * numpy.abs(voice).max()
     voice *= 10 ** ((VOICE_RMS_DB - _rms_db(voice, speaking)) / 20)
     stereo_voice = numpy.stack([voice, voice], axis=1)
@@ -84,16 +85,16 @@ def build_mix(manifest: dict, spoken: list[SpokenLine], kit: SoundKit, directory
     bed *= _duck_gain(voice, count)[:, None]
 
     accent_loudness = voice_loudness.integrated - ACCENT_UNDER_VOICE_LU
-    tones = {tone: _leveled(kit.accent(tone), accent_loudness) for tone in {accent["tone"] for accent in manifest["accents"]}}
-    accents = numpy.zeros((count, 2))
-    for accent in manifest["accents"]:
-        tone = tones[accent["tone"]] * accent["gain"]
-        offset = round(accent["time"] * SAMPLE_RATE)
+    tones = {tone: _leveled(kit.accent(tone), accent_loudness) for tone in {accent.tone for accent in accents}}
+    accent_track = numpy.zeros((count, 2))
+    for accent in accents:
+        tone = tones[accent.tone] * accent.gain
+        offset = round(accent.time * SAMPLE_RATE)
         end = min(count, offset + len(tone))
-        accents[offset:end] += tone[: end - offset]
+        accent_track[offset:end] += tone[: end - offset]
 
     _write(paths["bed"], bed)
-    _write(paths["mix"], stereo_voice + bed + accents)
+    _write(paths["mix"], stereo_voice + bed + accent_track)
     loudness.normalize(paths["mix"], paths["master"])
     return MixReport(voice_loudness, loudness.measure(paths["bed"]), loudness.delivered(paths["master"]), seconds)
 

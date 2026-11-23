@@ -63,7 +63,7 @@ Learner data (Profiles, answers, lesson logs, uploaded course material) stays in
 
 Pennydrop is not a chatbot that answers in text, not a video generator, not a flashcard deck, not a language course, not a course marketplace and not a homework solver.
 It is not a hosted service: its model routes run on its owner's own subscriptions, which cannot serve other people, so anyone else runs their own copy.
-A Film is its own work, acted on a stage with Labs as Set pieces and fact checked by a second model family, never a recorded Lesson.
+A Film is its own work, staged as Blender dioramas where people act out the events and fact checked by a second model family, never a recorded Lesson.
 Films are made for Pennydrop's learners; publishing them to an outside audience belongs to a separate project.
 
 A change aligns when it helps a learner reach and hold a Rule faster or more surely, keeps every shown fact computed or checked, and keeps each Lesson on its one point.

@@ -4,12 +4,10 @@ import { allDefinitions } from "../src/registry";
 import { relationDocs } from "../src/relation";
 import { THEME_IDS } from "../src/theme";
 import { verbSummaries } from "../src/verbs";
-import { mintedIds, registerAllLabs, registerFilmPieces } from "./load";
+import { mintedIds, registerAllLabs } from "./load";
 
-const filmOnly = process.argv.includes("--film");
 await registerAllLabs();
-if (filmOnly) await registerFilmPieces();
-const entries = allDefinitions().filter(({ def }) => !(filmOnly && def.overlay)).map(({ key, def }) => ({ key, id: def.id, title: def.title, ...labCatalog(def), minted: key.startsWith("lab:") && mintedIds.includes(def.id) }));
+const entries = allDefinitions().map(({ key, def }) => ({ key, id: def.id, title: def.title, ...labCatalog(def), minted: key.startsWith("lab:") && mintedIds.includes(def.id) }));
 const labs = entries.filter((entry) => entry.key.startsWith("lab:"));
 const primitives = entries.filter((entry) => entry.key.startsWith("primitive:"));
 

@@ -1,8 +1,7 @@
 ## Film craft
 
-A Film is one continuous shot through one world.
-The camera flies between Set pieces that sit in a single space, and it never cuts.
-Narration is the spine of the Film, and everything on screen is timed to a word of it.
+Narration is the spine of the Film.
+The storyboard cuts every shot to a stretch of it, and the people on screen act out what it says as it is said.
 
 ### Narration
 
@@ -23,63 +22,3 @@ Write a story told aloud, not a report read on a page.
 - A quotation of a person is only ever one that the source pack traces to their own work, their correspondence or a contemporary memoir. Never quote anyone from a popular saying. Quote at most three times in the Film, each quotation short, and only where the words themselves are the event.
 - The Thread, the comparison with today, is spoken in the cold open, the payoff and the close, and where it breaks, once and plainly. The middle of the Film tells the story and does not stop for asides about managers or modern life.
 - Never talk about the Film itself ("this film shows"). The close asks one question the viewer can carry away.
-
-### Set pieces
-
-A Film is watched, not read.
-Every line shows something happen: people act it out on a stage, forces move on a map, or a mechanism runs on a Lab.
-A card of text is the exception, kept for the few words a viewer must read.
-
-- Show the people a line is about doing what the narration says, on a stage. Walk them on, hand over the command, have them salute, plead, fall or flee, fire the guns, let the crowd cheer or run.
-- Show where things happened and how forces moved on a map: a journey drawn place by place, armies marching, battles bursting where they meet.
-- Run every mechanism on a Lab. While the narration explains a part of it, fly the camera onto that part or run the Lab's next step on the word that names it. A pulse only points at a thing; it never stands in for something happening.
-- Act an abstract idea instead of printing it. Power lent is an orb handed from the person who lends it to the one who borrows it. A fall from favor is a person dimmed or vanishing. A rise is a climb up a ranks staircase.
-- A card is only for what no picture carries: a term the Film turns on (keyword), a written line the viewer must read whole (quote), a number that must be seen (counter), where a comparison holds and where it breaks (compare), the steps of a procedure (tracker), dates in order (timeline), and the closing question (question). At most one line in four adds a card, and the closing question card does not count.
-- A quote or question card waits blank until its "write" op writes its words on at the pace the narration reads them. Word the card as the narration reads it, cue "write" on the first word the narration reads from it, and bring the camera onto the card on that word or just before. Until then, keep the camera on the stage, map or Lab that acts the line. Never morph or recolor a card to keep it moving.
-
-The catalog at the end of this document is the exact list of pieces, Labs, their fields and their ops.
-Use only what the catalog lists.
-
-### Acting a scene
-
-- Use one stage for each place. A stage stays in the world, so a later line acts on it again by its id without adding it again. Add a new stage when the story moves to a new place.
-- Cast only the people a line needs: a few people and at most two crowds. The protagonist has "tone": "lead" and a label, and every person the narration names has a label.
-- A person waits offstage ("at": "off left" or "off right") and enters on the cue that brings them in, or stands on stage from the start when the line opens on them.
-- Give a person one op on a cue. To walk somewhere and end in a pose, give the "walk" its "pose", and do not also cue a "pose" on the same word.
-- Every op on a stage runs in real time. While one person walks, the others act on their own cues, but that person's next op waits for the walk to end. A walk across the whole stage takes about five seconds, so cue the walker's next op that far into the narration, or walk a shorter way.
-- Block the stage so every person reads. People stand clear of each other, crowds stand clear of each other, and nobody stands in front of a gun's muzzle or in its line of fire. The stage refuses blocking that breaks this and says what to change.
-- A "say" bubble holds only words the source pack records that person saying, at most sixteen words. Never invent dialogue.
-- A caption names the place and year, such as "Toulon, 1793".
-
-### Showing it on a map
-
-- Use one map for each theater of events, and keep its "region" tight around its places so their names have room. A map refuses a layout with no room and says which place to leave out.
-- List every place the map will name, in the order the story reaches them.
-- A journey uses "go". Armies use "march" and "clash", and a place that gives up uses "surrender". A map stays in the world, so a later line can move its armies again.
-- Move a force only where the story says it went, on the word that says so. A plan, a request or a report is not a march: act it on a stage. An army never marches back the way it came unless a battle drove it.
-
-### Placement
-
-A Film draws objects, not connector lines: never use the "connect" op or an "edge" object.
-
-Objects sit in one world, placed relative to an earlier object with "at": {"right of": "id"}, "below", "above", "left of", "behind", "in front of".
-Name every object with a short unique id.
-Objects are never removed: an object stays in the world after its line. A Lab op named "remove" removes a node inside that Lab and needs a "node" argument, so never use it to take an object away.
-Lay the Film out as one readable route: a new object goes next to the object the camera is leaving, so each flight is a short, steady move.
-Never place an object so that a flight must cross the whole world, and never stack a new card directly beside text that stays on screen at a size too small to read.
-
-### Cues
-
-- Every `do` op, every camera move and every sound accent has a `cue`: a short exact phrase copied from the line's narration (case and punctuation as written). The op happens on that word.
-- A counter's `count` op is cued on the word that says the number, and the counter is added in the Scene of the line whose narration says it. A counter never sits on its dash for more than ten seconds. When its number is said late in a line, do not put the counter in the line's Scene: bring it in with a `create` op (`"op": "create", "on": ["id"], "spec": {...piece spec with its \"at\"}`) cued on the few words just before the number, and count it on the number word itself.
-- A line can have one to three camera moves, each cued on a phrase, `"go"` an object id, `"view"` one of wide, fit, close, `"elevation"` a few degrees of tilt (between -4 and 4), `"seconds"` between 2.5 and 4.
-- A sound accent marks a turn in the story, such as a reversal, a fall or the ending, so most lines carry none and a Film carries at most one for every four lines: `{"cue": "...", "tone": "hit"}` where tone is one of hit, chime, tick, rise, swell. It plays well under the voice, as a soft punctuation mark.
-- Every cue phrase must be findable in the narration, and where a phrase would repeat inside a line, choose one that is unique within the line.
-
-### Camera discipline
-
-- The first camera move of a line flies to the object that the line introduces, or to the one the narration is about.
-- Use "fit" for a stage, a map, a Lab or a card that must be read, and "close" for one short word.
-- The plan check refuses any move that ends with text under 26 pixels high on screen, so a "wide" move is only for a short word, a number or a question card that stays large; never use it as an overview of small text.
-- An object sits fully inside the frame when the move ends, with margin on every side.
-- The previous section's objects must not peek in at the edge of the frame when the camera arrives. Place the new object far enough from the older ones, in the direction of the route, that only the object the camera is on is in the frame.

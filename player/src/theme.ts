@@ -30,7 +30,6 @@ export interface Theme {
   ease: string;
   motionScale: number;
   backdrop: { kind: BackdropKind; vignette: number; glow: number };
-  film?: { soundKit: string; voice: string };
 }
 
 const codeFont: ThemeFont = { family: "'JetBrains Mono', ui-monospace, monospace", weight: 400, tracking: 0 };
@@ -84,7 +83,6 @@ export const THEMES: Record<ThemeId, Theme> = {
     ease: "power3.inOut",
     motionScale: 1.3,
     backdrop: { kind: "grain", vignette: 0.7, glow: 0.35 },
-    film: { soundKit: "warm-hall", voice: "narrator-low" },
   },
   kids: {
     id: "kids",

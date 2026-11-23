@@ -53,7 +53,7 @@ The goal and the design live outside the repo, in the workshop initiative `penny
 - Lab ids: `array`, `graph`, `code`, `address`, `scheduler`, `threads`, `shapes`, `physics`, `picture`.
   Minted Lab ids: `hash`, `memory`, `sequence`, `bits`, `plot`, `map`, `words`, `music`, `circuit`.
 - Theme ids: `pattern`, `film`, `kids`, `plain`.
-- Each Lab is one TypeScript module whose state logic and layout are pure and DOM free, so the browser player, the bun validator and the Film renderer all run the same code.
+- Each Lab is one TypeScript module whose state logic and layout are pure and DOM free, so the browser player and the bun validator run the same code.
   The Lab registry finds Labs by glob, so adding a Lab touches no shared file.
 - Writer tools are Step directives (`trace`, `simulate`, `math`, `images`, `locate`) that the server expands into Scene objects and operations before a Step reaches the player.
   This keeps the writer to one streamed call with no tool round trips.
@@ -200,7 +200,7 @@ Later entries wait for it only where they clash with what it holds.
 On a Lab with `concurrentParts`, such as the stage, a trueTime op holds only the parts it names, so one person walks while the others act on their own cues.
 On any other Lab it holds everything, a scene change waits for every hold, and an object arriving or leaving waits for holds on itself.
 A trueTime op still running when the next segment starts carries into it and draws by the clock.
-`segmentProgress` and `trueProgress` in `timeline.ts` are the one place segment time becomes progress, and every renderer, the Film included, uses them.
+`segmentProgress` and `trueProgress` in `timeline.ts` are the one place segment time becomes progress, and every renderer uses them.
 `DRAWABLE_KINDS` in `render.ts` is the painter's table, and `Painted` is derived from `Drawable`.
 The code listing is shared through `codeListing` and `languageField` in `highlight.ts`.
 Roles `series1` to `series6` give each item in a set its own color in every Theme.
@@ -232,58 +232,35 @@ Lesson writers ask for a missing Lab through `store.file_lab_request(ask, lab_hi
 
 ### Film
 
-A Film is a high production educational film that renders offline to an MP4.
-Five rules hold it: the model writes intent and code draws, compute never narrates, Scenes diff by object id and objects never jump, narration drives the clock, and every op fires on its Cue word.
-A Film file is JSONL.
-The first line is `{"film": {title, theme, thread?, lead?, tail?, start?, opening?}}`.
-`theme` names a Theme that carries the sound kit and the narrator voice.
-`lead` and `tail` are seconds of picture before the first word and after the last, defaulting to half a second each.
-A Film with credits shows them over its last 4 seconds, under the last words: the camera eases up and back until the shot fits above a band at the bottom, and the credits fade into that band.
-`start` is a Scene spec map shown before line 1, and `opening` is `{go, view?, elevation?}` for the first camera pose.
-Every other line is `{line, say, scene?, do?, camera?, sound?, voice?}`.
-`line`, `say`, `scene`, `do` and `voice` mean what they mean in a Lesson Step, and Film time is Timeline time plus `lead`.
-`camera` is a list of `{cue, go, view?, elevation?, seconds?}`, and each move starts on the word its `cue` matches.
-The camera never rolls and never swings sideways: it dollies and tilts, and each shot is framed on the measured ink of its object so the content sits centred with even margins.
-Dust drifts defocused behind the content and keeps off its ink.
-`sound` is a list of `{cue, tone, gain?}`, and the tone is one of `hit`, `chime`, `tick`, `rise` or `swell`.
-A sound accent marks a turn in the story, so the plan check allows at most one for every four lines.
-A `cue` is a word or phrase from `say`, matched in order.
-The `at` field of a scene object is `{relation: id}` with the relations `right of`, `left of`, `above`, `below`, `behind`, `in front of` and `next`, and the world layout places each object on a plane in 3D.
-The pieces are the cards `keyword`, `quote`, `counter`, `compare`, `tracker`, `timeline` and `question`, the line drawing `figure`, the acted scene `stage` and the campaign map `map`, and Labs draw on their own planes unchanged.
-A `stage` puts line-drawn people on a set, where they walk, pose, hand things over, speak quoted words, fall and fire cannon.
-Its `things` are props named from a table of game-icons silhouettes, each drawn at its real height against the figure, and a thing can rest `atop` a surface such as a table, a crate or a barrel.
-Guns kick and flash when they fire, boats bob and roll in the water and push the harbor's sketched ships aside, trees, crops and flags sway, and flames throw a soft flickering glow.
-`player/tools/prop-icons.ts` regenerates `prop-icons.json` from the pinned `@iconify-json/game-icons` package before every build.
-A Film that shows props ends on a credit naming their icon authors, as CC BY 3.0 asks.
-It refuses blocking where people or crowds overlap, where anyone stands in front of a muzzle, or where a shot passes through someone.
-A crowd of soldiers, grenadiers or cadets stands in ranks that step back up and to the right, and the front rank hides the legs of the ranks behind it.
-Every person and crowd is kept inside the 2400 x 1350 stage, and every set drawing is clipped to it, because the camera frames all the ink in a shot.
-A walk or entrance ends standing unless it names a pose, keeping a bearing that carries through a walk, such as a hand in the coat.
-A `map` draws places, journeys, marching armies, clashes and surrenders inside a tight region, and refuses a layout whose names have no room.
-A surrender raises a white flag by the place's name, so a city that gives up is shown without anyone traveling there.
-The flag keeps waving in the wind after it settles, as flags sway on a stage, so a map held after a surrender is never frozen.
-It refuses a march that takes an army straight back to the place it just left, unless a battle where it stands came between.
-Once a plan passes every other check, a second model on the factcheck route reads the narration and each map event in plain words, naming every place a journey's route runs through, and every event the narration does not tell goes back to the planner, so a plan, a report or a surrender is never drawn as a march.
-It gives a verdict on every event, and an event it calls told must quote the narration that tells it word for word, so an answer that skims past an event is refused and asked again instead of passing it.
-The plan check holds a Film to acting: every line but the last has an op on a stage, a map or a Lab, at most one line in four adds a card, and a person takes one op per word.
-It also refuses a stage left empty for more than 3 seconds while the narration goes on, once someone has acted on it.
-Something is always happening on screen and someone is always speaking: the check refuses a shot where nothing in view moves for more than 3 seconds, and a silence of more than 1.5 seconds before the first word, between lines or after the last word.
-Figures breathe on an idle loop, so stillness is read from the timeline, where an op, an entrance, an exit or a camera flight counts as motion, not from pixels.
-A pulse only points at a thing, so it does not count: on a large Lab its swell is a few pixels, and a Lab line held up by pulses reads as frozen.
-So an op that would change nothing on screen is refused: a pulse, trace or swap on a stage or map, which draw themselves as they act, and a pose, turn, light, hold or go that repeats what is already there.
-A quote or question card waits blank until its `write` op, which writes the words on at the narration's pace of 0.05 seconds a character, word by word, so a card moves while it is read.
-Each word is cut at the middle of the ink gap to the next word, so a serif that reaches past its advance never shows early.
-The check refuses a shot that lands on a blank piece no later op fills, or that waits more than a second for it to start filling, since a blank card is a frozen screen.
-It refuses a camera move that leaves less than 1.5 seconds after the one before it lands, because the viewer never sees that shot at rest.
-`pd film revise <thread>` hands the current Film and its problems back to the planner, instead of planning the Film again from the script.
-The film page `player/film.html` draws a pure function of (film, time, Theme) through `window.film` with `load`, `seek` and `regions`.
-`bun player/tools/film.ts render` draws 1920x1080 frames at 30 fps in parallel headless pages, pipes them to ffmpeg as H.264 yuv420p, writes `<out>.manifest.json`, and reports frames per second.
-`pd film render <film> [--out]` voices each line through the TTS seam at its narrator's pace (Kokoro speaks the Film narrator at 0.85 of its Lesson speed, about 172 words a minute), builds a seeded sound kit and a bed ducked under speech, levels each accent so its loudest 400 ms sits 12 LU under the voice's integrated loudness, normalizes to -14 LUFS with true peak at most -1.5 dBTP through a limiter with a 0.3 dB margin, and muxes into the MP4.
-Rendered media goes under the gitignored `data/films/<thread>/`.
-`pd film check <mp4>` reports loudness, true peak, and for every Cue the offset in ms between the heard word and the op start, with max and mean against the 33 ms bar, plus the delay until pixels change in the op's region.
-It fails on dead air: any silence over 1.5 seconds in the heard narration, from the first frame to the last, placed by where each line is actually heard in the mix.
-It ends with the four measures the design asks of each pilot: render minutes by stage (voice, draw, mix, written into the render manifest), tokens by stage and review minutes (read from `data/films/<thread>/measures.json`, which the session that wrote the Film fills in), and fact check catches (the rows of `data/films/<thread>/fact-check.md` whose verdict is `corrected` or `removed`).
-`bun player/tools/film.ts plan` prints the estimated duration, `audit` prints the camera table with tilt, margins and the smallest text in pixels at 1080p per shot (keep it at 26 or more), and `stills` writes a frame per shot; a Film runs about 0.74 of its plan estimate.
+A Film is a narrated educational film staged in Blender dioramas, where people act out the events, rendered offline to an MP4.
+It has its own slow, deliberate pipeline, apart from Lessons, and it can take as long as it needs.
+Each stage is `pd film <stage> <thread>`, which reads and writes files under the gitignored `data/films/<thread>/`.
+The stages run in order: `research`, `pattern`, `script`, `factcheck`, `narrate`, `storyboard`, `design`, `shoot` and `render`.
+Models write JSON specs, and the fixed engine in `server/pennydrop/films/diorama/` turns them into Blender scenes, so no model writes Blender code.
+`prompts/shot-format.md` is the spec format that the design and shot writers follow and the engine reads.
+`narrate` voices every script line with the Film narrator and writes `narration/narration.wav` and `narration/timing.json`.
+The word timings in `timing.json` are the Film's one clock.
+`storyboard` cuts the narration into shots of 2.5 to 12 seconds, and each shot starts on words quoted from the narration.
+It names at most 10 sets and a cast of roles, each with its looks, and the first shot on a set is wide.
+`design` writes the sets, characters, looks and props, renders a design sheet, and a reviewer model judges the sheet's stills against the storyboard and the research.
+`shoot` stages each shot.
+A writer drafts the shot's spec, the engine validates it and renders preview stills, and a reviewer judges the stills against the board, the narration and the looks.
+The writer gets each problem back and redrafts, up to 5 rounds.
+Consecutive shots on one set form a sequence, staged in order, so each shot starts from the one before it; three sequences are staged at once.
+An accepted take is kept in `shots/<id>.json` with a key over the design, the board's shot and its place on the clock, so a rerun redoes only shots that changed or failed.
+`render` renders each shot's frames at 1920x1080 and 24 fps on the Film's clock, so shot k starts on frame round(start x 24).
+It encodes each shot to a segment, cuts the segments into one picture, mixes the narration over the warm-hall bed, and muxes `<thread>.mp4`.
+A rerun keeps every segment that already has all its frames.
+Blender runs at nice 10, with at most `[blender] workers` processes of `threads` threads each, because a full render runs the Mac hot.
+The mix normalizes to -14 LUFS with true peak at most -1.5 dBTP.
+`pd film check <thread>` reports the following, and fails on any of the last four:
+- loudness and true peak;
+- the word error rate of the heard narration, line by line;
+- spelled letters spoken too short;
+- any silence over 1.5 seconds, from the word timings;
+- every stretch of a second or more where the picture hardly changes.
+
+It ends with render minutes, tokens and cost by stage, review minutes, and fact check catches.
 
 ## Work board
 
@@ -316,7 +293,6 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 - The review view's reveal has only been checked over the API, not in a browser.
 - 13 older stored Lessons predate the current validator and skip ops when played.
 - Kokoro speaks a name missing from `server/pennydrop/tts/pronunciations.py` through misaki alone, because espeak-ng is not installed for its fallback.
-- Superseded Film backups (Napoleon v1 to v7, page table walk v1 to v5) sit in their `data/films` workspaces and wait for a decision before deletion.
 - An algorithm outline plays the same small runs at every level, so an advanced Lesson still walks a seven value trace its learner already knows, and the judge fails it on `pitched_to_level` even when its words fit.
 - A Course Topic Lesson is written with no Profile, so all 39 CS 6200 Topic Lessons are pitched at beginner, though CS 6200 is a graduate course.
 - A Profile has one Level for every subject, so an engineer who is advanced in computing is pitched advanced in biology too.

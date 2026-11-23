@@ -1,85 +1,118 @@
 from __future__ import annotations
 
+import asyncio
 import json
-import re
-import subprocess
+import math
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 from ..services import Services
-from ..tether import lifeline, tethered_argv
 from . import mix
-from .audit import audit_problems
-from .document import FilmDocument, FilmError
+from .blender import Engine
+from .document import FilmError
 from .kits import kit_named
-from .voices import speak_film
+from .narration import Narration
+from .shoot import read_take
+from .storyboard import Shot, read_shots
+from .workspace import Workspace
 
-PLAYER_TOOL = "player/tools/film.ts"
-
-
-@dataclass(frozen=True)
-class RenderResult:
-    output: Path
-    voiced_film: Path
-    video_seconds: float
-    mix: mix.MixReport
-    video_log: str
-    problems: list[str]
+FPS = 24
+SIZE = (1920, 1080)
+SOUND_KIT = "warm-hall"
+ACCENTS = {"fire": ("hit", 0.5)}
+QUALITY = ["-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p"]
 
 
-STACK_LINE = re.compile(r"^\s+at ")
+async def ffmpeg(*arguments: str) -> None:
+    process = await asyncio.create_subprocess_exec("ffmpeg", "-y", "-v", "error", *arguments, stderr=asyncio.subprocess.PIPE)
+    _, errors = await process.communicate()
+    if process.returncode != 0:
+        raise FilmError(f"ffmpeg {' '.join(arguments[:4])} ... failed: {errors.decode(errors='replace')[-2000:]}")
 
 
-def film_tool(services: Services, *arguments: str, capture: bool = False, tool: str = PLAYER_TOOL) -> subprocess.CompletedProcess:
-    with lifeline() as stdin:
-        result = subprocess.run(
-            tethered_argv(["bun", str(services.settings.repo_root / tool), *arguments]), check=False, stdin=stdin, cwd=services.settings.repo_root, capture_output=capture, text=True
-        )
-    if result.returncode != 0:
-        message = "\n".join(line for line in (result.stderr or "").splitlines() if not STACK_LINE.match(line) and not line.startswith("Bun v"))
-        raise FilmError(f"film tool {arguments[0]} failed:\n{message.strip()[:3000]}")
-    return result
+async def frame_count(video: Path) -> int:
+    process = await asyncio.create_subprocess_exec(
+        "ffprobe", "-v", "error", "-count_packets", "-select_streams", "v:0", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", str(video), stdout=asyncio.subprocess.PIPE
+    )
+    output, _ = await process.communicate()
+    return int(output.strip() or 0)
 
 
-def theme_identity(services: Services, theme: str) -> dict:
-    description = json.loads(film_tool(services, "theme", theme, capture=True).stdout)
-    if not description["film"]:
-        raise FilmError(f"theme '{theme}' has no film sound kit and voice")
-    return description["film"]
+class Cutter:
+    """Renders each shot's frames on the Film's one clock and cuts them together, so shot k's first frame is the Film's frame round(start × fps)."""
+
+    def __init__(self, services: Services, workspace: Workspace, narration: Narration):
+        self._workspace = workspace
+        self._engine = Engine(services.settings)
+        self._design = workspace.read("design")
+        self._total = math.ceil(narration.duration * FPS)
+
+    @property
+    def seconds(self) -> float:
+        return self._total / FPS
+
+    def frames_of(self, shot: Shot, last: bool) -> tuple[int, int]:
+        return round(shot.start * FPS), self._total if last else round(shot.end * FPS)
+
+    async def segment(self, shot: Shot, last: bool) -> tuple[Path, list[dict]]:
+        """Renders one shot to a video segment, resuming frames already on disk, and returns the segment and its sound events on the Film clock."""
+        taken = read_take(self._workspace, self._design, shot)
+        if taken is None or not taken[1]:
+            raise FilmError(f"shot {shot.id} has no current take; run the shoot stage first")
+        first, end = self.frames_of(shot, last)
+        folder = self._workspace.frames / shot.id
+        segment = self._workspace.frames / f"{shot.id}.mp4"
+        report_path = folder / "report.json"
+        if not (segment.exists() and report_path.exists() and await frame_count(segment) == end - first):
+            job = {
+                "mode": "final",
+                "out": str(folder),
+                "design": self._design,
+                "shot": taken[0],
+                "words": shot.local_words(),
+                "duration": round(shot.seconds, 3),
+                "render": {"offset": round(first / FPS - shot.start, 6), "count": end - first},
+                "fps": FPS,
+                "size": list(SIZE),
+            }
+            report = await self._engine.run(job)
+            if report["errors"]:
+                raise FilmError(f"shot {shot.id}'s take no longer validates; run the shoot stage again:\n" + "\n".join(f"- {error}" for error in report["errors"]))
+            await ffmpeg("-framerate", str(FPS), "-i", str(folder / "%04d.png"), *QUALITY, "-r", str(FPS), str(segment))
+            if await frame_count(segment) != end - first:
+                raise FilmError(f"shot {shot.id} rendered {await frame_count(segment)} frames, not {end - first}; its engine log is {folder / 'engine.log'}")
+            for frame in folder.glob("[0-9][0-9][0-9][0-9].png"):
+                frame.unlink()
+        events = json.loads(report_path.read_text())["events"]
+        return segment, [{**event, "time": round(shot.start + event["time"], 3)} for event in events]
 
 
-async def render_film(services: Services, film_path: Path, output: Path | None, seconds: float | None = None) -> RenderResult:
-    settings = services.settings
-    document = FilmDocument.read(film_path)
-    identity = theme_identity(services, document.header["theme"])
-    home = settings.films_dir / document.name
-    home.mkdir(parents=True, exist_ok=True)
-    output = output or home / f"{document.name}.mp4"
-
+async def render(services: Services, workspace: Workspace) -> dict:
     started = time.perf_counter()
-    spoken = await speak_film(services.speaker, settings.tts_provider, identity["voice"], [line["say"] for line in document.lines])
-    voice_seconds = time.perf_counter() - started
-    voiced_film = home / f"{document.name}.voiced.jsonl"
-    voiced_film.write_text(document.with_voices([line.voice.for_player() for line in spoken]))
-    problems = audit_problems(json.loads(film_tool(services, "audit", "--film", str(voiced_film), capture=True).stdout))
+    narration = Narration.read(workspace)
+    shots = read_shots(workspace)
+    workspace.frames.mkdir(parents=True, exist_ok=True)
+    cutter = Cutter(services, workspace, narration)
+    cut = await asyncio.gather(*(cutter.segment(shot, index == len(shots) - 1) for index, shot in enumerate(shots)))
 
-    silent = home / f"{document.name}.silent.mp4"
-    arguments = ["render", "--film", str(voiced_film), "--out", str(silent)]
-    if seconds is not None:
-        arguments += ["--seconds", str(seconds)]
-    started = time.perf_counter()
-    video = film_tool(services, *arguments, capture=True)
-    video_seconds = time.perf_counter() - started
+    listing = workspace.frames / "segments.txt"
+    listing.write_text("".join(f"file '{segment.name}'\n" for segment, _ in cut))
+    picture = workspace.frames / "picture.mp4"
+    await ffmpeg("-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(picture))
+    if await frame_count(picture) != round(cutter.seconds * FPS):
+        raise FilmError(f"{picture} has {await frame_count(picture)} frames, not the {round(cutter.seconds * FPS)} the narration needs")
 
-    manifest = json.loads(Path(f"{silent}.manifest.json").read_text())
-    started = time.perf_counter()
-    report = mix.build_mix(manifest, spoken, kit_named(identity["soundKit"]), home / "audio")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    mix.mux(silent, home / "audio" / "master.wav", output)
-    mix_seconds = time.perf_counter() - started
-    stage_seconds = {"voice": voice_seconds, "draw": video_seconds, "mix": mix_seconds}
-    measures = {"stageSeconds": stage_seconds, "renderMinutes": sum(stage_seconds.values()) / 60}
-    sidecar = {**manifest, "voiceLines": [str(line.path) for line in spoken], "says": [line["say"] for line in document.lines], "voiceWords": [line.voice.for_player()["words"] for line in spoken], "measures": measures}
-    Path(f"{output}.manifest.json").write_text(json.dumps(sidecar))
-    return RenderResult(output, voiced_film, video_seconds, report, video.stdout.strip(), problems)
+    accents = [mix.Accent(event["time"], *ACCENTS[event["kind"]]) for _, events in cut for event in events if event["kind"] in ACCENTS]
+    report = await asyncio.to_thread(mix.build_mix, narration.audio, accents, cutter.seconds, kit_named(SOUND_KIT), workspace.home / "audio")
+    film = workspace.home / f"{workspace.thread}.mp4"
+    await asyncio.to_thread(mix.mux, picture, workspace.home / "audio" / "master.wav", film)
+    rendered = {
+        "film": str(film),
+        "seconds": round(cutter.seconds, 3),
+        "shots": len(shots),
+        "accents": len(accents),
+        "loudness": {"voice": report.voice.integrated, "bed": report.bed.integrated, "master": report.master.integrated, "true_peak": report.master.true_peak},
+        "minutes": round((time.perf_counter() - started) / 60, 1),
+    }
+    workspace.write("render.json", rendered)
+    return rendered

@@ -6,7 +6,7 @@ import re
 from ..services import Services
 from ..settings import Job
 from ..spoken import said_numbers
-from .ask import answer, armature, craft_narration, prompt
+from .ask import answer, armature, craft, prompt
 from .document import FilmError
 from .workspace import Workspace
 
@@ -104,7 +104,7 @@ async def script(services: Services, workspace: Workspace) -> dict:
         research=json.dumps(workspace.read("research"), indent=1, ensure_ascii=False),
         pattern=json.dumps(pattern, indent=1, ensure_ascii=False),
         armature=armature(),
-        craft_narration=craft_narration(),
+        craft=craft(),
     )
     written = await answer(services, workspace, "script", Job.FILM_SCRIPT, question, lambda draft: script_problems(draft, minutes))
     workspace.write("script.draft.json", written)
@@ -114,5 +114,5 @@ async def script(services: Services, workspace: Workspace) -> dict:
 
 async def corrected(services: Services, workspace: Workspace, claims_table: str) -> dict:
     minutes = float(workspace.brief()["minutes"])
-    question = prompt("correct", script=json.dumps(workspace.read("script"), indent=1, ensure_ascii=False), claims=claims_table, craft_narration=craft_narration())
+    question = prompt("correct", script=json.dumps(workspace.read("script"), indent=1, ensure_ascii=False), claims=claims_table, craft=craft())
     return await answer(services, workspace, "correct", Job.FILM_SCRIPT, question, lambda draft: script_problems(draft, minutes))

@@ -22,7 +22,10 @@ class Job(StrEnum):
     FILM_RESEARCH = "film_research"
     FILM_SCRIPT = "film_script"
     FILM_FACTCHECK = "film_factcheck"
-    FILM_PLAN = "film_plan"
+    FILM_STORYBOARD = "film_storyboard"
+    FILM_DESIGN = "film_design"
+    FILM_SHOT = "film_shot"
+    FILM_REVIEW = "film_review"
     MINT = "mint"
 
 
@@ -67,6 +70,13 @@ class Price:
 
 
 @dataclass(frozen=True)
+class Blender:
+    program: Path
+    workers: int
+    threads: int
+
+
+@dataclass(frozen=True)
 class Settings:
     repo_root: Path
     host: str
@@ -78,6 +88,7 @@ class Settings:
     routes: dict[Job, tuple[RouteSpec, ...]]
     tts_provider: str
     tts_sections: dict[str, dict]
+    blender: Blender
     whisper_model: Path
     whisper_threads: int
     prices: dict[str, Price]
@@ -127,6 +138,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
         routes=_parse_routes(raw["routes"]),
         tts_provider=raw["tts"]["provider"],
         tts_sections={name: section for name, section in raw["tts"].items() if isinstance(section, dict)},
+        blender=Blender(Path(raw["blender"]["program"]), raw["blender"]["workers"], raw["blender"]["threads"]),
         whisper_model=Path(raw["voice_in"]["whisper_model"]).expanduser(),
         whisper_threads=raw["voice_in"]["threads"],
         prices=_parse_prices(raw["prices"]),

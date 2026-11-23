@@ -39,6 +39,6 @@ export default defineConfig({
   preview: { port: 4173, proxy: { "/api": SERVER, "/media": SERVER } },
   build: {
     chunkSizeWarningLimit: 2500,
-    rollupOptions: { input: { index: resolve(import.meta.dirname, "index.html"), frame: resolve(import.meta.dirname, "frame.html"), film: resolve(import.meta.dirname, "film.html"), kids: resolve(import.meta.dirname, "kids.html"), log: resolve(import.meta.dirname, "log.html"), learn: resolve(import.meta.dirname, "learn.html") } },
+    rollupOptions: { input: { index: resolve(import.meta.dirname, "index.html"), frame: resolve(import.meta.dirname, "frame.html"), kids: resolve(import.meta.dirname, "kids.html"), log: resolve(import.meta.dirname, "log.html"), learn: resolve(import.meta.dirname, "learn.html") } },
   },
 });

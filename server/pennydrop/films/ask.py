@@ -25,13 +25,12 @@ def craft() -> str:
     return (PROMPTS / "craft.md").read_text()
 
 
-def craft_narration() -> str:
-    whole = craft()
-    return whole[: whole.index("### Set pieces")].rstrip() + "\n"
-
-
 def armature() -> str:
     return (PROMPTS / "armature.md").read_text()
+
+
+def shot_format() -> str:
+    return (PROMPTS / "shot-format.md").read_text()
 
 
 def json_in(text: str) -> dict:
@@ -69,9 +68,13 @@ async def answer(
     search: bool = False,
     timeout: float = 1500.0,
     previous: str | None = None,
+    rounds: int = ROUNDS,
+    rejected: Path | None = None,
+    calls: list[CallStats] | None = None,
 ) -> Any:
+    """Asks until the check finds no problems. A check that makes its own model calls adds them to `calls`, so the stage records them too."""
     options = {"tools": SEARCH_TOOLS, "allowed_tools": SEARCH_TOOLS} if search else {}
-    calls: list[CallStats] = []
+    calls = [] if calls is None else calls
     asked = question
     if previous is not None:
         parsed, problems = await judged(previous, parse, check)
@@ -79,16 +82,16 @@ async def answer(
             return parsed
         asked = asked_again(question, previous, problems)
     try:
-        for _ in range(ROUNDS):
+        for _ in range(rounds):
             completion = await services.gateway.complete(job, asked, timeout=timeout, **options)
             calls.append(completion.stats)
             parsed, problems = await judged(completion.text, parse, check)
             if not problems:
                 return parsed
             asked = asked_again(question, completion.text, problems)
-        rejected = workspace.home / f"{stage}.rejected.txt"
+        rejected = rejected or workspace.home / f"{stage}.rejected.txt"
         rejected.write_text(completion.text)
-        raise FilmError(f"{stage} still had problems after {ROUNDS} rounds, and its last answer is in {rejected}:\n" + "\n".join(f"- {problem}" for problem in problems))
+        raise FilmError(f"{stage} still had problems after {rounds} rounds, and its last answer is in {rejected}:\n" + "\n".join(f"- {problem}" for problem in problems))
     finally:
         if calls:
             workspace.record(stage, calls)

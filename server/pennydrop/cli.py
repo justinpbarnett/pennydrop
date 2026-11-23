@@ -22,7 +22,7 @@ from .ask_client import (
     p90,
 )
 from .courses import CourseSeedError
-from .films import STAGES, FilmError, Workspace, check_film, format_report, render_film
+from .films import STAGES, FilmError, Workspace, check_film, format_report
 from .gateway import Choice, GatewayError, Image, YesNo
 from .intake import IntakeError
 from .judge import Comparison, Scorecard
@@ -126,19 +126,14 @@ def _parser() -> argparse.ArgumentParser:
     listing = profile_commands.add_parser("list")
     listing.set_defaults(handler=_profile_list)
 
-    film = commands.add_parser("film", help="render and check Films")
+    film = commands.add_parser("film", help="make and check Films")
     film_commands = film.add_subparsers(required=True, metavar="film-command")
-    render = film_commands.add_parser("render", help="voice, draw, mix and mux a Film into an MP4")
-    render.add_argument("film", type=Path)
-    render.add_argument("--out", type=Path)
-    render.add_argument("--seconds", type=float, help="render only the first seconds, for a quick look")
-    render.set_defaults(handler=_film_render)
     for stage in STAGES:
-        stage_command = film_commands.add_parser(stage, help=f"run the {stage} stage of the Film writing pipeline for a thread")
+        stage_command = film_commands.add_parser(stage, help=f"run the {stage} stage of the Film pipeline for a thread")
         stage_command.add_argument("thread", help="the folder name under data/films")
         stage_command.set_defaults(handler=_film_stage, stage=stage)
-    film_check = film_commands.add_parser("check", help="measure loudness, true peak and Cue offsets of a rendered Film")
-    film_check.add_argument("mp4", type=Path)
+    film_check = film_commands.add_parser("check", help="measure a rendered Film's loudness, spoken script, dead air and still pictures")
+    film_check.add_argument("thread", help="the folder name under data/films")
     film_check.set_defaults(handler=_film_check)
     return parser
 
@@ -364,24 +359,15 @@ def _profile_list(services: Services, _) -> None:
         print(f"{profile.id}  {profile.name}  {profile.kind.value}  {born}  {profile.level}  {profile.theme}")
 
 
-def _film_render(services: Services, arguments) -> None:
-    result = asyncio.run(render_film(services, arguments.film, arguments.out, arguments.seconds))
-    print(result.video_log)
-    mix = result.mix
-    print(f"voice {mix.voice.integrated:.2f} LUFS, bed {mix.bed.integrated:.2f} LUFS, master {mix.master.integrated:.2f} LUFS, master true peak {mix.master.true_peak:.2f} dBTP")
-    for problem in result.problems:
-        print(f"framing: {problem}")
-    print(result.output)
-
-
 def _film_stage(services: Services, arguments) -> None:
     workspace = Workspace(services.settings.films_dir / arguments.thread)
     result = asyncio.run(STAGES[arguments.stage](services, workspace))
-    print(f"{arguments.stage} done for {arguments.thread}: {len(result)} top level fields, recorded in {workspace.measures}")
+    facts = {key: value for key, value in result.items() if not isinstance(value, dict | list)}
+    print(f"{arguments.stage} done for {arguments.thread}" + (f": {json.dumps(facts, ensure_ascii=False)}" if facts else ""))
 
 
 def _film_check(services: Services, arguments) -> None:
-    report = format_report(check := check_film(arguments.mp4, services.transcriber))
+    report = format_report(check := check_film(Workspace(services.settings.films_dir / arguments.thread), services.transcriber))
     print(report)
     if not check.passed:
         sys.exit(1)

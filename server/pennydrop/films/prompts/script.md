@@ -15,7 +15,7 @@ The pattern check:
 
 {armature}
 
-{craft_narration}
+{craft}
 
 Work in this order, and show it in the JSON.
 
