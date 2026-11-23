@@ -280,7 +280,7 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 - Trace counters change without narration in some array Lessons.
 - The review view's reveal has only been checked over the API, not in a browser.
 - 13 older stored Lessons predate the current validator and skip ops when played.
-- Kokoro mispronounces Sieyès; espeak-ng is not installed for its fallback.
+- Kokoro speaks a name missing from `server/pennydrop/tts/pronunciations.py` through misaki alone, because espeak-ng is not installed for its fallback.
 - Superseded Film backups (Napoleon v1 to v3, page table walk v1 and v2) sit in their `data/films` workspaces and wait for a decision before deletion.
 
 ### Server facts for later work
