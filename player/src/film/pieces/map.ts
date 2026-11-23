@@ -516,7 +516,11 @@ export const primitive: LabDef<Record<string, unknown>, MapState> = {
     go: {
       doc: 'draws the journey on to a place: {"to": "Milan"} (a place name, or its index from 0); the first go to place 0 just marks the start',
       seconds: TRAVEL_SECONDS,
-      apply: (state, op) => ({ ...state, reached: placeIndex(state, op.args.to, `op "go" "to"`) + 1 }),
+      apply(state, op) {
+        const to = placeIndex(state, op.args.to, `op "go" "to"`);
+        if (to < state.reached) fail(`op "go": the journey on ${state.objectId} has already reached ${state.places[to]!.name}; go on to a later place, march an army or clash`);
+        return { ...state, reached: to + 1 };
+      },
     },
     march: {
       doc: 'moves an army in "on", such as "italy[french]", to place "to" along a widening band; its old legs stay faint',

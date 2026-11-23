@@ -659,6 +659,7 @@ const STAGE_OPS: Record<string, StageOp> = {
     apply(state, op) {
       const actor = onStage(findActor(state, op.parts[0], op.name), state, op.name);
       const item = oneOf(op.args.item, ITEMS, `op "hold" "item"`);
+      if (actor.holding === item) fail(`op "hold": ${state.objectId}[${actor.id}] already holds the ${item}, so nothing moves; give it, drop it, or have them pose or walk`);
       return withActor(state, { ...actor, holding: item, pose: actor.pose === "stand" ? "hold" : actor.pose });
     },
     act(cue) {
@@ -728,7 +729,9 @@ const STAGE_OPS: Record<string, StageOp> = {
     seconds: (op, state) => crowdSeconds(state, op, LIGHT_SECONDS),
     apply(state, op) {
       const actor = findActor(state, op.parts[0], op.name);
-      return withActor(state, { ...actor, tone: op.args.tone === undefined ? "lit" : oneOf(op.args.tone, TONES, `op "light" "tone"`) });
+      const tone = op.args.tone === undefined ? "lit" : oneOf(op.args.tone, TONES, `op "light" "tone"`);
+      if (tone === actor.tone) fail(`op "light": ${state.objectId}[${actor.id}] is already ${tone}, so nothing changes; light them another tone, or have them act`);
+      return withActor(state, { ...actor, tone });
     },
     act(cue) {
       const before = findActor(cue.before, cue.op.parts[0], cue.op.name);
