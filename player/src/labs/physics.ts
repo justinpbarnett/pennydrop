@@ -157,7 +157,7 @@ function circle(id: string, at: Point, r: number, fill: Paint, stroke: Paint, st
 
 function tappableBody(index: number, at: Point, r: number, role: Role, part: string): Drawable[] {
   return [
-    circle(`tap-pad-${index}`, at, Math.max(r, TAP_RADIUS), role, "none", 0, 5.9, { opacity: 0, part }),
+    circle(`tap-pad-${index}`, at, Math.max(r, TAP_RADIUS), role, "none", 0, 5.9, { opacity: 0, part, tapPad: true }),
     circle(`body-${index}`, at, r, role, "ink", 3, 6, { part }),
   ];
 }

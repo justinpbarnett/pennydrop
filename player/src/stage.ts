@@ -53,19 +53,31 @@ function tinted(drawable: Drawable, color: Color): Drawable {
 
 type Bounds = [number, number, number, number];
 
-function highlightOutline(role: Role, [left, top, right, bottom]: Bounds, pad: number): Drawable {
+const OBJECT_PAD = 14;
+const PART_PAD = 8;
+const OUTLINE_WIDTH = 1.6;
+const ABOVE_PART = 0.5;
+
+function outlineLook(role: Role, z: number): Pick<Drawable, "kind" | "fill" | "stroke" | "strokeWidth" | "z"> {
+  return { kind: "rect", fill: "none", stroke: role, strokeWidth: OUTLINE_WIDTH, z };
+}
+
+function boxOutline(id: string, role: Role, [left, top, right, bottom]: Bounds, pad: number, z: number): Drawable {
+  return { id, ...outlineLook(role, z), x: (left + right) / 2, y: (top + bottom) / 2, w: right - left + 2 * pad, h: bottom - top + 2 * pad, radius: 1 };
+}
+
+function strokeOutline(id: string, role: Role, line: Drawable, theme: Theme, z: number): Drawable {
+  const [dx, dy] = [line.x2! - line.x, line.y2! - line.y];
+  const thickness = (line.strokeWidth ?? 0) * theme.stroke + 2 * PART_PAD;
   return {
-    id: "_highlight",
-    kind: "rect",
-    x: (left + right) / 2,
-    y: (top + bottom) / 2,
-    w: right - left + 2 * pad,
-    h: bottom - top + 2 * pad,
-    fill: "none",
-    stroke: role,
-    strokeWidth: 1.6,
-    radius: 1,
-    z: -1,
+    id,
+    ...outlineLook(role, z),
+    x: line.x + dx / 2,
+    y: line.y + dy / 2,
+    w: Math.hypot(dx, dy) + thickness,
+    h: thickness,
+    radius: thickness / 2,
+    rotation: (Math.atan2(dy, dx) * 180) / Math.PI,
   };
 }
 
@@ -79,14 +91,19 @@ function inkBounds(local: Drawable[], box: Box, theme: Theme): Bounds {
   return [-reach.left, -reach.top, w + reach.right, h + reach.bottom];
 }
 
-function outlined(object: SceneObject, local: Drawable[], box: Box, theme: Theme): Drawable | null {
-  if (!object.highlight) return null;
-  const whole = inkBounds(local, box, theme);
-  if (!object.highlightParts) return highlightOutline(object.highlight, whole, 14);
-  const parts = local.filter((drawable) => drawable.part !== undefined && object.highlightParts!.includes(drawable.part)).map(shapeBounds).filter((bounds) => bounds !== null);
-  if (parts.length === 0) return highlightOutline(object.highlight, whole, 14);
-  const union: Bounds = [Math.min(...parts.map((bounds) => bounds[0])), Math.min(...parts.map((bounds) => bounds[1])), Math.max(...parts.map((bounds) => bounds[2])), Math.max(...parts.map((bounds) => bounds[3]))];
-  return highlightOutline(object.highlight, union, 8);
+function outlined(object: SceneObject, local: Drawable[], box: Box, theme: Theme): Drawable[] {
+  const role = object.highlight;
+  if (!role) return [];
+  const shown = local.filter((drawable) => drawable.part !== undefined && !drawable.tapPad && object.highlightParts?.includes(drawable.part));
+  const z = Math.max(...shown.map((drawable) => drawable.z ?? 0)) + ABOVE_PART;
+  const areas = shown.map(shapeBounds).filter((bounds) => bounds !== null);
+  if (areas.length > 0) {
+    const union: Bounds = [Math.min(...areas.map((bounds) => bounds[0])), Math.min(...areas.map((bounds) => bounds[1])), Math.max(...areas.map((bounds) => bounds[2])), Math.max(...areas.map((bounds) => bounds[3]))];
+    return [boxOutline("_highlight", role, union, PART_PAD, z)];
+  }
+  const strokes = shown.filter((drawable) => drawable.kind === "line");
+  if (strokes.length > 0) return strokes.map((line, index) => strokeOutline(`_highlight-${index}`, role, line, theme, z));
+  return [boxOutline("_highlight", role, inkBounds(local, box, theme), OBJECT_PAD, -1)];
 }
 
 function shapeBounds(drawable: Drawable): Bounds | null {
@@ -134,10 +151,9 @@ export function buildStage(scene: SceneState, layout: LayoutOf = layoutScene, th
       if (!def.overlay) localDrawables.set(object, local);
     }
     const drawn = object.tint ? local.map((drawable) => tinted(drawable, object.tint!)) : local;
-    const outline = def.overlay ? null : outlined(object, local, box, theme ?? THEMES.pattern);
+    const outlines = def.overlay ? [] : outlined(object, local, box, theme ?? THEMES.pattern);
     const caption = def.overlay ? null : captionDrawable(object, box.w / box.scale, inkTopOf(local, box, theme ?? THEMES.pattern));
-    const withOutline = outline ? [...drawn, outline] : drawn;
-    return { id: object.id, box, drawables: placeDrawables(object.id, caption ? [...withOutline, caption] : withOutline, box) };
+    return { id: object.id, box, drawables: placeDrawables(object.id, [...drawn, ...outlines, ...(caption ? [caption] : [])], box) };
   });
   const stage = { objects, camera: cameraFor(scene, boxes) };
   stages.set(scene, stage);

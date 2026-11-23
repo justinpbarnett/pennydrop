@@ -569,12 +569,12 @@ function tapTargets(state: PictureState, view: View): Drawable[] {
     const w = Math.max(box.w, TAP_MIN);
     const h = Math.max(box.h, TAP_MIN);
     const index = state.parts.indexOf(part);
-    const target = (id: string, area: Rect, z: number): Drawable[] => {
+    const target = (id: string, area: Rect, z: number, tapPad: boolean): Drawable[] => {
       const visible = visiblePart(state, area);
-      return visible ? [boxDrawable(id, visible, { fill: "ground", opacity: 0, z: z + order / 100, part: `${state.objectId}[${part.name}]` })] : [];
+      return visible ? [boxDrawable(id, visible, { fill: "ground", opacity: 0, z: z + order / 100, part: `${state.objectId}[${part.name}]`, ...(tapPad ? { tapPad } : {}) })] : [];
     };
-    const padded = w > box.w || h > box.h ? target(`tap-pad-${index}`, { x: box.x + box.w / 2 - w / 2, y: box.y + box.h / 2 - h / 2, w, h }, TAP_PAD_Z) : [];
-    return [...padded, ...target(`tap-${index}`, box, TAP_Z)];
+    const padded = w > box.w || h > box.h ? target(`tap-pad-${index}`, { x: box.x + box.w / 2 - w / 2, y: box.y + box.h / 2 - h / 2, w, h }, TAP_PAD_Z, true) : [];
+    return [...padded, ...target(`tap-${index}`, box, TAP_Z, false)];
   });
 }
 

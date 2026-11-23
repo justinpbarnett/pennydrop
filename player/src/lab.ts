@@ -64,6 +64,7 @@ export interface Drawable {
   rotation?: number;
   draw?: number;
   part?: string;
+  tapPad?: boolean;
   backdrop?: boolean;
   layer?: Layer;
 }
