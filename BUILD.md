@@ -238,6 +238,15 @@ Each stage is `pd film <stage> <thread>`, which reads and writes files under the
 The stages run in order: `research`, `pattern`, `script`, `factcheck`, `narrate`, `storyboard`, `design`, `shoot` and `render`.
 Models write JSON specs, and the fixed engine in `server/pennydrop/films/diorama/` turns them into Blender scenes, so no model writes Blender code.
 `prompts/shot-format.md` is the spec format that the design and shot writers follow and the engine reads.
+The engine runs one job per Blender process: `Blender -b --factory-startup --python-exit-code 1 -P server/pennydrop/films/diorama/main.py -- job.json`.
+A job's `mode` is `catalog`, `sheet`, `preview` or `final`.
+`catalog` reports the vocabulary a writer may use, read from the registries the engine runs on.
+`sheet` renders one still per look, custom prop and set.
+`preview` renders up to 6 stills at 960x540 and runs eight staging checks.
+`final` renders numbered frames at full size and skips frames already on disk, so a stopped render resumes.
+Every job writes `report.json` with `errors`, `problems`, `stills`, timed `events` and `measures`.
+An error names the JSON path of a spec fault, and nothing is built while there are any.
+A problem is one sentence about staging, such as a hidden face, that the writer can fix.
 `narrate` voices every script line with the Film narrator and writes `narration/narration.wav` and `narration/timing.json`.
 The word timings in `timing.json` are the Film's one clock.
 `storyboard` cuts the narration into shots of 2.5 to 12 seconds, and each shot starts on words quoted from the narration.
@@ -250,8 +259,11 @@ Consecutive shots on one set form a sequence, staged in order, so each shot star
 An accepted take is kept in `shots/<id>.json` with a key over the design, the board's shot and its place on the clock, so a rerun redoes only shots that changed or failed.
 `render` renders each shot's frames at 1920x1080 and 24 fps on the Film's clock, so shot k starts on frame round(start x 24).
 It encodes each shot to a segment, cuts the segments into one picture, mixes the narration over the warm-hall bed, and muxes `<thread>.mp4`.
+Each cannon shot puts a low hit in the mix, a little under the voice.
 A rerun keeps every segment that already has all its frames.
 Blender runs at nice 10, with at most `[blender] workers` processes of `threads` threads each, because a full render runs the Mac hot.
+A final frame takes about 0.6 s with one process of 4 threads, which is the default.
+A second process adds about a third more frames per second, and more threads hardly help, because the render is GPU-bound.
 The mix normalizes to -14 LUFS with true peak at most -1.5 dBTP.
 `pd film check <thread>` reports the following, and fails on any of the last four:
 - loudness and true peak;

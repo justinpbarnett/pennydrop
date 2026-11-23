@@ -26,7 +26,7 @@ mint = ["codex:gpt-6.2-astra", "claude:claude-opus-5-5"]
 
 [blender]
 program = "/Applications/Blender.app/Contents/MacOS/Blender"
-workers = 2
+workers = 1
 threads = 4
 
 [tts]

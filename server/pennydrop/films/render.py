@@ -19,7 +19,7 @@ from .workspace import Workspace
 FPS = 24
 SIZE = (1920, 1080)
 SOUND_KIT = "warm-hall"
-ACCENTS = {"fire": ("hit", 0.5)}
+ACCENTS = {"cannon": ("hit", 0.4)}
 QUALITY = ["-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p"]
 
 
