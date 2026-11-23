@@ -133,6 +133,7 @@ export interface LabDef<Spec = Record<string, unknown>, State = unknown> {
   title: string;
   reading: LabReading;
   overlay?: boolean;
+  concurrentParts?: boolean;
   round?: boolean;
   framed?: boolean;
   catalog: LabCatalog;

@@ -52,6 +52,8 @@ const CARRIES: Partial<Record<PoseName, { near: boolean; far: boolean }>> = {
   wounded: { near: true, far: false },
 };
 
+export const arrivingPose = (pose: PoseName): PoseName => (CARRIES[pose] ? pose : "stand");
+
 export function walkingPose(pose: PoseName, holding: boolean): { pose: PoseName; swing: { near: boolean; far: boolean } } {
   const carried = CARRIES[pose];
   if (carried) return { pose, swing: { near: !carried.near, far: !carried.far } };

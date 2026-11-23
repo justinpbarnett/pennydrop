@@ -1,9 +1,9 @@
 import { clamp01, type Drawable, fail, integerField, type LabDef, type LabOp, lerp, type Paint, type Point, rangeField, stringField } from "../../lab";
 import { textWidth } from "../../text-metrics";
 import { COSTUMES, type CostumeName, drawFigure, type Holding, type Item, ITEMS, type Look } from "../acting/body";
-import { alive, jittered, POSE_NAMES, POSES, type PoseName, walkingPose } from "../acting/poses";
+import { alive, arrivingPose, jittered, POSE_NAMES, POSES, type PoseName, walkingPose } from "../acting/poses";
 import { BONE, type Gait, GAITS, type GaitName, type Ground, lerpPose, type Pose, posed, type Skeleton, smooth, travelled, travelSeconds, walking } from "../acting/rig";
-import { drawThing, type FireMoment, GENERAL_MARKS, MUZZLE_REACH, SET_NAMES, type Setting, settingOf, STAGE_H, STAGE_W, THING_KINDS, type ThingKind } from "../acting/sets";
+import { clipToStage, drawThing, type FireMoment, GENERAL_MARKS, MUZZLE_REACH, SET_NAMES, type Setting, settingOf, STAGE_H, STAGE_W, THING_KINDS, type ThingKind } from "../acting/sets";
 
 const TONES = ["lead", "plain", "dim", "lit"] as const;
 type Tone = (typeof TONES)[number];
@@ -58,6 +58,8 @@ const MAX_CROWD = 60;
 const MAX_WORDS = 16;
 const FACE_GAP = 250;
 const SIDE_BY_SIDE = 0.8;
+const CROWD_ROW = 6;
+const MAX_ROWS = 6;
 const MUZZLE_CLEAR = 420;
 const FIGURE_SCALE = 1.25;
 const LABEL_SIZE = 44;
@@ -173,6 +175,10 @@ function membersOf(actor: Actor): Member[] {
 
 const spreadOf = (actor: Actor) => Math.max(0, ...membersOf(actor).map((member) => member.delay));
 const halfWidth = (actor: Actor) => Math.max(...membersOf(actor).map((member) => Math.abs(member.dx))) * actor.scale + 70 * actor.scale;
+const inside = (actor: Actor, x: number) => {
+  const half = Math.min(CENTER, halfWidth(actor));
+  return Math.min(STAGE_W - half, Math.max(half, x));
+};
 const offX = (actor: Actor, side: Facing) => (side < 0 ? GENERAL_MARKS["off left"]! - halfWidth(actor) : GENERAL_MARKS["off right"]! + halfWidth(actor));
 const sizeOf = (actor: Actor, member: Member) => actor.scale * member.scale * ROW_SHRINK ** member.row;
 const memberX = (actor: Actor, member: Member, x = actor.x) => x + member.dx * actor.scale;
@@ -294,10 +300,11 @@ function destination(state: StageState, mover: Actor, from: number, value: unkno
   if (other) {
     const side = toward(other.x, from, (-other.facing) as Facing);
     const gap = FACE_GAP * Math.max(mover.scale, other.scale) + (other.count > 1 ? halfWidth(other) : 0) + (mover.count > 1 ? halfWidth(mover) : 0);
-    return { x: Math.min(STAGE_W - 120, Math.max(120, other.x + side * gap)), facing: (-side) as Facing };
+    return { x: inside(mover, other.x + side * gap), facing: (-side) as Facing };
   }
   if (value === undefined) fail(`op "${opName}" needs "to": a mark, an x or a cast id to walk up to`);
-  return { x: markX(value, setting, `op "${opName}" "to"`), facing: null };
+  if (value === "off left" || value === "off right") fail(`op "${opName}" walks on stage, so "to" cannot be "${value}": use "exit" to walk ${state.objectId}[${mover.id}] off`);
+  return { x: inside(mover, markX(value, setting, `op "${opName}" "to"`)), facing: null };
 }
 
 interface Travel {
@@ -524,7 +531,7 @@ function lineOfFire(state: StageState, gun: Thing, at: Point | null): void {
 
 const STAGE_OPS: Record<string, StageOp> = {
   enter: {
-    doc: 'walks a person or crowd in from the side they wait on ("at": "off left" or "off right") to "to": a mark, an x or a cast id to walk up to; optional "pace" (walk, run or march), "face" and "pose" to end in',
+    doc: 'walks a person or crowd in from the side they wait on ("at": "off left" or "off right") to "to": a mark, an x or a cast id to walk up to; optional "pace" (walk, run or march), "face" and "pose" to end in, else they arrive standing',
     seconds(op, state) {
       const before = findActor(state, op.parts[0], op.name);
       const after = findActor(this.apply(state, op), op.parts[0], op.name);
@@ -537,7 +544,7 @@ const STAGE_OPS: Record<string, StageOp> = {
       const start = offX(mover, mover.x < CENTER ? -1 : 1);
       const goal = destination(state, mover, start, op.args.to, op.name);
       const facing = op.args.face === undefined ? goal.facing ?? toward(start, goal.x, 1) : facingArg(op.args.face, goal.x, state, `op "enter" "face"`);
-      return withActor(state, { ...mover, on: true, x: goal.x, facing, pose: poseArg(op.args.pose, mover.pose, `op "enter" "pose"`) });
+      return withActor(state, { ...mover, on: true, x: goal.x, facing, pose: poseArg(op.args.pose, arrivingPose(mover.pose), `op "enter" "pose"`) });
     },
     act(cue) {
       const before = findActor(cue.before, cue.op.parts[0], cue.op.name);
@@ -548,7 +555,7 @@ const STAGE_OPS: Record<string, StageOp> = {
     },
   },
   walk: {
-    doc: 'walks a person or crowd on stage to "to": a mark, an x or a cast id to walk up to and face; optional "pace" (walk, run or march), "face" (left, right or a cast id) and "pose" to end in',
+    doc: 'walks a person or crowd on stage to "to": a mark, an x or a cast id to walk up to and face; optional "pace" (walk, run or march), "face" (left, right or a cast id) and "pose" to end in, else they arrive standing',
     seconds(op, state) {
       const before = findActor(state, op.parts[0], op.name);
       return travelOf(before, findActor(this.apply(state, op), op.parts[0], op.name), paceArg(op)).total;
@@ -557,7 +564,7 @@ const STAGE_OPS: Record<string, StageOp> = {
       const mover = onStage(findActor(state, op.parts[0], op.name), state, op.name);
       const goal = destination(state, mover, mover.x, op.args.to, op.name);
       const facing = op.args.face === undefined ? goal.facing ?? toward(mover.x, goal.x, mover.facing) : facingArg(op.args.face, goal.x, state, `op "walk" "face"`);
-      return withActor(state, { ...mover, x: goal.x, facing, pose: poseArg(op.args.pose, mover.pose, `op "walk" "pose"`) });
+      return withActor(state, { ...mover, x: goal.x, facing, pose: poseArg(op.args.pose, arrivingPose(mover.pose), `op "walk" "pose"`) });
     },
     act(cue) {
       const before = findActor(cue.before, cue.op.parts[0], cue.op.name);
@@ -820,7 +827,7 @@ function pools(showing: Showing): Drawable[] {
     const floor = entry.ground(pelvis.x);
     const fade = glow;
     return [
-      { id: `${showing.actor.id}.${entry.key}.beam`, kind: "path", x: 0, y: 0, points: [pelvis.x - 50 * scale, floor - 1100 * scale, pelvis.x + 50 * scale, floor - 1100 * scale, pelvis.x + 170 * scale, floor, pelvis.x - 170 * scale, floor], closed: true, fill: "highlight", stroke: "none", opacity: 0.06 * fade, z: POOL_Z },
+      { id: `${showing.actor.id}.${entry.key}.beam`, kind: "path", x: 0, y: 0, points: clipToStage([pelvis.x - 50 * scale, floor - 1100 * scale, pelvis.x + 50 * scale, floor - 1100 * scale, pelvis.x + 170 * scale, floor, pelvis.x - 170 * scale, floor]), closed: true, fill: "highlight", stroke: "none", opacity: 0.06 * fade, z: POOL_Z },
       { id: `${showing.actor.id}.${entry.key}.pool`, kind: "circle", x: pelvis.x, y: floor, r: 150 * scale, fill: "highlight", stroke: "none", opacity: 0.1 * fade, z: POOL_Z },
     ] satisfies Drawable[];
   });
@@ -877,7 +884,7 @@ function castFrom(spec: Record<string, unknown>, objectId: string, setting: Sett
     const off = field.at === "off left" || field.at === "off right";
     const x = markX(field.at ?? fail(`${where} needs "at": a mark or an x`), setting, `${where} "at"`);
     const count = integerField(field, "count", 1, 1, MAX_CROWD, where);
-    return {
+    const actor: Actor = {
       id,
       as: oneOf(field.as, COSTUME_NAMES, `${where} "as"`),
       x,
@@ -887,10 +894,11 @@ function castFrom(spec: Record<string, unknown>, objectId: string, setting: Sett
       label: stringField(field, "label", where, ""),
       tone: field.tone === undefined ? "plain" : oneOf(field.tone, TONES, `${where} "tone"`),
       count,
-      rows: integerField(field, "rows", Math.ceil(count / 10), 1, 6, where),
+      rows: integerField(field, "rows", Math.min(MAX_ROWS, Math.ceil(count / CROWD_ROW)), 1, MAX_ROWS, where),
       scale: rangeField(field, "scale", 1, 0.3, 1.3, where) * FIGURE_SCALE,
       on: !off && field.hidden !== true,
     };
+    return off ? actor : { ...actor, x: inside(actor, x) };
   });
 }
 
@@ -918,6 +926,7 @@ export const primitive: LabDef<Record<string, unknown>, StageState> = {
   id: "stage",
   title: "Acted scene",
   reading: "optional",
+  concurrentParts: true,
   catalog: {
     summary: "An acted scene: line-drawn people on a set who walk on and off, turn, take poses, hand things to each other, speak real quoted words, fall, and fire cannon. Use it to show what happened with the people it happened to, rather than writing it as text. Cast order is drawing order, so list a crowd before the people who stand in front of it.",
     spec: {

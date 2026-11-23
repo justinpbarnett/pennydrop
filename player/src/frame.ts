@@ -3,7 +3,7 @@ import { definitionOf, type SceneState } from "./scene";
 import { type Camera, buildStage, HOME_CAMERA, arrivedObjects, movedObjects, type PlacedObject, placeDrawables, type Stage } from "./stage";
 import { clamp01, type Drawable, duringLabOp, lerp, lerpRect, liveLabDrawing, type Paint, PATH_KINDS, type Rect, type Running, WORD_KINDS } from "./lab";
 import { colorOf, parseHex, type Rgba, shownText, type Theme } from "./theme";
-import { type Located, type SegmentProgress, type Timeline, trueProgress } from "./timeline";
+import { type Carried, type Located, type SegmentProgress, type Timeline, trueProgress } from "./timeline";
 import { applyEffect, type Touch } from "./verbs";
 import type { Box } from "./layout";
 
@@ -253,18 +253,22 @@ function applyTouches(items: Map<string, Painted>, touches: Touch[], moment: Mom
   }
 }
 
-function runningOn(objectId: string, touches: Touch[], progress: SegmentProgress): Running[] {
-  return touches.flatMap((touch) => {
+function runningOn(objectId: string, touches: Touch[], carried: Carried[], moment: Moment): Running[] {
+  const runs = [
+    ...touches.map((touch) => ({ touch, progress: drive(touch, moment.progress) })),
+    ...carried.map((run) => ({ touch: run.touch, progress: (moment.clock - run.start) / (run.end - run.start) })),
+  ];
+  return runs.flatMap(({ touch, progress }) => {
     if (touch.objectId !== objectId || touch.action.type !== "lab" || !touch.before || !touch.after) return [];
     const { name, parts, args } = touch.action;
-    return [{ op: { name, parts, args }, before: touch.before.state, after: touch.after.state, progress: drive(touch, progress) }];
+    return [{ op: { name, parts, args }, before: touch.before.state, after: touch.after.state, progress }];
   });
 }
 
-function paintLive(items: Map<string, Painted>, scene: SceneState, touches: Touch[], moment: Moment): void {
+function paintLive(items: Map<string, Painted>, scene: SceneState, touches: Touch[], carried: Carried[], moment: Moment): void {
   for (const object of scene.objects) {
     const box = momentBox(moment, object.id);
-    const local = box && liveLabDrawing(definitionOf(object), object.state, runningOn(object.id, touches, moment.progress), { objectId: object.id, links: {}, clock: moment.clock });
+    const local = box && liveLabDrawing(definitionOf(object), object.state, runningOn(object.id, touches, carried, moment), { objectId: object.id, links: {}, clock: moment.clock });
     if (!local) continue;
     for (const id of [...items.keys()]) if (objectOf(id) === object.id && !id.endsWith(REPLACED)) items.delete(id);
     placeDrawables(object.id, local, box).forEach((drawable) => items.set(drawable.id, entering(moment, object.id, paintDrawable(drawable, moment.theme))));
@@ -318,7 +322,7 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
   const moment: Moment = { stages: settled ? { before: after, after } : { before, after }, progress, theme, replaced: settled ? new Set() : replaced, clock: time };
   if (settled) {
     paintedStage(after, theme).forEach((item, id) => items.set(id, item));
-    paintLive(items, located.after, [], moment);
+    paintLive(items, located.after, [], located.carried, moment);
   } else {
     const beforeItems = paintedStage(before, theme);
     const afterItems = paintedStage(after, theme);
@@ -343,7 +347,7 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
       else if (!afterItems.has(id)) items.set(id, faded(item, 1 - progress.exit));
     });
     applyTouches(items, touches, moment);
-    paintLive(items, located.after, located.touches, moment);
+    paintLive(items, located.after, located.touches, located.carried, moment);
   }
 
   const camera = settled ? after.camera : {

@@ -35,7 +35,7 @@ Use only what the catalog lists.
 - Cast only the people a line needs: a few people and at most two crowds. The protagonist has "tone": "lead" and a label, and every person the narration names has a label.
 - A person waits offstage ("at": "off left" or "off right") and enters on the cue that brings them in, or stands on stage from the start when the line opens on them.
 - Give a person one op on a cue. To walk somewhere and end in a pose, give the "walk" its "pose", and do not also cue a "pose" on the same word.
-- Every op on a stage runs in real time, and the next op waits for it to end. A walk across the whole stage takes about five seconds, so cue the next op that far into the narration, or walk a shorter way.
+- Every op on a stage runs in real time. While one person walks, the others act on their own cues, but that person's next op waits for the walk to end. A walk across the whole stage takes about five seconds, so cue the walker's next op that far into the narration, or walk a shorter way.
 - Block the stage so every person reads. People stand clear of each other, crowds stand clear of each other, and nobody stands in front of a gun's muzzle or in its line of fire. The stage refuses blocking that breaks this and says what to change.
 - A "say" bubble holds only words the source pack records that person saying, at most sixteen words. Never invent dialogue.
 - A caption names the place and year, such as "Toulon, 1793".

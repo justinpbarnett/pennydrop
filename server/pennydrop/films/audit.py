@@ -27,7 +27,7 @@ def audit_problems(audit: list[dict]) -> list[str]:
         if tight := tight_edges(shot):
             problems.append(f"{where}: the card ends with under {EDGE_MARGIN} px of room at its {', '.join(tight)}, so it is cut off or touches the frame edge; use a smaller view or reshape the card")
         if text_too_small(shot):
-            problems.append(f"{where}: its smallest text is {shot['smallestText']:.0f} px high on screen, too small to read; fly closer or split the card")
+            problems.append(f"{where}: its smallest text is {shot['smallestText']:.1f} px high on screen, under the {SMALLEST_READABLE_TEXT} px that reads; fly closer or split the card")
         if shot["peeking"]:
             problems.append(f"{where}: {', '.join(shot['peeking'])} peek into the frame at its edge; place the object farther from them along the route, or place the older pieces behind the route")
         if shot["wait"] is not None and shot["wait"] > LONGEST_UNFILLED_WAIT:
@@ -44,8 +44,8 @@ def cue_problem(cue: dict) -> str:
     late = cue["opStart"] - cue["wordStart"]
     if late > 0:
         return (
-            f"{where} starts {late:.1f} s after its word, because it waits for the op before it to end: an op that runs in real time, such as a walk, holds every later op until it ends."
-            " Cue this op on a later word, start it on the same word as the op before it, or make that op shorter"
+            f"{where} starts {late:.1f} s after its word, because it waits for an earlier op to end: an op that runs in real time holds later ops on the same people until it ends, such as a walk on a stage,"
+            " and one on a Lab holds every later op. Cue this op on a later word, or make the earlier op shorter"
         )
     return f"{where} starts {-late * 1000:.0f} ms before its word"
 

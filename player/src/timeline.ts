@@ -2,13 +2,19 @@ import type { Step } from "./format";
 import { clamp01, LabError } from "./lab";
 import { type Narration, narrate, resolveCues } from "./narration";
 import { planStep, type PlannedOp } from "./plan";
-import { EMPTY_SCENE, type SceneState } from "./scene";
+import { definitionOf, EMPTY_SCENE, type SceneState } from "./scene";
 import { arrivedObjects, buildStage, movedObjects, reshapedDrawables, type Stage } from "./stage";
 import { layoutScene } from "./layout";
 import { THEMES } from "./theme";
 import type { Touch } from "./verbs";
 
 export type Ease = (progress: number) => number;
+
+export interface Carried {
+  touch: Touch;
+  start: number;
+  end: number;
+}
 
 export interface Segment {
   start: number;
@@ -22,6 +28,7 @@ export interface Segment {
   before: SceneState;
   after: SceneState;
   touches: Touch[];
+  carried: Carried[];
   replaced: string[];
 }
 
@@ -49,6 +56,7 @@ export interface Located {
   after: SceneState;
   progress: SegmentProgress;
   touches: Touch[];
+  carried: Carried[];
   replaced: string[];
   exits: boolean;
   relayout: boolean;
@@ -99,6 +107,34 @@ function clearingOf(before: SceneState, after: SceneState, replaced: string[], m
     exits,
     relayout: arrivedObjects(from, to).size > 0 ? reshapedDrawables(from, to) : !exits && movedObjects(from, to, ROOM_MAKING_MOVE).size > 0,
   };
+}
+
+interface Claim {
+  objectId: string | null;
+  part: string | null;
+}
+
+interface Hold extends Claim {
+  until: number;
+}
+
+const EVERYTHING: Claim = { objectId: null, part: null };
+
+function claimsOf(touch: Touch): Claim[] {
+  if (touch.action.type === "effect") return [];
+  if (touch.action.type === "scene") return [{ objectId: touch.objectId, part: null }];
+  const object = touch.after ?? touch.before;
+  if (!object || !definitionOf(object).concurrentParts) return [EVERYTHING];
+  return touch.action.parts.length ? touch.action.parts.map((part) => ({ objectId: touch.objectId, part })) : [{ objectId: touch.objectId, part: null }];
+}
+
+function clash(a: Claim, b: Claim): boolean {
+  if (a.objectId === null || b.objectId === null) return true;
+  return a.objectId === b.objectId && (a.part === null || b.part === null || a.part === b.part);
+}
+
+function realTimeRuns(segment: Segment): Carried[] {
+  return segment.touches.flatMap((touch) => (touch.action.type === "lab" && touch.action.trueTime ? [{ touch, start: segment.start, end: segment.start + touch.action.seconds }] : []));
 }
 
 interface OpEvent {
@@ -157,7 +193,7 @@ export class Timeline {
   readonly segments: Segment[] = [];
   done = false;
   private scene: SceneState;
-  private trueEnd = 0;
+  private holds: Hold[] = [];
 
   constructor(
     readonly startScene: SceneState = EMPTY_SCENE,
@@ -193,6 +229,7 @@ export class Timeline {
     const events = opEvents(step, start, narration, plan.ops);
     const sceneChanged = plan.afterSceneChange !== this.scene;
     const errors = [...plan.errors];
+    this.holds = this.holds.filter((hold) => hold.until > start);
 
     let cursor = this.scene;
     let lastSegmentEnd = start;
@@ -210,19 +247,26 @@ export class Timeline {
       const replaced = isSceneGroup ? plan.replaced : [];
       const baseDuration = Math.max(isSceneGroup ? SCENE_CHANGE_SECONDS : 0, ...group.ops.map((planned) => planned.duration));
       const trueSeconds = Math.max(0, ...group.ops.filter((planned) => planned.trueTime).map((planned) => planned.duration));
+      const touches = sharedStart(group.ops.flatMap((planned) => planned.touches));
+      const wanted = isSceneGroup ? [EVERYTHING] : touches.flatMap(claimsOf);
+      const heldUntil = Math.max(0, ...this.holds.filter((hold) => hold.objectId === null || wanted.some((claim) => clash(claim, hold))).map((hold) => hold.until));
       const { exits, relayout } = this.clearingOf(before, after, replaced, errors, step);
       const previous = this.segments.at(-1);
       const previousStart = previous?.start ?? 0;
       const clear = exits || relayout ? EXIT_SHARE * Math.min(baseDuration, SCENE_CHANGE_SECONDS) : 0;
       const afterChallenge = index === 0 && Boolean(this.steps.at(-1)?.step.challenge);
       const earliestExit = afterChallenge ? start : previousStart;
-      const time = Math.max(group.time, this.trueEnd + clear, earliestExit + (afterChallenge ? clear : 0));
+      const time = Math.max(group.time, heldUntil + clear, earliestExit + (afterChallenge ? clear : 0));
       const lead = Math.min(clear, time - earliestExit);
       if (previous) previous.cutAt = time - lead;
-      this.segments.push({ start: time, lead, clear, exits, relayout, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches: sharedStart(group.ops.flatMap((planned) => planned.touches)), replaced });
+      const carried = previous ? [...previous.carried, ...realTimeRuns(previous)].filter((run) => run.end > time - lead) : [];
+      this.segments.push({ start: time, lead, clear, exits, relayout, baseDuration, trueSeconds, cutAt: Infinity, before, after, touches, carried, replaced });
       opStarts.push(...group.ops.map((planned) => ({ index: planned.op.index, time })));
       cursor = after;
-      if (trueSeconds > 0) this.trueEnd = Math.max(this.trueEnd, time + trueSeconds);
+      for (const touch of touches) {
+        const { action } = touch;
+        if (action.type === "lab" && action.trueTime) this.holds.push(...claimsOf(touch).map((claim) => ({ ...claim, until: time + action.seconds })));
+      }
       lastSegmentEnd = Math.max(lastSegmentEnd, time + Math.max(baseDuration, trueSeconds));
     });
     this.scene = plan.final;
@@ -278,11 +322,12 @@ export class Timeline {
     }
     const segment = this.segments[low]!;
     const progress = segmentProgress(segment, time, motionScale, ease);
-    if (progress.done) return this.still(segment.after);
-    return { before: segment.before, after: segment.after, progress, touches: segment.touches, replaced: segment.replaced, exits: segment.exits, relayout: segment.relayout };
+    const carried = segment.carried.filter((run) => run.end > time);
+    if (progress.done) return this.still(segment.after, carried);
+    return { before: segment.before, after: segment.after, progress, touches: segment.touches, carried, replaced: segment.replaced, exits: segment.exits, relayout: segment.relayout };
   }
 
-  private still(scene: SceneState): Located {
-    return { before: scene, after: scene, progress: { exit: 1, shift: 1, move: 1, eased: 1, elapsed: 0, done: true }, touches: [], replaced: [], exits: false, relayout: false };
+  private still(scene: SceneState, carried: Carried[] = []): Located {
+    return { before: scene, after: scene, progress: { exit: 1, shift: 1, move: 1, eased: 1, elapsed: 0, done: true }, touches: [], carried, replaced: [], exits: false, relayout: false };
   }
 }
