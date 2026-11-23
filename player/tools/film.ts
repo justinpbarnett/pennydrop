@@ -42,6 +42,12 @@ async function withFilm<T>(text: string, count: number, use: (pages: Page[], man
   }
 }
 
+async function printed(value: unknown): Promise<never> {
+  // Once playwright-core is loaded, console.log and Bun.write keep only the first 64 KiB of a pipe before exit.
+  await new Promise<void>((done) => process.stdout.write(`${JSON.stringify(value)}\n`, () => done()));
+  process.exit(0);
+}
+
 async function annotate(page: Page, manifest: FilmManifest): Promise<FilmManifest> {
   const cues = [];
   for (const cue of manifest.cues) {
@@ -55,8 +61,7 @@ const command = process.argv[2];
 if (command === "theme") {
   const id = process.argv[3] ?? "";
   if (!isThemeId(id)) usage(`unknown theme "${id}"; use ${THEME_IDS.join(", ")}`);
-  console.log(JSON.stringify({ id, film: THEMES[id].film ?? null, ground: THEMES[id].colors.ground }));
-  process.exit(0);
+  await printed({ id, film: THEMES[id].film ?? null, ground: THEMES[id].colors.ground });
 }
 
 const filmPath = option("film") ?? usage("--film is required");
@@ -64,14 +69,12 @@ const text = await Bun.file(resolve(filmPath)).text();
 
 if (command === "plan") {
   const manifest = await withFilm(text, 1, async ([page], planned) => annotate(page!, planned));
-  console.log(JSON.stringify(manifest));
-  process.exit(0);
+  await printed(manifest);
 }
 
 if (command === "audit") {
   const report = await withFilm(text, 1, async ([page]) => page!.evaluate(() => window.film.audit()));
-  console.log(JSON.stringify(report));
-  process.exit(0);
+  await printed(report);
 }
 
 if (command === "stills") {
