@@ -90,11 +90,17 @@ function drawsOnlyStrokes(scene: SceneState, object: SceneObject): boolean {
   return shapes.length > 0 && shapes.every((drawable) => PATH_KINDS.includes(drawable.kind));
 }
 
+function requireStillDrawn(object: SceneObject, opName: string): SceneObject {
+  const definition = definitionOf(object);
+  if (definition.live) fail(`op "${opName}" would not show on ${object.id} (${definition.title}), which draws itself as it acts; use its own ops instead: ${Object.keys(definition.ops).join(", ")}`);
+  return object;
+}
+
 function effectVerb(kind: "pulse" | "trace"): Verb["run"] {
   return (scene, op) => ({
     scene,
     touches: ids(op).map((id) => {
-      const object = requireObject(scene, id);
+      const object = requireStillDrawn(requireObject(scene, id), op.name);
       if (kind === "trace" && !drawsOnlyStrokes(scene, object)) {
         fail(`op "trace" draws on a line, arrow, edge or plotted series, and ${id} (${definitionOf(object).title}) is none of those; highlight or pulse it instead, and to play a run of code use the Step's "trace" directive`);
       }
@@ -175,15 +181,15 @@ const VERBS: Record<string, Verb> = {
     duration: 0.6,
     run: (scene, op) => setField(scene, op, "tint", "active"),
   },
-  pulse: { summary: 'pulse: {"on":["id"]} swells an object once', duration: 0.7, run: effectVerb("pulse") },
+  pulse: { summary: 'pulse: {"on":["id"]} swells an object once; an object that draws itself as it acts, such as a stage or map, rejects it and acts with its own ops', duration: 0.7, run: effectVerb("pulse") },
   trace: { summary: 'trace: {"on":["id"]} draws a line, arrow, edge or plotted series along its length; other objects reject it', duration: 1.2, run: effectVerb("trace") },
   swap: {
     summary: 'swap: {"on":["a","b"]} two objects trade places on arcs',
     duration: 0.9,
     run(scene, op) {
       const [firstId, secondId] = requireIds(op, 2);
-      const first = requireObject(scene, firstId!);
-      const second = requireObject(scene, secondId!);
+      const first = requireStillDrawn(requireObject(scene, firstId!), op.name);
+      const second = requireStillDrawn(requireObject(scene, secondId!), op.name);
       const firstIndex = scene.objects.indexOf(first);
       const secondIndex = scene.objects.indexOf(second);
       const movedFirst = { ...first, at: second.at };
