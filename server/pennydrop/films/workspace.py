@@ -52,7 +52,7 @@ class Workspace:
         return brief
 
     def read(self, stage: str) -> dict:
-        path = self.home / (STAGE_FILES[stage] if stage in STAGE_FILES else stage)
+        path = self.home / STAGE_FILES.get(stage, stage)
         if not path.exists():
             raise FilmError(f"{path.name} is missing in {self.home}; run the earlier stage first")
         return json.loads(path.read_text())

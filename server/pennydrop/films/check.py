@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import statistics
 import subprocess
 import tempfile
@@ -18,8 +19,6 @@ from ..words import spoken_words
 from .document import FilmError
 from .kits import SAMPLE_RATE
 from .measures import FilmMeasures, format_measures, gather
-
-import json
 
 FRAME_SECONDS = 1 / 30
 SEARCH_SECONDS = 1.0

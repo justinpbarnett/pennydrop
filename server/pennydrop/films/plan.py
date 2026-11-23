@@ -7,7 +7,13 @@ from typing import Any
 from ..services import Services
 from ..settings import Job
 from .ask import answer, craft, prompt
-from .audit import audit_problems, cue_problems, text_too_small, tight_edges
+from .audit import (
+    audit_problems,
+    cue_problems,
+    staging_problems,
+    text_too_small,
+    tight_edges,
+)
 from .document import FilmError
 from .render import film_tool, theme_identity
 from .voices import speak_film
@@ -135,6 +141,7 @@ def plan_problems(services: Services, workspace: Workspace, rows: list[dict], sc
     except FilmError as error:
         return [str(error)]
     planned = planned[:1] + [in_narration_order(row) for row in planned[1:]]
+    found = spelled_numbers(planned) + staging_problems(planned)
     try:
         moved_closer: set[int] = set()
         for _ in range(MEND_PASSES):
@@ -145,8 +152,8 @@ def plan_problems(services: Services, workspace: Workspace, rows: list[dict], sc
             if not adjusted_views(planned, audit, moved_closer):
                 break
     except FilmError as error:
-        return [str(error)]
-    return spelled_numbers(planned) + cue_problems(manifest) + audit_problems(audit)
+        return [*found, str(error)]
+    return found + cue_problems(manifest) + audit_problems(audit)
 
 
 async def plan(services: Services, workspace: Workspace) -> dict:

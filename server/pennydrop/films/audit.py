@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterator
+
 CUE_TOLERANCE_SECONDS = 0.033
 EDGE_MARGIN = 40
 SMALLEST_READABLE_TEXT = 26
 LONGEST_UNFILLED_WAIT = 4
+LINES_PER_CARD = 4
+CARD_KINDS = {"keyword", "quote", "counter", "compare", "tracker", "timeline", "text"}
+ACTING_KINDS = {"stage", "map"}
 
 
 def tight_edges(shot: dict) -> list[str]:
@@ -30,8 +36,59 @@ def audit_problems(audit: list[dict]) -> list[str]:
 
 
 def cue_problems(manifest: dict) -> list[str]:
-    return [
-        f"line {cue['line']}: the {cue['kind']} {cue['op']!r} cued on {cue['cue']!r} starts {abs(cue['opStart'] - cue['wordStart']) * 1000:.0f} ms from its word"
-        for cue in manifest["cues"]
-        if cue["cue"] and cue["wordStart"] is not None and abs(cue["opStart"] - cue["wordStart"]) > CUE_TOLERANCE_SECONDS
-    ]
+    return [cue_problem(cue) for cue in manifest["cues"] if cue["cue"] and cue["wordStart"] is not None and abs(cue["opStart"] - cue["wordStart"]) > CUE_TOLERANCE_SECONDS]
+
+
+def cue_problem(cue: dict) -> str:
+    where = f"line {cue['line']}: the {cue['kind']} {cue['op']!r} cued on {cue['cue']!r}"
+    late = cue["opStart"] - cue["wordStart"]
+    if late > 0:
+        return (
+            f"{where} starts {late:.1f} s after its word, because it waits for the op before it to end: an op that runs in real time, such as a walk, holds every later op until it ends."
+            " Cue this op on a later word, start it on the same word as the op before it, or make that op shorter"
+        )
+    return f"{where} starts {-late * 1000:.0f} ms before its word"
+
+
+def staging_problems(rows: list[dict]) -> list[str]:
+    lines = rows[1:]
+    specs: dict[str, dict] = {}
+    carded: list[int] = []
+    problems: list[str] = []
+    for row in lines:
+        added = dict(added_objects(row))
+        specs.update(added)
+        if any(spec.get("kind") in CARD_KINDS for spec in added.values()):
+            carded.append(row["line"])
+        targets = [(entry, target) for entry in row.get("do", []) if isinstance(entry, dict) for target in entry.get("on", []) if isinstance(target, str)]
+        if row is not lines[-1] and not any(acts(specs.get(owner(target), {})) for _, target in targets):
+            problems.append(f"line {row['line']}: nothing happens on screen; give it an op on a stage, a map or a Lab that acts out what the narration says")
+        doubled = Counter((entry.get("cue"), target) for entry, target in targets if specs.get(owner(target), {}).get("kind") == "stage")
+        problems += [
+            f"line {row['line']}: {target} has {count} ops on the cue {cue!r}; a person does one thing on a word, so give a walk its \"pose\" instead of a second op, or cue the second op on a later word"
+            for (cue, target), count in doubled.items()
+            if count > 1
+        ]
+    allowed = len(lines) // LINES_PER_CARD
+    if len(carded) > allowed:
+        problems.append(
+            f"lines {', '.join(map(str, carded))} add cards, {len(carded)} in all, and a Film of {len(lines)} lines may add at most {allowed}; act the rest out on a stage, a map or a Lab"
+        )
+    return problems
+
+
+def added_objects(row: dict) -> Iterator[tuple[str, dict]]:
+    scene = row.get("scene")
+    if isinstance(scene, dict):
+        yield from ((object_id, spec) for object_id, spec in scene.items() if isinstance(spec, dict))
+    for entry in row.get("do", []):
+        if isinstance(entry, dict) and entry.get("op") == "create" and isinstance(entry.get("spec"), dict) and entry.get("on"):
+            yield owner(entry["on"][0]), entry["spec"]
+
+
+def owner(target: str) -> str:
+    return target.split("[", 1)[0]
+
+
+def acts(spec: dict) -> bool:
+    return "lab" in spec or spec.get("kind") in ACTING_KINDS

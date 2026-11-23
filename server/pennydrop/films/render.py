@@ -34,7 +34,7 @@ STACK_LINE = re.compile(r"^\s+at ")
 def film_tool(services: Services, *arguments: str, capture: bool = False, tool: str = PLAYER_TOOL) -> subprocess.CompletedProcess:
     with lifeline() as stdin:
         result = subprocess.run(
-            tethered_argv(["bun", str(services.settings.repo_root / tool), *arguments]), stdin=stdin, cwd=services.settings.repo_root, capture_output=capture, text=True
+            tethered_argv(["bun", str(services.settings.repo_root / tool), *arguments]), check=False, stdin=stdin, cwd=services.settings.repo_root, capture_output=capture, text=True
         )
     if result.returncode != 0:
         message = "\n".join(line for line in (result.stderr or "").splitlines() if not STACK_LINE.match(line) and not line.startswith("Bun v"))

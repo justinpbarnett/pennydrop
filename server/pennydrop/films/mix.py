@@ -62,12 +62,12 @@ def _duck_gain(voice: numpy.ndarray, count: int) -> numpy.ndarray:
 def build_mix(manifest: dict, spoken: list[SpokenLine], kit: SoundKit, directory: Path) -> MixReport:
     directory.mkdir(parents=True, exist_ok=True)
     seconds = math.ceil(manifest["duration"] * VIDEO_FPS) / VIDEO_FPS
-    count = int(round(seconds * SAMPLE_RATE))
+    count = round(seconds * SAMPLE_RATE)
 
     voice = numpy.zeros(count)
     for line, start in zip(spoken, manifest["lineStarts"], strict=True):
         clip = _decode_mono(line.path)
-        offset = int(round(start * SAMPLE_RATE))
+        offset = round(start * SAMPLE_RATE)
         end = min(count, offset + len(clip))
         voice[offset:end] += clip[: end - offset]
     speaking = numpy.abs(voice) > SPEECH_FLOOR * numpy.abs(voice).max()
@@ -80,7 +80,7 @@ def build_mix(manifest: dict, spoken: list[SpokenLine], kit: SoundKit, directory
     accents = numpy.zeros((count, 2))
     for accent in manifest["accents"]:
         tone = kit.accent(accent["tone"]) * accent["gain"]
-        offset = int(round(accent["time"] * SAMPLE_RATE))
+        offset = round(accent["time"] * SAMPLE_RATE)
         end = min(count, offset + len(tone))
         accents[offset:end] += tone[: end - offset]
 

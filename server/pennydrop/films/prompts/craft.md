@@ -16,14 +16,35 @@ Narration is the spine of the Film, and everything on screen is timed to a word 
 
 ### Set pieces
 
-Each line may add objects to the Scene, and each line's camera move flies to one of them.
-Use the story pieces for the story and the Labs for anything with a mechanism that can run.
+A Film is watched, not read.
+Every line shows something happen: people act it out on a stage, forces move on a map, or a mechanism runs on a Lab.
+A card of text is the exception, kept for the few words a viewer must read.
 
-Story pieces: keyword (the cold open or a term the Film turns on), quote, counter, tracker (the steps of a procedure), compare (held against broke), timeline, map, figure, question (the closing card).
-Labs run a real mechanism: a Lab object has a state and ops that change it, and an op happens on a word of the narration.
+- Show the people a line is about doing what the narration says, on a stage. Walk them on, hand over the command, have them salute, plead, fall or flee, fire the guns, let the crowd cheer or run.
+- Show where things happened and how forces moved on a map: a journey drawn place by place, armies marching, battles bursting where they meet.
+- Run every mechanism on a Lab.
+- Act an abstract idea instead of printing it. Power lent is an orb handed from the person who lends it to the one who borrows it. A fall from favor is a person dimmed or vanishing. A rise is a climb up a ranks staircase.
+- A card is only for what no picture carries: a term the Film turns on (keyword), a written line the viewer must read whole (quote), a number that must be seen (counter), where a comparison holds and where it breaks (compare), the steps of a procedure (tracker), dates in order (timeline), and the closing question (question). At most one line in four adds a card, and the closing question card does not count.
 
 The catalog at the end of this document is the exact list of pieces, Labs, their fields and their ops.
 Use only what the catalog lists.
+
+### Acting a scene
+
+- Use one stage for each place. A stage stays in the world, so a later line acts on it again by its id without adding it again. Add a new stage when the story moves to a new place.
+- Cast only the people a line needs: a few people and at most two crowds. The protagonist has "tone": "lead" and a label, and every person the narration names has a label.
+- A person waits offstage ("at": "off left" or "off right") and enters on the cue that brings them in, or stands on stage from the start when the line opens on them.
+- Give a person one op on a cue. To walk somewhere and end in a pose, give the "walk" its "pose", and do not also cue a "pose" on the same word.
+- Every op on a stage runs in real time, and the next op waits for it to end. A walk across the whole stage takes about five seconds, so cue the next op that far into the narration, or walk a shorter way.
+- Block the stage so every person reads. People stand clear of each other, crowds stand clear of each other, and nobody stands in front of a gun's muzzle or in its line of fire. The stage refuses blocking that breaks this and says what to change.
+- A "say" bubble holds only words the source pack records that person saying, at most sixteen words. Never invent dialogue.
+- A caption names the place and year, such as "Toulon, 1793".
+
+### Showing it on a map
+
+- Use one map for each theater of events, and keep its "region" tight around its places so their names have room. A map refuses a layout with no room and says which place to leave out.
+- List every place the map will name, in the order the story reaches them.
+- A journey uses "go". Armies use "march" and "clash". A map stays in the world, so a later line can move its armies again.
 
 ### Placement
 
@@ -46,7 +67,7 @@ Never place an object so that a flight must cross the whole world, and never sta
 ### Camera discipline
 
 - The first camera move of a line flies to the object that the line introduces, or to the one the narration is about.
-- Use "fit" for a card or a Lab that must be read, and "close" for one short word.
+- Use "fit" for a stage, a map, a Lab or a card that must be read, and "close" for one short word.
 - The plan check refuses any move that ends with text under 26 pixels high on screen, so a "wide" move is only for a short word, a number or a question card that stays large; never use it as an overview of small text.
-- A card sits fully inside the frame when the move ends, with margin on every side.
-- The previous section's cards must not peek in at the edge of the frame when the camera arrives. Place the new object far enough from the older ones, in the direction of the route, that only the object the camera is on is in the frame.
+- An object sits fully inside the frame when the move ends, with margin on every side.
+- The previous section's objects must not peek in at the edge of the frame when the camera arrives. Place the new object far enough from the older ones, in the direction of the route, that only the object the camera is on is in the frame.

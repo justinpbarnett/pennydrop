@@ -31,7 +31,7 @@ The payoff scene restates the armature in fresh words and serves spine sentence 
 The last scene or two leave the viewer with open questions that come from "ever since then" and serve spine sentence 8. The last scene is a question the viewer can carry away.
 Include at least one scene that says where the Thread breaks.
 Every fact in the narration comes from a fact id of the source pack, or is marked plainly as a toy example or an interpretation. List the fact ids in `facts`.
-Say what is on screen in `beat`: which piece, Lab or story card shows the idea, and what happens on it.
+Say in `beat` what the viewer watches happen: the people who act the scene out and what they do, the forces that move on a map, or the mechanism that runs. Keep cards of text for the rare words a viewer must read.
 Do not write digits or symbols in `say`. Do not use em dashes.
 
 Finish your answer with one JSON object in a fenced ```json block and nothing after it:
