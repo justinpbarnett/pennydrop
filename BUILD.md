@@ -223,7 +223,7 @@ Five rules hold it: the model writes intent and code draws, compute never narrat
 A Film file is JSONL.
 The first line is `{"film": {title, theme, thread?, lead?, tail?, start?, opening?}}`.
 `theme` names a Theme that carries the sound kit and the narrator voice.
-`lead` and `tail` are seconds of picture before the first word and after the last, defaulting to 2 and 3.
+`lead` and `tail` are seconds of picture before the first word and after the last, defaulting to half a second each, and a Film with credits holds them for its last 3 seconds.
 `start` is a Scene spec map shown before line 1, and `opening` is `{go, view?, elevation?}` for the first camera pose.
 Every other line is `{line, say, scene?, do?, camera?, sound?, voice?}`.
 `line`, `say`, `scene`, `do` and `voice` mean what they mean in a Lesson Step, and Film time is Timeline time plus `lead`.
@@ -250,11 +250,16 @@ The film page `player/film.html` draws a pure function of (film, time, Theme) th
 `bun player/tools/film.ts render` draws 1920x1080 frames at 30 fps in parallel headless pages, pipes them to ffmpeg as H.264 yuv420p, writes `<out>.manifest.json`, and reports frames per second.
 `pd film render <film> [--out]` voices each line through the TTS seam, builds a seeded sound kit and a bed ducked under speech, normalizes to -14 LUFS with true peak at most -1.5 dBTP through a limiter with a 0.3 dB margin, and muxes into the MP4.
 Rendered media goes under the gitignored `data/films/<thread>/`.
+Something is always happening on screen and someone is always speaking: the check refuses a shot where nothing in view moves for more than 3 seconds, and a silence of more than 1.5 seconds before the first word, between lines or before the credits.
+Figures breathe on an idle loop, so stillness is read from the timeline, where an op, an entrance, an exit or a camera flight counts as motion, not from pixels.
+It refuses a camera move that leaves less than 1.5 seconds after the one before it lands, because the viewer never sees that shot at rest.
+`pd film revise <thread>` hands the current Film and its problems back to the planner, instead of planning the Film again from the script.
 `pd film check <mp4>` reports loudness, true peak, and for every Cue the offset in ms between the heard word and the op start, with max and mean against the 33 ms bar, plus the delay until pixels change in the op's region.
 It ends with the four measures the design asks of each pilot: render minutes by stage (voice, draw, mix, written into the render manifest), tokens by stage and review minutes (read from `data/films/<thread>/measures.json`, which the session that wrote the Film fills in), and fact check catches (the rows of `data/films/<thread>/fact-check.md` whose verdict is `corrected` or `removed`).
-`bun player/tools/film.ts plan` prints the estimated duration, `audit` prints the camera table with tilt, margins and the smallest text in pixels at 1080p per shot (keep it at 24 or more), and `stills` writes a frame per shot; a Film runs about 0.74 of its plan estimate.
+`bun player/tools/film.ts plan` prints the estimated duration, `audit` prints the camera table with tilt, margins and the smallest text in pixels at 1080p per shot (keep it at 26 or more), and `stills` writes a frame per shot; a Film runs about 0.74 of its plan estimate.
 
 ## Work board
+It fails on dead air: any silence over 1.5 seconds in the heard narration, from the first frame to the credits, placed by where each line is actually heard in the mix.
 
 Every slice below is committed and pushed; the build session closed on 2026-11-22 at `45f2994`.
 
@@ -287,7 +292,7 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 - The review view's reveal has only been checked over the API, not in a browser.
 - 13 older stored Lessons predate the current validator and skip ops when played.
 - Kokoro speaks a name missing from `server/pennydrop/tts/pronunciations.py` through misaki alone, because espeak-ng is not installed for its fallback.
-- Superseded Film backups (Napoleon v1 to v3, page table walk v1 and v2) sit in their `data/films` workspaces and wait for a decision before deletion.
+- Superseded Film backups (Napoleon v1 to v4, page table walk v1 to v3) sit in their `data/films` workspaces and wait for a decision before deletion.
 
 ### Server facts for later work
 

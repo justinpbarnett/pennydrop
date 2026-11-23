@@ -6,6 +6,7 @@ import statistics
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 
 import numpy
@@ -16,6 +17,7 @@ from ..intake import Transcriber
 from ..spoken import comparable_script, misheard, word_error_rate
 from ..tts.letters import spelled_letters
 from ..words import spoken_words
+from .audit import LONGEST_SILENCE
 from .document import FilmError
 from .kits import SAMPLE_RATE
 from .measures import FilmMeasures, format_measures, gather
@@ -63,11 +65,19 @@ class SpokenScript:
 
 
 @dataclass(frozen=True)
+class Silence:
+    start: float
+    seconds: float
+    where: str
+
+
+@dataclass(frozen=True)
 class FilmReport:
     loudness: loudness.Loudness
     cues: list[CueMeasure]
     measures: FilmMeasures
     spoken: SpokenScript
+    silences: list[Silence]
 
     @property
     def offsets(self) -> list[float]:
@@ -84,6 +94,14 @@ class FilmReport:
     @property
     def cues_ok(self) -> bool:
         return max(self.offsets, default=0.0) <= FRAME_SECONDS * 1000
+
+    @property
+    def dead_air(self) -> list[Silence]:
+        return [silence for silence in self.silences if silence.seconds > LONGEST_SILENCE]
+
+    @property
+    def passed(self) -> bool:
+        return self.loudness_ok and self.cues_ok and self.spoken_ok and not self.dead_air
 
 
 def _decode(path: str | Path) -> numpy.ndarray:
@@ -144,7 +162,19 @@ def check_film(mp4: Path, transcriber: Transcriber) -> FilmReport:
             CueMeasure(cue["line"], cue["kind"], cue["op"], cue["cue"], heard_word, cue["opStart"], (heard_word - cue["opStart"]) * 1000, None if onset is None else (onset - heard_word) * 1000)
         )
     spoken = asyncio.run(_spoken_script(heard, manifest, shifts, transcriber))
-    return FilmReport(loudness.measure(mp4), measures, gather(mp4, manifest), spoken)
+    return FilmReport(loudness.measure(mp4), measures, gather(mp4, manifest), spoken, _silences(manifest, shifts))
+
+
+def _silences(manifest: dict, shifts: dict[int, float]) -> list[Silence]:
+    heard = [
+        (start + shifts[number] + word["start"], start + shifts[number] + word["end"], number)
+        for number, start, words in zip(manifest["lineNumbers"], manifest["lineStarts"], manifest["voiceWords"], strict=True)
+        for word in words
+    ]
+    opening = Silence(0.0, heard[0][0], "before the first word")
+    between = [Silence(said[1], following[0] - said[1], f"in line {said[2]}" if said[2] == following[2] else f"between lines {said[2]} and {following[2]}") for said, following in pairwise(heard)]
+    ending = Silence(heard[-1][1], manifest["creditsFrom"] - heard[-1][1], "after the last word, before the credits")
+    return [opening, *between, ending]
 
 
 async def _spoken_script(heard: numpy.ndarray, manifest: dict, shifts: dict[int, float], transcriber: Transcriber) -> SpokenScript:
@@ -190,5 +220,8 @@ def format_report(report: FilmReport) -> str:
     rows.append(f"spoken script  word error rate {spoken.word_error_rate:.2%} over {spoken.words} words, {len(spoken.mismatches)} mismatches, {len(spoken.clipped_letters)} spelled letters under {SHORTEST_LETTER_SECONDS} s  {'OK' if report.spoken_ok else 'FAIL'}")
     rows.extend(f"  line {miss['line']}: expected '{miss['expected']}' heard '{miss['heard']}'" for miss in spoken.mismatches)
     rows.extend(f"  line {letter.line}: spelled letter {letter.letter} lasts {letter.seconds * 1000:.0f} ms" for letter in spoken.clipped_letters)
+    longest = max(report.silences, key=lambda silence: silence.seconds)
+    rows.append(f"dead air  longest {longest.seconds:.2f} s {longest.where} at {longest.start:.1f} s, {len(report.dead_air)} silences over {LONGEST_SILENCE} s  {'FAIL' if report.dead_air else 'OK'}")
+    rows.extend(f"  {silence.seconds:.2f} s {silence.where} at {silence.start:.1f} s" for silence in report.dead_air)
     rows.extend(format_measures(report.measures))
     return "\n".join(rows)

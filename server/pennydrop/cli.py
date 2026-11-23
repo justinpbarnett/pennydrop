@@ -380,5 +380,5 @@ def _film_stage(services: Services, arguments) -> None:
 def _film_check(services: Services, arguments) -> None:
     report = format_report(check := check_film(arguments.mp4, services.transcriber))
     print(report)
-    if not (check.loudness_ok and check.cues_ok and check.spoken_ok):
+    if not check.passed:
         sys.exit(1)
