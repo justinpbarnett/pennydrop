@@ -168,6 +168,10 @@ const VERBS: Record<string, Verb> = {
       const [id] = requireIds(op, 1);
       const before = requireObject(scene, id!);
       const after = createObject(id!, { at: before.at, ...specArg(op, "into") }, scene);
+      const definition = definitionOf(before);
+      if (definition.unfilled?.(before.state) === false && definitionOf(after).unfilled?.(after.state)) {
+        fail(`op "morph" would blank ${id} (${definition.title}), which its ops have filled; add a new piece for new content, and never morph or recolor a piece only to keep it moving`);
+      }
       return { scene: upsertObject(scene, after), touches: [sceneTouch(id!, before, after)] };
     },
   },
