@@ -228,7 +228,11 @@ Dust drifts defocused behind the content and keeps off its ink.
 `sound` is a list of `{cue, tone, gain?}`, and the tone is one of `hit`, `chime`, `tick`, `rise` or `swell`.
 A `cue` is a word or phrase from `say`, matched in order.
 The `at` field of a scene object is `{relation: id}` with the relations `right of`, `left of`, `above`, `below`, `behind`, `in front of` and `next`, and the world layout places each object on a plane in 3D.
-The pieces are `keyword`, `quote`, `counter`, `tracker` and `question`, and Labs draw on their own planes unchanged.
+The pieces are the cards `keyword`, `quote`, `counter`, `compare`, `tracker`, `timeline` and `question`, the line drawing `figure`, the acted scene `stage` and the campaign map `map`, and Labs draw on their own planes unchanged.
+A `stage` puts line-drawn people on a set, where they walk, pose, hand things over, speak quoted words, fall and fire cannon.
+It refuses blocking where people or crowds overlap, where anyone stands in front of a muzzle, or where a shot passes through someone.
+A `map` draws places, journeys, marching armies and clashes inside a tight region, and refuses a layout whose names have no room.
+The plan check holds a Film to acting: every line but the last has an op on a stage, a map or a Lab, at most one line in four adds a card, and a person takes one op per word.
 The film page `player/film.html` draws a pure function of (film, time, Theme) through `window.film` with `load`, `seek` and `regions`.
 `bun player/tools/film.ts render` draws 1920x1080 frames at 30 fps in parallel headless pages, pipes them to ffmpeg as H.264 yuv420p, writes `<out>.manifest.json`, and reports frames per second.
 `pd film render <film> [--out]` voices each line through the TTS seam, builds a seeded sound kit and a bed ducked under speech, normalizes to -14 LUFS with true peak at most -1.5 dBTP through a limiter with a 0.3 dB margin, and muxes into the MP4.
@@ -270,7 +274,7 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 - The review view's reveal has only been checked over the API, not in a browser.
 - 13 older stored Lessons predate the current validator and skip ops when played.
 - Kokoro mispronounces Sieyès; espeak-ng is not installed for its fallback.
-- Stray Napoleon v1 and v2 backups sit in `data/films/napoleon-rise` and wait for a decision before deletion.
+- Superseded Film backups (Napoleon v1 to v3, page table walk v1 and v2) sit in their `data/films` workspaces and wait for a decision before deletion.
 
 ### Server facts for later work
 
