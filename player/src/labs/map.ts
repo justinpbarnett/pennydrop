@@ -175,7 +175,7 @@ const COAST_WIDTH = 1.2;
 const DOT_RADIUS = 10;
 const EVENT_DOT_RADIUS = 9;
 const PLACE_TEXT = 28;
-const PLATE_PAD = 14;
+const PLATE_PAD = 8;
 const LABEL_REACHES = [14, 24, 36, 50, 65, 80, 100, 125];
 const LABEL_DIRECTIONS = 48;
 const LEADER_START_GAP = 4;
@@ -654,8 +654,8 @@ function leaderAlongLeg(legs: [Point, Point][], at: Point, leader: [Point, Point
   return legDirectionsAt(legs, at).some((leg) => angleBetween(aim, leg) < degrees(limit));
 }
 
-function labelOrder(state: Laid, freedom: (place: number) => number): number[] {
-  const kept = state.labels.map((label) => label.place).filter((place) => state.shown.includes(place));
+function labelOrder(state: Laid, earlier: PlaceLabel[], freedom: (place: number) => number): number[] {
+  const kept = earlier.map((label) => label.place).filter((place) => state.shown.includes(place));
   const fresh = state.shown.filter((place) => !kept.includes(place)).sort((a, b) => freedom(a) - freedom(b));
   return [...kept, ...fresh];
 }
@@ -700,11 +700,18 @@ function headOutline([base, tip]: [Point, Point]): [Point, Point][] {
 }
 
 function placeLabels(state: Laid): PlaceLabel[] {
+  const kept = placeLabelsAround(state, state.labels);
+  if (!kept.blocked) return kept.labels;
+  const fresh = placeLabelsAround(state, []);
+  return fresh.blocked < kept.blocked ? fresh.labels : kept.labels;
+}
+
+function placeLabelsAround(state: Laid, earlier: PlaceLabel[]): { labels: PlaceLabel[]; blocked: number } {
   const dots = state.shown.map((place) => dotRect(state.places[place]!.at));
   const legs = state.routes.flatMap((route) => routeLegs(state, route));
   const heads = arrowHeads(state);
   const islands = islandBounds(state.land);
-  const previous = new Map(state.labels.map((label) => [label.place, label.plate]));
+  const previous = new Map(earlier.map((label) => [label.place, label.plate]));
   const nearText = (line: [Point, Point], plate: Rect) => segmentNearRect(line, textBox(plate), LINE_CLEAR);
   const headEdges = heads.flatMap(headOutline);
   const shafts = state.routes.flatMap((route) => drawnLegs(state, route));
@@ -743,9 +750,11 @@ function placeLabels(state: Laid): PlaceLabel[] {
       const { under, crossed } = islandsCovered(islands, plate, leader);
       return {
         plate,
+        hard,
         free: !hard && !soft && !moved,
         cost:
           (hard ? BLOCKED_COST : 0) +
+          (insideMap(plate, MAP_AREA) ? 0 : BLOCKED_COST) +
           (soft ? STRAIN_COST : 0) +
           coastCount(state.coast, inflate(textBox(plate), COAST_CLEAR)) * COAST_COST +
           leaderCrossings(state.coast, leader) * LEADER_COAST_COST +
@@ -756,10 +765,13 @@ function placeLabels(state: Laid): PlaceLabel[] {
     });
   };
   const freedom = (place: number) => candidates(place, []).filter((candidate) => candidate.free).length;
-  return labelOrder(state, freedom).reduce<PlaceLabel[]>((labels, place) => {
-    const best = candidates(place, labels).reduce((winner, candidate) => (candidate.cost < winner.cost ? candidate : winner));
-    return [...labels, { place, plate: best.plate, leader: leaderFor(state.places[place]!.at, best.plate) }];
-  }, []);
+  return labelOrder(state, earlier, freedom).reduce<{ labels: PlaceLabel[]; blocked: number }>(
+    ({ labels, blocked }, place) => {
+      const best = candidates(place, labels).reduce((winner, candidate) => (candidate.cost < winner.cost ? candidate : winner));
+      return { labels: [...labels, { place, plate: best.plate, leader: leaderFor(state.places[place]!.at, best.plate) }], blocked: blocked + (best.hard ? 1 : 0) };
+    },
+    { labels: [], blocked: 0 },
+  );
 }
 
 function intervalFree(occupied: Interval[], [start, end]: Interval): boolean {
