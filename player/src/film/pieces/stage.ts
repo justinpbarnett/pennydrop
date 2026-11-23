@@ -182,7 +182,7 @@ function membersOf(actor: Actor): Member[] {
       index,
       dx,
       row,
-      scale: aligned ? 1 : 0.92 + seeded(base + index * 5) * 0.13,
+      scale: aligned ? 1 : 0.9 + seeded(base + index * 5) * 0.1,
       seed: seeded(base + index * 11),
       delay: aligned ? 0 : seeded(base + index * 7) * CROWD_STAGGER,
       screened: echelon > 0 && row > 0 && dx <= frontEnd,

@@ -15,9 +15,9 @@ export interface Costume {
 }
 
 export const COSTUMES = {
-  general: { dress: "coat", hat: "bicorne", hatScale: 1.15, sash: false, epaulettes: true },
-  officer: { dress: "coat", hat: "bicorne", hatScale: 0.92, sash: false, epaulettes: true },
-  cadet: { dress: "jacket", hat: "bicorne", hatScale: 0.8, sash: false, epaulettes: false },
+  general: { dress: "coat", hat: "bicorne", hatScale: 1.1, sash: false, epaulettes: true },
+  officer: { dress: "coat", hat: "bicorne", hatScale: 1, sash: false, epaulettes: true },
+  cadet: { dress: "jacket", hat: "bicorne", hatScale: 0.85, sash: false, epaulettes: false },
   soldier: { dress: "jacket", hat: "shako", hatScale: 1, sash: false, epaulettes: false },
   grenadier: { dress: "longcoat", hat: "bearskin", hatScale: 1, sash: false, epaulettes: false },
   deputy: { dress: "robe", hat: "plumed", hatScale: 1, sash: true, epaulettes: false },
@@ -179,8 +179,8 @@ interface Skirt {
 
 const SKIRTS: Partial<Record<Dress, Skirt>> = {
   longcoat: { length: 0.62, flare: 16, back: 10, split: 1, swing: 26 },
-  robe: { length: 0.97, flare: 26, back: 20, split: 0.5, swing: 20 },
-  gown: { length: 1.0, flare: 34, back: 30, split: 0.15, swing: 16 },
+  robe: { length: 0.97, flare: 16, back: 10, split: 0.5, swing: 20 },
+  gown: { length: 1.0, flare: 24, back: 18, split: 0.15, swing: 16 },
 };
 
 function alongLeg(side: Side, distance: number): Point {
@@ -269,20 +269,20 @@ function hatShape(hat: Hat, frame: Frame, size: number, trim: Paint): { shapes: 
       };
     case "shako":
       return {
-        shapes: [poly([[-21, 18], [-25, 74], [25, 78], [21, 18]]), poly([[14, 18], [44, 12], [40, 22], [14, 26]])],
-        details: [{ points: flat(circlePoints(p(8, 88), 8 * size)), closed: true, fill: trim, paint: trim }],
+        shapes: [poly([[-22, 18], [-25, 62], [25, 66], [22, 18]]), poly([[14, 18], [44, 12], [40, 22], [14, 26]])],
+        details: [{ points: flat(circlePoints(p(8, 73), 7 * size)), closed: true, fill: trim, paint: trim }],
       };
     case "bearskin":
       return {
-        shapes: [poly([[-31, -4], [-38, 30], [-40, 68], [-32, 100], [-12, 118], [10, 120], [30, 106], [38, 76], [36, 40], [30, 14], [22, 8], [-2, 2]])],
-        details: [{ points: poly([[-30, 40], [-36, 76], [-28, 104]]), paint: trim, width: 6 }],
+        shapes: [poly([[-31, -4], [-36, 22], [-38, 46], [-31, 67], [-14, 79], [8, 81], [27, 72], [36, 51], [34, 27], [30, 12], [22, 8], [-2, 2]])],
+        details: [{ points: poly([[-29, 27], [-34, 50], [-27, 69]]), paint: trim, width: 6 }],
       };
     case "plumed":
       return {
         shapes: [
-          poly([[-36, 18], [-20, 22], [-18, 46], [18, 50], [20, 22], [36, 18], [20, 14], [-20, 14]]),
+          poly([[-36, 18], [-20, 22], [-18, 42], [18, 45], [20, 22], [36, 18], [20, 14], [-20, 14]]),
         ],
-        details: [{ points: poly([[2, 46], [16, 48], [26, 70], [30, 96], [16, 84], [4, 66]]), closed: true, fill: trim, paint: trim, width: 2 }],
+        details: [{ points: poly([[2, 42], [15, 44], [22, 60], [24, 76], [13, 66], [4, 56]]), closed: true, fill: trim, paint: trim, width: 2 }],
       };
     case "tricorne":
       return { shapes: [poly([[-44, 12], [-16, 40], [4, 44], [40, 16], [0, 22]])], details: [] };
