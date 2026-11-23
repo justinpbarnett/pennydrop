@@ -13,6 +13,7 @@ interface Place {
 interface Stop {
   place: number;
   back: number;
+  clashesOnArrival: number;
 }
 
 interface Army {
@@ -157,6 +158,12 @@ function stopPoint(state: MapState, s: Sizes, army: Army, leg: number): Point {
 }
 
 const hereOf = (army: Army) => army.stops[army.stops.length - 1]!.place;
+
+function shuttlesBack(state: MapState, army: Army, to: number): boolean {
+  const arrived = army.stops[army.stops.length - 1]!;
+  const left = army.stops[army.stops.length - 2];
+  return left?.place === to && !state.clashes.slice(arrived.clashesOnArrival).includes(arrived.place);
+}
 
 function placeIndex(state: MapState, value: unknown, what: string): number {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value < state.places.length) return value;
@@ -484,7 +491,7 @@ function parseArmies(raw: unknown, state: MapState): Army[] {
     const allegiance = spec.side ?? "lead";
     if (allegiance !== "lead" && allegiance !== "foe") fail(`${state.objectId}: armies.${id} "side" must be lead or foe`);
     const place = placeIndex(state, spec.at, `${state.objectId}: armies.${id} "at"`);
-    armies.push({ id, label: spec.label, allegiance, stops: [{ place, back: armies.filter((army) => hereOf(army) === place).length }] });
+    armies.push({ id, label: spec.label, allegiance, stops: [{ place, back: armies.filter((army) => hereOf(army) === place).length, clashesOnArrival: 0 }] });
   }
   return armies;
 }
@@ -529,8 +536,9 @@ export const primitive: LabDef<Record<string, unknown>, MapState> = {
         const army = armyOf(state, op);
         const to = placeIndex(state, op.args.to, `op "march" "to"`);
         if (to === hereOf(army)) fail(`op "march": ${state.objectId}[${army.id}] is already at ${state.places[to]!.name}`);
+        if (shuttlesBack(state, army, to)) fail(`op "march": ${state.objectId}[${army.id}] would march straight back to ${state.places[to]!.name}, where it came from, with no battle at ${state.places[hereOf(army)]!.name} between, so it shuttles and shows nothing that happened; march it on to where the story sends it, clash where it stands, or act the line on a stage`);
         const back = state.armies.filter((other) => other.id !== army.id && hereOf(other) === to).length;
-        return roomy({ ...state, armies: state.armies.map((entry) => (entry.id === army.id ? { ...entry, stops: [...entry.stops, { place: to, back }] } : entry)) });
+        return roomy({ ...state, armies: state.armies.map((entry) => (entry.id === army.id ? { ...entry, stops: [...entry.stops, { place: to, back, clashesOnArrival: state.clashes.length }] } : entry)) });
       },
     },
     clash: {

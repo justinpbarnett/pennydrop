@@ -48,7 +48,7 @@ def audit_problems(audit: list[dict]) -> list[str]:
         if shot["empty"] > LONGEST_EMPTY_STAGE:
             problems.append(f"{where}: everyone has left and the piece stands empty for {shot['empty']:.0f} s while the narration goes on; cue the next entrance or appearance on a word nearer the exit, or the exit on a later word, so someone is always acting")
         if shot["still"] > LONGEST_STILL:
-            problems.append(f"{where}: nothing moves in view for {shot['still']:.0f} s from {shot['stillFrom']:.0f} s while the narration goes on, so the scene freezes; cue an op on a word in that stretch, such as a walk, a gesture, a give, a mark on the map or the next step of the Lab, so something is always happening")
+            problems.append(f"{where}: nothing moves in view for {shot['still']:.0f} s from {shot['stillFrom']:.0f} s while the narration goes on, so the scene freezes; cue an op on a word in that stretch, such as a walk, a gesture, a give, the next event on the map, the next step of the Lab or a camera move onto the part the words name, so something is always happening")
     return problems
 
 
