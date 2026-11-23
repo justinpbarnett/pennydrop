@@ -65,6 +65,7 @@ const MAX_ROWS = 6;
 const MUZZLE_CLEAR = 420;
 const FIGURE_SCALE = 1.25;
 const LABEL_SIZE = 44;
+const LABEL_HALO = 8;
 const SPEECH_SIZE = 44;
 const SPEECH_LINE = 56;
 const SPEECH_TAIL = 34;
@@ -865,7 +866,7 @@ function overheads(figures: FigureInk[]): Drawable[] {
     const { actor, speech } = showing;
     if (actor.label) {
       const lead = actor.tone === "lead" || actor.tone === "lit";
-      out.push({ id: `${actor.id}.label`, kind: "text", x: labelX, y: top - LABEL_SIZE / 2, text: actor.label, size: LABEL_SIZE, font: "read", fill: lead ? "accent" : "muted", opacity, z: TOP_Z });
+      out.push({ id: `${actor.id}.label`, kind: "text", x: labelX, y: top - LABEL_SIZE / 2, text: actor.label, size: LABEL_SIZE, font: "read", fill: lead ? "accent" : "muted", stroke: "fill", strokeWidth: LABEL_HALO, opacity, z: TOP_Z });
       placed.push({ left: labelX - half, right: labelX + half, clear: top - TAG_ROW, weight: opacity });
     }
     if (speech && speech.fade > 0) speakers.push({ tag: { ...tag, top: actor.label ? top - TAG_ROW : top }, speech });
