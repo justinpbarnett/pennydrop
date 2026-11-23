@@ -67,6 +67,7 @@ const FIGURE_SCALE = 1.25;
 const LABEL_SIZE = 44;
 const SPEECH_SIZE = 44;
 const SPEECH_LINE = 56;
+const SPEECH_TAIL = 34;
 const SPEECH_WIDTH = 660;
 const CAPTION_SIZE = 42;
 const ROW_LIFT = 46;
@@ -853,35 +854,48 @@ function overheads(figures: FigureInk[]): Drawable[] {
   const parts = figures.flatMap(partsOf);
   const showings = [...new Set(figures.map((figure) => figure.showing))];
   const tags = showings.flatMap((showing) => tagOf(showing, parts.filter((part) => part.showing === showing && part.own)) ?? []);
+  const othersOf = (showing: Showing) => parts.filter((part) => part.showing !== showing).map((part) => part.obstacle);
   const placed: Obstacle[] = [];
-  return tags.sort((a, b) => b.top - a.top).flatMap((tag) => {
-    const { showing, x, labelX, half, opacity } = tag;
-    const others = parts.filter((part) => part.showing !== showing).map((part) => part.obstacle);
+  const out: Drawable[] = [];
+  const speakers: { tag: Tag; speech: Speech }[] = [];
+  for (const tag of tags.sort((a, b) => b.top - a.top)) {
+    const { showing, labelX, half, opacity } = tag;
     const fading = parts.filter((part) => part.showing === showing && part.own && part.solid < 1).map((part) => ({ ...part.obstacle, weight: part.solid }));
-    const top = liftedOver(tag, [...others, ...fading, ...placed]);
-    const out: Drawable[] = [];
+    const top = liftedOver(tag, [...othersOf(showing), ...fading, ...placed]);
     const { actor, speech } = showing;
-    let bottom = top;
     if (actor.label) {
       const lead = actor.tone === "lead" || actor.tone === "lit";
       out.push({ id: `${actor.id}.label`, kind: "text", x: labelX, y: top - LABEL_SIZE / 2, text: actor.label, size: LABEL_SIZE, font: "read", fill: lead ? "accent" : "muted", opacity, z: TOP_Z });
       placed.push({ left: labelX - half, right: labelX + half, clear: top - TAG_ROW, weight: opacity });
-      bottom -= TAG_ROW;
     }
-    if (speech && speech.fade > 0) out.push(...bubble(actor.id, speech, x, bottom, opacity));
-    return out;
-  });
+    if (speech && speech.fade > 0) speakers.push({ tag: { ...tag, top: actor.label ? top - TAG_ROW : top }, speech });
+  }
+  for (const { tag, speech } of speakers) {
+    const balloon = balloonFor(speech, tag.x);
+    const bottom = liftedOver({ ...tag, labelX: balloon.cx, half: balloon.w / 2 }, [...othersOf(tag.showing), ...placed]);
+    out.push(...bubble(tag.showing.actor.id, balloon, speech, tag.x, bottom, tag.opacity));
+    placed.push({ left: balloon.cx - balloon.w / 2, right: balloon.cx + balloon.w / 2, clear: bottom - SPEECH_TAIL - balloon.h - (TAG_ROW - LABEL_SIZE), weight: tag.opacity * speech.fade });
+  }
+  return out;
 }
 
-function bubble(id: string, speech: Speech, x: number, bottom: number, opacity: number): Drawable[] {
+interface Balloon {
+  lines: string[];
+  w: number;
+  h: number;
+  cx: number;
+}
+
+function balloonFor(speech: Speech, x: number): Balloon {
   const lines = wrap(speech.words);
   lines[0] = `“${lines[0]}`;
   lines[lines.length - 1] = `${lines[lines.length - 1]}”`;
   const w = Math.max(...lines.map((line) => textWidth(line, SPEECH_SIZE, "read"))) + 64;
-  const h = lines.length * SPEECH_LINE + 34;
-  const tail = 34;
-  const cx = Math.min(STAGE_W - w / 2 - 30, Math.max(w / 2 + 30, x));
-  const cy = bottom - tail - h / 2;
+  return { lines, w, h: lines.length * SPEECH_LINE + 34, cx: Math.min(STAGE_W - w / 2 - 30, Math.max(w / 2 + 30, x)) };
+}
+
+function bubble(id: string, { lines, w, h, cx }: Balloon, speech: Speech, x: number, bottom: number, opacity: number): Drawable[] {
+  const cy = bottom - SPEECH_TAIL - h / 2;
   const fade = opacity * speech.fade;
   const rise = (1 - speech.fade) * 16;
   const base = cy + h / 2 + rise;
