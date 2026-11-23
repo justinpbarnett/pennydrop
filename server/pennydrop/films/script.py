@@ -107,6 +107,7 @@ async def script(services: Services, workspace: Workspace) -> dict:
         craft_narration=craft_narration(),
     )
     written = await answer(services, workspace, "script", Job.FILM_SCRIPT, question, lambda draft: script_problems(draft, minutes))
+    workspace.write("script.draft.json", written)
     workspace.write("script.json", written)
     return written
 

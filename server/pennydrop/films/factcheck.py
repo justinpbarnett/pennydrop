@@ -54,8 +54,6 @@ async def factcheck(services: Services, workspace: Workspace) -> dict:
     workspace.fact_check_table.write_text(table_document(table["claims"]))
     if not any(claim["verdict"] in NEEDS_FIX for claim in table["claims"]):
         return table
-    if not (workspace.home / "script.draft.json").exists():
-        workspace.write("script.draft.json", script)
     fixed = await corrected(services, workspace, claims_for_writer(table["claims"]))
     workspace.write("script.json", fixed)
     return table
