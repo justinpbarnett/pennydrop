@@ -6,6 +6,7 @@ from typing import Any
 
 from ..services import Services
 from ..settings import Job
+from ..store import CallStats
 from .ask import answer, craft, prompt
 from .audit import (
     audit_problems,
@@ -18,6 +19,7 @@ from .audit import (
 )
 from .document import FilmError
 from .render import film_tool, theme_identity
+from .truth import untrue_map_events
 from .voices import speak_film
 from .workspace import Workspace
 
@@ -183,7 +185,16 @@ async def planned_film(services: Services, workspace: Workspace, stage: str, pre
     voice = theme_identity(services, brief["theme"])["voice"]
     spoken = await speak_film(services.speaker, services.settings.tts_provider, voice, [scene["say"] for scene in script["scenes"]])
     voices = [line.voice.for_player() for line in spoken]
-    await answer(services, workspace, stage, Job.FILM_PLAN, question, lambda rows: plan_problems(services, workspace, rows, script, brief, voices), parse=film_rows, timeout=1800.0, previous=previous)
+    judge_calls: list[CallStats] = []
+
+    async def problems(rows: list[dict]) -> list[str]:
+        return plan_problems(services, workspace, rows, script, brief, voices) or await untrue_map_events(services, with_script(rows, script, brief), judge_calls)
+
+    try:
+        await answer(services, workspace, stage, Job.FILM_PLAN, question, problems, parse=film_rows, timeout=1800.0, previous=previous)
+    finally:
+        if judge_calls:
+            workspace.record(f"{stage} map check", judge_calls)
     manifest = json.loads(film_tool(services, "plan", "--film", str(workspace.voiced_film), capture=True).stdout)
     summary = {"lines": len(script["scenes"]), "duration": manifest["duration"], "cues": len(manifest["cues"])}
     workspace.write("plan.json", summary)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import inspect
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -40,10 +41,14 @@ def json_in(text: str) -> dict:
     return parsed
 
 
-def judged(text: str, parse: Callable[[str], Any], check: Callable[[Any], list[str]]) -> tuple[Any, list[str]]:
+Check = Callable[[Any], list[str] | Awaitable[list[str]]]
+
+
+async def judged(text: str, parse: Callable[[str], Any], check: Check) -> tuple[Any, list[str]]:
     try:
         parsed = parse(text)
-        return parsed, check(parsed)
+        problems = check(parsed)
+        return parsed, await problems if inspect.isawaitable(problems) else problems
     except FilmError as error:
         return None, [str(error)]
 
@@ -59,7 +64,7 @@ async def answer(
     stage: str,
     job: Job,
     question: str,
-    check: Callable[[Any], list[str]],
+    check: Check,
     parse: Callable[[str], Any] = json_in,
     search: bool = False,
     timeout: float = 1500.0,
@@ -69,7 +74,7 @@ async def answer(
     calls: list[CallStats] = []
     asked = question
     if previous is not None:
-        parsed, problems = judged(previous, parse, check)
+        parsed, problems = await judged(previous, parse, check)
         if not problems:
             return parsed
         asked = asked_again(question, previous, problems)
@@ -77,7 +82,7 @@ async def answer(
         for _ in range(ROUNDS):
             completion = await services.gateway.complete(job, asked, timeout=timeout, **options)
             calls.append(completion.stats)
-            parsed, problems = judged(completion.text, parse, check)
+            parsed, problems = await judged(completion.text, parse, check)
             if not problems:
                 return parsed
             asked = asked_again(question, completion.text, problems)
