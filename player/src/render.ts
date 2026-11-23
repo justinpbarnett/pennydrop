@@ -124,6 +124,22 @@ function updateImage(holder: SVGElement, item: Painted): void {
   }, () => undefined);
 }
 
+function updateSilhouette(holder: SVGElement, item: Painted, live: Live): void {
+  const path = holder.firstElementChild!;
+  if (live.signature !== item.d) {
+    live.signature = item.d ?? "";
+    path.setAttribute("d", live.signature);
+  }
+  const [w, h] = [item.w ?? 0, item.h ?? 0];
+  const box = item.crop ?? { x: 0, y: 0, w, h };
+  const scale = Math.min(w / box.w, h / box.h) || 0;
+  setAttributes(path, {
+    transform: `translate(${item.x} ${item.y}) scale(${item.mirror ? -scale : scale} ${scale}) translate(${-box.x - box.w / 2} ${-box.y - box.h / 2})`,
+    ...strokeOf(item),
+    "stroke-width": scale ? item.strokeWidth / scale : 0,
+  });
+}
+
 const DRAWABLE_KINDS: Record<DrawableKind, KindRenderer> = {
   rect: {
     create: () => svg("rect"),
@@ -147,6 +163,14 @@ const DRAWABLE_KINDS: Record<DrawableKind, KindRenderer> = {
   path: {
     create: createPath,
     update: (element, item) => setAttributes(element, { d: polyline(item.points ?? [], Boolean(item.closed)), ...strokeOf(item), ...dashOf(item) }),
+  },
+  silhouette: {
+    create() {
+      const holder = svg("g");
+      holder.append(createPath());
+      return holder;
+    },
+    update: updateSilhouette,
   },
   text: {
     create: () => svg("text", { "dominant-baseline": "central" }),

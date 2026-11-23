@@ -3,7 +3,8 @@ import { textWidth } from "../../text-metrics";
 import { COSTUMES, type CostumeName, drawFigure, type Holding, type Item, ITEMS, type Look } from "../acting/body";
 import { alive, arrivingPose, jittered, POSE_NAMES, POSES, type PoseName, walkingPose } from "../acting/poses";
 import { type Gait, GAITS, type GaitName, type Ground, lerpPose, type Pose, posed, type Skeleton, smooth, travelled, travelSeconds, walking } from "../acting/rig";
-import { clipToStage, drawThing, type FireMoment, GENERAL_MARKS, MUZZLE_REACH, SET_NAMES, type Setting, settingOf, STAGE_H, STAGE_W, THING_KINDS, type ThingKind } from "../acting/sets";
+import { drawProp, type FireMoment, GUNS, muzzleOf, PROP_NAMES, propCredit, type PropName, type PropPlace, propSize, SURFACES } from "../acting/props";
+import { clipToStage, GENERAL_MARKS, SET_NAMES, type Setting, settingOf, STAGE_H, STAGE_W } from "../acting/sets";
 
 const TONES = ["lead", "plain", "dim", "lit"] as const;
 type Tone = (typeof TONES)[number];
@@ -29,9 +30,10 @@ interface Actor {
 
 interface Thing {
   id: string;
-  kind: ThingKind;
+  kind: PropName;
   x: number;
   facing: Facing;
+  atop: string | null;
   on: boolean;
 }
 
@@ -67,6 +69,7 @@ const SPEECH_SIZE = 44;
 const SPEECH_LINE = 56;
 const SPEECH_WIDTH = 660;
 const CAPTION_SIZE = 42;
+const CREDIT_SIZE = 22;
 const ROW_LIFT = 46;
 const RANK_RISE = 18;
 const RANK_STEP = 26;
@@ -78,7 +81,7 @@ const CENTER = STAGE_W / 2;
 const ALIGNED: readonly CostumeName[] = ["soldier", "grenadier", "cadet"];
 const RESERVED_IDS = ["set", "caption"];
 const CAST_KEYS = ["as", "at", "label", "facing", "pose", "holding", "tone", "count", "rows", "scale", "hidden"];
-const THING_KEYS = ["kind", "at", "facing", "hidden"];
+const THING_KEYS = ["kind", "at", "atop", "facing", "hidden"];
 const ID = /^[A-Za-z][\w-]*$/;
 
 const SHADES: readonly Paint[] = ["highlight", "accent", "muted", "edge", "rule"];
@@ -91,6 +94,12 @@ const lookOf = (tone: Tone, row: number, opacity: number): Look => ({
 const thingLook = (opacity: number): Look => ({ line: "ground", fill: "edge", detail: "ground", trim: "accent", width: SEPARATION, opacity });
 
 const SETTING_CACHE = new Map<string, Setting>();
+
+function placeOf(thing: Thing, things: Thing[], setting: Setting): PropPlace {
+  const support = things.find((entry) => entry.id === thing.atop);
+  const base = support ? placeOf(support, things, setting).base - propSize(support.kind, FIGURE_SCALE).h : setting.ground(thing.x);
+  return { name: thing.kind, x: thing.x, base, facing: thing.facing, scale: FIGURE_SCALE };
+}
 
 function settingFor(state: Pick<StageState, "set" | "steps">): Setting {
   const key = `${state.set}|${state.steps.join("|")}`;
@@ -512,8 +521,13 @@ function crowding(state: StageState, a: Actor, b: Actor): string | null {
   return null;
 }
 
+const muzzleX = (state: StageState, gun: Thing) => muzzleOf(placeOf(gun, state.things, settingFor(state)))?.x ?? null;
+
 function inFrontOfMuzzle(state: StageState, actor: Actor): string | null {
-  const gun = state.things.find((thing) => thing.on && thing.kind === "cannon" && meets(reachOf(actor), between(thing.x + thing.facing * MUZZLE_REACH, thing.x + thing.facing * (MUZZLE_REACH + MUZZLE_CLEAR))));
+  const gun = state.things.find((thing) => {
+    const muzzle = thing.on ? muzzleX(state, thing) : null;
+    return muzzle !== null && meets(reachOf(actor), between(muzzle, muzzle + thing.facing * MUZZLE_CLEAR));
+  });
   if (!gun) return null;
   const [faces, behind] = gun.facing > 0 ? ["right", "left"] : ["left", "right"];
   return `${who(state, actor)} stands in front of the muzzle of ${who(state, gun)}: people stand beside or behind a gun (this one faces ${faces}, so to its ${behind}), never in front of it`;
@@ -529,7 +543,7 @@ function roomy(state: StageState): StageState {
 }
 
 function lineOfFire(state: StageState, gun: Thing, at: Point | null): void {
-  const muzzle = gun.x + gun.facing * MUZZLE_REACH;
+  const muzzle = muzzleX(state, gun)!;
   const end = at?.x ?? muzzle + gun.facing * STAGE_W;
   const struck = state.actors.find((actor) => {
     const reach = reachOf(actor);
@@ -687,11 +701,11 @@ const STAGE_OPS: Record<string, StageOp> = {
     },
   },
   fire: {
-    doc: 'fires a cannon from "things": flash, recoil, smoke and a ball that arcs to optional "at" (a mark, an x or a cast id) and bursts there',
+    doc: `fires a gun from "things" (${GUNS.join(", ")}): flash, recoil, smoke and a shot that arcs to optional "at" (a mark, an x or a cast id) and bursts there`,
     seconds: () => FIRE_SECONDS,
     apply(state, op) {
       const gun = findThing(state, op.parts[0], op.name);
-      if (gun.kind !== "cannon") fail(`op "fire": ${state.objectId}[${gun.id}] is a ${gun.kind}, not a cannon`);
+      if (!GUNS.includes(gun.kind)) fail(`op "fire": ${state.objectId}[${gun.id}] is a ${gun.kind}, which cannot fire: only a ${GUNS.join(", ")} fires`);
       if (!gun.on) fail(`op "fire": ${state.objectId}[${gun.id}] is not shown`);
       lineOfFire(state, gun, target(state, settingFor(state), op.args.at));
       return state;
@@ -929,7 +943,8 @@ function scene(state: StageState, running: { op: LabOp; before: StageState; afte
   const out: Drawable[] = [...setting.draw(clock)];
   if (state.caption) out.push({ id: "caption", kind: "text", x: CENTER, y: 84, text: state.caption.toUpperCase(), size: CAPTION_SIZE, font: "read", fill: "muted", opacity: 0.9, z: TOP_Z });
   const shown = performances(state, running, setting, clock);
-  shown.things.forEach(({ thing, opacity, fire }) => out.push(...drawThing(thing.id, thing.kind, thing.x, thing.facing, setting.ground, thingLook(opacity), clock, fire)));
+  if (state.things.length) out.push({ id: "credit", kind: "text", x: STAGE_W - 36, y: STAGE_H - 30, text: propCredit(state.things.map((thing) => thing.kind)), size: CREDIT_SIZE, font: "read", fill: "muted", anchor: "end", opacity: 0.6, z: TOP_Z });
+  shown.things.forEach(({ thing, opacity, fire }) => out.push(...drawProp(thing.id, placeOf(thing, state.things, setting), thingLook(opacity), clock, fire)));
   shown.actors.forEach((showing) => out.push(...pools(showing)));
   const figures: FigureInk[] = shown.actors
     .flatMap((showing) => showing.shots.map((entry) => ({ showing, entry })))
@@ -975,15 +990,34 @@ function castFrom(spec: Record<string, unknown>, objectId: string, setting: Sett
 
 function thingsFrom(spec: Record<string, unknown>, objectId: string, setting: Setting): Thing[] {
   if (spec.things === undefined) return [];
-  return Object.entries(record(spec.things, `${objectId}: "things"`)).map(([id, raw]) => {
+  const things: Thing[] = [];
+  for (const [id, raw] of Object.entries(record(spec.things, `${objectId}: "things"`))) {
     const where = `${objectId}[${id}]`;
     if (!ID.test(id) || RESERVED_IDS.includes(id)) fail(`${where}: a thing id is a plain name such as "gun"`);
     const field = record(raw, where);
     onlyKeys(field, THING_KEYS, where);
-    const x = markX(field.at ?? fail(`${where} needs "at": a mark or an x`), setting, `${where} "at"`);
+    const kind = oneOf(field.kind, PROP_NAMES, `${where} "kind"`);
+    const support = field.atop === undefined ? null : supportOf(field.atop, things, objectId, where);
+    const x = field.at === undefined && support ? support.x : markX(field.at ?? fail(`${where} needs "at": a mark or an x`), setting, `${where} "at"`);
+    if (support) restsOn(kind, x, support, objectId, where);
     const facing = field.facing === undefined ? towardCenter(x) : oneOf(field.facing, SIDES, `${where} "facing"`) === "left" ? -1 : 1;
-    return { id, kind: oneOf(field.kind, THING_KINDS, `${where} "kind"`), x, facing, on: field.hidden !== true };
-  });
+    things.push({ id, kind, x, facing, atop: support?.id ?? null, on: field.hidden !== true });
+  }
+  return things;
+}
+
+function supportOf(value: unknown, things: Thing[], objectId: string, where: string): Thing {
+  const support = things.find((thing) => thing.id === value);
+  const tops = things.filter((thing) => SURFACES.includes(thing.kind)).map((thing) => `"${thing.id}"`);
+  if (!support) fail(`${where} "atop" must name a thing listed before it${tops.length ? `: ${tops.join(", ")}` : `, and only a ${SURFACES.join(", ")} has a top to rest on`}`);
+  if (!SURFACES.includes(support.kind)) fail(`${where} "atop": ${objectId}[${support.id}] is a ${support.kind}, which has no flat top; things rest on a ${SURFACES.join(", ")}`);
+  return support;
+}
+
+function restsOn(kind: PropName, x: number, support: Thing, objectId: string, where: string): void {
+  const room = (propSize(support.kind, FIGURE_SCALE).w - propSize(kind, FIGURE_SCALE).w) / 2;
+  if (room < 0) fail(`${where}: a ${kind} is wider than the ${support.kind} ${objectId}[${support.id}] and cannot rest on it`);
+  if (Math.abs(x - support.x) > room) fail(`${where} hangs off the edge of ${objectId}[${support.id}]: keep "at" from ${Math.ceil(support.x - room)} to ${Math.floor(support.x + room)}, or leave "at" out to center it`);
 }
 
 function setsDoc(): string {
@@ -1005,7 +1039,7 @@ export const primitive: LabDef<Record<string, unknown>, StageState> = {
       steps: 'ranks only: the step labels from the bottom up, at most 6, such as ["lieutenant","captain","general"]',
       caption: 'optional small line at the top naming place and year, such as "Toulon, 1793"',
       cast: `people by id: {"as": ${COSTUME_NAMES.join(", ")}; "at": a mark or an x from 0 to 2400 ("off left" or "off right" to wait offstage for "enter"); "label": optional name over the head; "facing": left, right or a cast id; "pose": ${POSE_NAMES.join(", ")}; "holding": ${ITEMS.join(", ")}; "tone": lead (the protagonist, gold), plain, dim or lit (spotlit); "count": up to ${MAX_CROWD} for a crowd or ranks of soldiers; "rows"; "scale" 0.3 to 1.3; "hidden": true to wait unseen for "appear"}`,
-      things: `optional props by id: {"kind": ${THING_KINDS.join(", ")}; "at": a mark or an x; "facing": left or right; "hidden": true}`,
+      things: `optional props by id, drawn at real size behind the people: {"kind": ${PROP_NAMES.join(", ")}; "at": a mark or an x; "atop": the id of a ${SURFACES.join(", ")} listed before it, to rest on its top ("at" then optional); "facing": left or right; "hidden": true}. A ${GUNS.join(", ")} can "fire"`,
     },
     example: [
       '{"scene":{"toulon":{"kind":"stage","set":"harbor","caption":"Toulon, 1793","cast":{"deputy":{"as":"deputy","at":"far right","label":"Saliceti","holding":"orb","facing":"left"},"bonaparte":{"as":"officer","at":"off left","label":"Bonaparte","tone":"lead"}},"things":{"gun":{"kind":"cannon","at":"battery","facing":"right"}}}},"do":[{"cue":"a young captain","op":"enter","on":["toulon[bonaparte]"],"to":"deputy"},{"cue":"gives him the guns","op":"give","on":["toulon[deputy]","toulon[bonaparte]"]},{"cue":"opens fire","op":"fire","on":["toulon[gun]"],"at":"sea"}]}',

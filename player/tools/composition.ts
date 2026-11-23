@@ -38,6 +38,7 @@ export function boxOf(drawable: Drawable): Box | null {
   const { x, y } = drawable;
   switch (drawable.kind) {
     case "rect":
+    case "silhouette":
     case "image":
     case "code":
     case "math":

@@ -19,7 +19,7 @@ export type Extent = [minX: number, minY: number, maxX: number, maxY: number];
 
 function pointsOf(drawable: Drawable, strokeWidth: number): number[] {
   const { x, y } = drawable;
-  if (drawable.kind === "rect") {
+  if (drawable.kind === "rect" || drawable.kind === "silhouette") {
     const [w, h] = [drawable.w ?? 0, drawable.h ?? 0];
     return [x - w / 2, y - h / 2, x + w / 2, y - h / 2, x + w / 2, y + h / 2, x - w / 2, y + h / 2];
   }

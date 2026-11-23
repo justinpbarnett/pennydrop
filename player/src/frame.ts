@@ -65,6 +65,8 @@ function paintDrawable(drawable: Drawable, theme: Theme): Painted {
     y2: drawable.y2,
     points: drawable.points,
     closed: drawable.closed,
+    d: drawable.d,
+    mirror: drawable.mirror,
     text: shownText(drawable, theme),
     spans: drawable.spans?.map((span) => ({ text: span.text, color: parseHex(colorOf(theme, span.role)) })),
     latex: drawable.latex,
@@ -144,7 +146,7 @@ function mixCrop(before: Rect | undefined, after: Rect | undefined, progress: nu
 }
 
 function contentKey(item: Painted): string {
-  return `${item.kind}|${item.text ?? ""}|${item.latex ?? ""}|${item.href ?? ""}|${item.spans?.map((span) => span.text).join("") ?? ""}`;
+  return `${item.kind}|${item.text ?? ""}|${item.latex ?? ""}|${item.href ?? ""}|${item.d ?? ""}|${item.spans?.map((span) => span.text).join("") ?? ""}`;
 }
 
 const FADING_OUT = "~out";
@@ -185,7 +187,7 @@ function blend(before: Painted, after: Painted, progress: number): Painted[] {
   if (contentKey(before) === contentKey(after)) return [mixed];
   const clamped = clamp01(progress);
   return [
-    faded(renamed({ ...mixed, kind: before.kind, text: before.text, spans: before.spans, latex: before.latex, href: before.href, opacity: before.opacity, layer: before.layer }, FADING_OUT), Math.max(0, 1 - clamped * 2)),
+    faded(renamed({ ...mixed, kind: before.kind, text: before.text, spans: before.spans, latex: before.latex, href: before.href, d: before.d, mirror: before.mirror, opacity: before.opacity, layer: before.layer }, FADING_OUT), Math.max(0, 1 - clamped * 2)),
     faded({ ...mixed, opacity: after.opacity, layer: after.layer }, Math.max(0, clamped * 2 - 1)),
   ];
 }
