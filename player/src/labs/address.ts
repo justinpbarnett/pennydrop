@@ -1,4 +1,4 @@
-import { type Drawable, fail, type LabDef, type LabOp, type Role, textDrawable } from "../lab";
+import { type Drawable, fail, type LabDef, type LabOp, NODE_LABEL_SIZE, type Role, textDrawable } from "../lab";
 import { textWidth } from "../text-metrics";
 
 interface Field {
@@ -92,7 +92,8 @@ const VIRTUAL_Y = 60;
 const FIELD_ARROW_Y = 182;
 const PANEL_TOP = 232;
 const HEADER_HEIGHT = 84;
-const BADGE_SIZE = 24;
+const SMALLEST_DIGIT = 28;
+const DIGIT_GAP = 5;
 const MAX_ENTRIES_PER_TABLE = 6;
 const MAX_TLB_SLOTS = 8;
 const MAX_BITS = 48;
@@ -106,7 +107,7 @@ function wholeNumber(value: unknown, what: string, objectId: string): number {
   return fail(`${objectId}: ${what} must be a whole number of at least 0, or hex text such as "0x3A5C"`);
 }
 
-function hex(value: number, digits: number): string {
+function hex(value: number, digits = 1): string {
   return `0x${value.toString(16).toUpperCase().padStart(digits, "0")}`;
 }
 
@@ -201,8 +202,11 @@ function labelRoom(state: AddressState): number {
 function digitPitch(state: AddressState): number {
   const groups = state.fields.length + 1;
   const bits = state.fields.reduce((sum, field) => sum + field.bits, state.offsetBits);
-  return Math.max(20, Math.min(DIGIT_PITCH, Math.floor((BASE_WIDTH - labelRoom(state) - (groups - 1) * GROUP_GAP) / bits)));
+  const narrowest = Math.ceil(textWidth("0", SMALLEST_DIGIT, "read")) + DIGIT_GAP;
+  return Math.max(narrowest, Math.min(DIGIT_PITCH, Math.floor((BASE_WIDTH - labelRoom(state) - (groups - 1) * GROUP_GAP) / bits)));
 }
+
+const digitSize = (pitch: number) => Math.max(SMALLEST_DIGIT, Math.round(pitch * 0.95));
 
 function digitsRight(state: AddressState): number {
   const groups = state.fields.length + 1;
@@ -308,13 +312,13 @@ interface GroupLabel {
 
 function bandDrawables(state: AddressState, prefix: string, label: string, value: number, valueRole: Role, y: number, layout: Band, labels: GroupLabel[] | null, digitRole: (group: number) => Role): Drawable[] {
   const out: Drawable[] = [
-    textDrawable(`${prefix}-label`, label, { x: 0, y: y - 35 }, { size: 24, anchor: "start", fill: "muted" }),
+    textDrawable(`${prefix}-label`, label, { x: 0, y: y - 35 }, { size: NODE_LABEL_SIZE, anchor: "start", fill: "muted" }),
     textDrawable(`${prefix}-hex`, hex(value, hexWidth(state.bits)), { x: 0, y: y + 10 }, { size: 40, anchor: "start", fill: valueRole }),
   ];
   const text = binary(value, state.bits);
   const groupOf = (bit: number) => layout.groups.findIndex((group) => bit >= group.from && bit <= group.to);
   layout.bitX.forEach((x, bit) => {
-    out.push(textDrawable(`${prefix}-bit-${bit}`, text[bit]!, { x, y }, { size: Math.round(layout.pitch * 0.95), fill: digitRole(groupOf(bit)), z: 1 }));
+    out.push(textDrawable(`${prefix}-bit-${bit}`, text[bit]!, { x, y }, { size: digitSize(layout.pitch), fill: digitRole(groupOf(bit)), z: 1 }));
   });
   labels?.forEach((entry, index) => {
     const group = layout.groups[index]!;
@@ -366,9 +370,9 @@ function header(state: AddressState, id: string, column: number, title: string, 
   const x = columnX(state, column);
   const out: Drawable[] = [
     textDrawable(`${id}-title`, title, { x: x + 18, y: PANEL_TOP + 24 }, { size: 28, anchor: "start", fill: titleRole, z: 1 }),
-    textDrawable(`${id}-sub`, sub, { x: x + 18, y: PANEL_TOP + 62 }, { size: 22, anchor: "start", fill: "muted", z: 1 }),
+    textDrawable(`${id}-sub`, sub, { x: x + 18, y: PANEL_TOP + 62 }, { size: NODE_LABEL_SIZE, anchor: "start", fill: "muted", z: 1 }),
   ];
-  if (badge) out.push(textDrawable(`${id}-badge`, badge.text, { x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 24 }, { size: BADGE_SIZE, font: "mark", anchor: "end", fill: badge.role, z: 1 }));
+  if (badge) out.push(textDrawable(`${id}-badge`, badge.text, { x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 24 }, { size: NODE_LABEL_SIZE, font: "mark", anchor: "end", fill: badge.role, z: 1 }));
   return out;
 }
 
@@ -397,7 +401,7 @@ function caption(state: AddressState, id: string, column: number, first: string,
   const center = columnX(state, column) + COLUMN_WIDTH / 2;
   return [
     textDrawable(`${id}-caption-1`, first, { x: center, y: captionY(state) + 14 }, { size: 26, fill: firstRole }),
-    textDrawable(`${id}-caption-2`, second, { x: center, y: captionY(state) + 50 }, { size: 22, fill: "muted" }),
+    textDrawable(`${id}-caption-2`, second, { x: center, y: captionY(state) + 50 }, { size: NODE_LABEL_SIZE, fill: "muted" }),
   ];
 }
 
@@ -443,8 +447,7 @@ function levelDrawables(state: AddressState, level: number): Drawable[] {
   const frameWidth = hexWidth(pageBits(state));
   const invalid = hop.target === null;
   const badge = invalid ? { text: "fault", role: "fault" as Role } : hop.faulted ? { text: "filled", role: "ok" as Role } : null;
-  const addressWidth = hexWidth(state.bits);
-  const sub = level === 0 ? `PTBR = ${hex(table.base, addressWidth)}` : `${table.name} at ${hex(table.base, addressWidth)}`;
+  const sub = level === 0 ? `PTBR = ${hex(table.base)}` : `${table.name} at ${hex(table.base)}`;
   const out = [panelRect(state, `${id}-panel`, column, "fill", invalid ? "fault" : "rule"), ...header(state, id, column, `${field.name} table`, sub, badge, "ink")];
   const pathRole = walkedRowRole(state, level, hop);
   rowsOf(table, hop).forEach((index, row) => {
@@ -453,7 +456,7 @@ function levelDrawables(state: AddressState, level: number): Drawable[] {
     const text = target === undefined ? "invalid" : typeof target === "string" ? `table ${target}` : `frame ${hex(target, frameWidth)}`;
     out.push(...rowCell(state, { id, column, row, role, left: String(index), right: text, rightRole: target === undefined ? "fault" : "ink" }));
   });
-  out.push(...caption(state, id, column, `entry ${hex(hop.address, addressWidth)}`, `${hex(table.base, addressWidth)} + ${hop.index} × ${state.entryBytes}`, "ink"));
+  out.push(...caption(state, id, column, `entry ${hex(hop.address)}`, `${hex(table.base)} + ${hop.index} × ${state.entryBytes}`, "ink"));
   return out;
 }
 
