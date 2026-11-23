@@ -4,7 +4,7 @@ import type { Drawable } from "../src/lab";
 import { layoutScene } from "../src/layout";
 import { definitionOf, startSceneOf } from "../src/scene";
 import { ARROW_HEAD_ANGLE, arrowHeadLength, turned } from "../src/ink";
-import { textWidth } from "../src/text-metrics";
+import { inkBox } from "../src/text-metrics";
 import { THEMES } from "../src/theme";
 import { Timeline } from "../src/timeline";
 
@@ -57,10 +57,8 @@ export function boxOf(drawable: Drawable): Box | null {
       return xs.length ? { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) } : null;
     }
     case "text": {
-      const size = drawable.size ?? 28;
-      const width = textWidth(drawable.text ?? "", size, drawable.font ?? "read");
-      const left = drawable.anchor === "start" ? x : drawable.anchor === "end" ? x - width : x - width / 2;
-      return { minX: left, maxX: left + width, minY: y - size / 2, maxY: y + size / 2 };
+      const ink = inkBox(drawable.text ?? "", drawable.size ?? 28, drawable.font ?? "read", drawable.anchor ?? "middle");
+      return { minX: x + ink.left, maxX: x + ink.right, minY: y - ink.above, maxY: y + ink.below };
     }
   }
 }

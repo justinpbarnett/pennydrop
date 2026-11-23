@@ -247,7 +247,7 @@ function applyTouches(items: Map<string, Painted>, touches: Touch[], moment: Mom
       moved.forEach((item) => items.set(item.id, item));
     } else if (touch.action.type === "lab" && touch.before && touch.after && !definitionOf(touch.after).live) {
       const { name, parts, args } = touch.action;
-      const local = duringLabOp(definitionOf(touch.after), touch.before.state, touch.after.state, { name, parts, args }, drive(touch, moment.progress), { objectId: touch.objectId, links: {} });
+      const local = duringLabOp(definitionOf(touch.after), touch.before.state, touch.after.state, { name, parts, args }, drive(touch, moment.progress), { objectId: touch.objectId, links: {}, theme: moment.theme });
       placeDrawables(touch.objectId, local, box).forEach((drawable) => {
         items.set(drawable.id, entering(moment, touch.objectId, paintDrawable(drawable, moment.theme)));
         items.delete(`${drawable.id}${FADING_OUT}`);
@@ -271,7 +271,7 @@ function runningOn(objectId: string, touches: Touch[], carried: Carried[], momen
 function paintLive(items: Map<string, Painted>, scene: SceneState, touches: Touch[], carried: Carried[], moment: Moment): void {
   for (const object of scene.objects) {
     const box = momentBox(moment, object.id);
-    const local = box && liveLabDrawing(definitionOf(object), object.state, runningOn(object.id, touches, carried, moment), { objectId: object.id, links: {}, clock: moment.clock });
+    const local = box && liveLabDrawing(definitionOf(object), object.state, runningOn(object.id, touches, carried, moment), { objectId: object.id, links: {}, clock: moment.clock, theme: moment.theme });
     if (!local) continue;
     for (const id of [...items.keys()]) if (objectOf(id) === object.id && !id.endsWith(REPLACED)) items.delete(id);
     placeDrawables(object.id, local, box).forEach((drawable) => items.set(drawable.id, entering(moment, object.id, paintDrawable(drawable, moment.theme))));
@@ -292,7 +292,7 @@ function roomBox(was: PlacedObject, will: PlacedObject): Box {
   return { ...size, x: offset("x"), y: offset("y"), scale };
 }
 
-function roomStage(before: SceneState, beforeStage: Stage, after: Stage, replaced: Set<string>): Stage {
+function roomStage(before: SceneState, beforeStage: Stage, after: Stage, replaced: Set<string>, theme: Theme): Stage {
   let perAfter = roomStages.get(after);
   if (!perAfter) roomStages.set(after, (perAfter = new WeakMap()));
   let room = perAfter.get(beforeStage);
@@ -300,16 +300,16 @@ function roomStage(before: SceneState, beforeStage: Stage, after: Stage, replace
     const earlier = new Map(beforeStage.objects.map((object) => [object.id, object]));
     const boxes = new Map(after.objects.flatMap((object) => (earlier.has(object.id) ? [[object.id, roomBox(earlier.get(object.id)!, object)] as const] : [])));
     const kept = new Set(after.objects.flatMap((object) => object.drawables.map((drawable) => drawable.id)));
-    const staying = buildStage({ ...before, objects: before.objects.filter((object) => boxes.has(object.id) && !replaced.has(object.id)) }, () => boxes);
+    const staying = buildStage({ ...before, objects: before.objects.filter((object) => boxes.has(object.id) && !replaced.has(object.id)) }, () => boxes, theme);
     room = { ...staying, objects: staying.objects.map((object) => ({ ...object, drawables: object.drawables.filter((drawable) => kept.has(drawable.id)) })) };
     perAfter.set(beforeStage, room);
   }
   return room;
 }
 
-function relayoutPhase(located: Located, staged: { before: Stage; after: Stage }): { before: Stage; after: Stage; progress: SegmentProgress; touches: Touch[]; replaced: Set<string> } {
+function relayoutPhase(located: Located, staged: { before: Stage; after: Stage }, theme: Theme): { before: Stage; after: Stage; progress: SegmentProgress; touches: Touch[]; replaced: Set<string> } {
   const replaced = new Set(located.replaced);
-  const room = roomStage(located.before, staged.before, staged.after, replaced);
+  const room = roomStage(located.before, staged.before, staged.after, replaced, theme);
   const { progress } = located;
   if (progress.shift < 1) return { before: staged.before, after: room, progress: { ...progress, eased: 0 }, touches: [], replaced: new Set() };
   return { before: room, after: staged.after, progress: { ...progress, shift: progress.eased, exit: 1 }, touches: located.touches, replaced };
@@ -319,7 +319,7 @@ export function renderFrame(timeline: Timeline, time: number, theme: Theme, stag
   const located = timeline.locate(time, theme.motionScale, easeFor(theme));
   const staged = { before: stageOf(located.before), after: stageOf(located.after) };
   const settled = located.progress.done || staged.before === staged.after;
-  const { before, after, progress, touches, replaced } = settled || !located.relayout ? { ...staged, progress: located.progress, touches: located.touches, replaced: new Set(located.replaced) } : relayoutPhase(located, staged);
+  const { before, after, progress, touches, replaced } = settled || !located.relayout ? { ...staged, progress: located.progress, touches: located.touches, replaced: new Set(located.replaced) } : relayoutPhase(located, staged, theme);
 
   const items = new Map<string, Painted>();
   const moment: Moment = { stages: settled ? { before: after, after } : { before, after }, progress, theme, replaced: settled ? new Set() : replaced, clock: time };

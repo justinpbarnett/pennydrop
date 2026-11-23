@@ -112,9 +112,15 @@ function shapeBounds(drawable: Drawable): Bounds | null {
   return null;
 }
 
-const localDrawables = new WeakMap<SceneObject, Drawable[]>();
 type LayoutOf = (scene: SceneState, theme?: Theme) => Layout;
 const GEOMETRY_ONLY: object = {};
+const localDrawables = new WeakMap<object, WeakMap<SceneObject, Drawable[]>>();
+
+function drawnIn(theme: Theme | undefined): WeakMap<SceneObject, Drawable[]> {
+  let drawn = localDrawables.get(theme ?? GEOMETRY_ONLY);
+  if (!drawn) localDrawables.set(theme ?? GEOMETRY_ONLY, (drawn = new WeakMap()));
+  return drawn;
+}
 const stagesByLayout = new WeakMap<LayoutOf, WeakMap<object, WeakMap<SceneState, Stage>>>();
 
 function linksFor(scene: SceneState, boxes: ReadonlyMap<string, Box>): Record<string, Link> {
@@ -142,13 +148,14 @@ export function buildStage(scene: SceneState, layout: LayoutOf = layoutScene, th
   if (cached) return cached;
   const boxes = layout(scene, theme);
   const links = linksFor(scene, boxes);
+  const cache = drawnIn(theme);
   const objects = scene.objects.map((object): PlacedObject => {
     const def = definitionOf(object);
     const box = def.overlay ? OVERLAY_BOX : boxes.get(object.id)!;
-    let local = def.overlay ? undefined : localDrawables.get(object);
+    let local = def.overlay ? undefined : cache.get(object);
     if (!local) {
-      local = def.draw(object.state, { objectId: object.id, links });
-      if (!def.overlay) localDrawables.set(object, local);
+      local = def.draw(object.state, { objectId: object.id, links, theme });
+      if (!def.overlay) cache.set(object, local);
     }
     const drawn = object.tint ? local.map((drawable) => tinted(drawable, object.tint!)) : local;
     const outlines = def.overlay ? [] : outlined(object, local, box, theme ?? THEMES.pattern);

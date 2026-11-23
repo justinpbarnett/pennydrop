@@ -1,5 +1,6 @@
-import { boxDrawable, clamp01, type Drawable, fail, integerArg, type LabDef, type LabOp, lerp, type Point, type Rect, type Role, stringField, textDrawable } from "../lab";
-import { inkBelow, textWidth } from "../text-metrics";
+import { boxDrawable, clamp01, type Drawable, fail, integerArg, type LabCtx, type LabDef, type LabOp, lerp, type Point, type Rect, type Role, stringField, textDrawable } from "../lab";
+import { inkBox, textWidth } from "../text-metrics";
+import type { Theme } from "../theme";
 
 interface Syllable {
   text: string;
@@ -28,6 +29,9 @@ interface WordsSpec {
 interface Column {
   center: number;
   width: number;
+  markX: number;
+  inkLeft: number;
+  inkRight: number;
   firstLetter: number;
 }
 
@@ -35,10 +39,17 @@ interface WordLayout {
   wordSize: number;
   wordCenter: number;
   baseHeight: number;
+  dividerY: number;
   trackY: number;
   tileTop: number;
   tileSize: number;
   columns: Column[];
+  labelWidths: number[];
+}
+
+interface MarkInk {
+  left: number;
+  right: number;
 }
 
 const WIDTH = 1400;
@@ -50,7 +61,6 @@ const WORD_MIN_SIZE = 60;
 const WORD_SIZE_STEP = 2;
 const SYLLABLE_GAP = 72;
 const DIVIDER_RADIUS = 12;
-const X_HEIGHT_SHARE = 0.5;
 const ASCENDER_SHARE = 0.38;
 const WORD_TRACK_GAP = 48;
 const TRACK_HEIGHT = 8;
@@ -188,80 +198,95 @@ function letterCount(state: WordsState): number {
   return state.syllables.reduce((sum, syllable) => sum + syllable.letters.length, 0);
 }
 
-function plainMarkWidth(state: WordsState, syllable: Syllable, size: number): number {
-  return state.reading ? textWidth(syllable.text, size, "read") : (size / WORD_MAX_SIZE) * BEAT_RADIUS * 2;
+function baseHeightFor(state: WordsState, wordSize: number): number {
+  return state.reading ? wordSize : (wordSize / WORD_MAX_SIZE) * BEAT_RADIUS * 2;
 }
 
-function markWidth(state: WordsState, index: number, wordSize: number): number {
-  return plainMarkWidth(state, state.syllables[index]!, wordSize);
+function markInk(state: WordsState, syllable: Syllable, size: number, theme: Theme | undefined): MarkInk {
+  if (state.reading) return inkBox(syllable.text, size, "read", "middle", theme);
+  const radius = baseHeightFor(state, size) / 2;
+  return { left: -radius, right: radius };
+}
+
+function markWidth(state: WordsState, syllable: Syllable, size: number, theme: Theme | undefined): number {
+  const ink = markInk(state, syllable, size, theme);
+  return ink.right - ink.left;
 }
 
 function groupWidth(syllable: Syllable, tileSize: number): number {
   return syllable.letters.length * (tileSize + TILE_GAP) - TILE_GAP;
 }
 
-function tileSizeFor(state: WordsState, wordSize: number): number {
+function tileSizeFor(state: WordsState, wordSize: number, theme: Theme | undefined): number {
   const fits = state.syllables.map((syllable) => {
-    const room = plainMarkWidth(state, syllable, wordSize) - (syllable.letters.length - 1) * TILE_GAP;
+    const room = markWidth(state, syllable, wordSize, theme) - (syllable.letters.length - 1) * TILE_GAP;
     return room / syllable.letters.length;
   });
   return Math.max(TILE_MIN, Math.min(TILE_MAX, ...fits));
 }
 
-function columnWidths(state: WordsState, wordSize: number): number[] {
-  const tileSize = tileSizeFor(state, wordSize);
-  return state.syllables.map((syllable, index) => Math.max(markWidth(state, index, wordSize), groupWidth(syllable, tileSize)));
+function columnWidths(state: WordsState, wordSize: number, tileSize: number, theme: Theme | undefined): number[] {
+  return state.syllables.map((syllable) => Math.max(markWidth(state, syllable, wordSize, theme), groupWidth(syllable, tileSize)));
 }
 
 function rowWidth(widths: number[]): number {
   return widths.reduce((sum, width) => sum + width, 0) + (widths.length - 1) * SYLLABLE_GAP;
 }
 
-function fittedWordSize(state: WordsState): number {
+function fittedWordSize(state: WordsState, theme: Theme | undefined): number {
   let size = WORD_MAX_SIZE;
-  while (size > WORD_MIN_SIZE && rowWidth(columnWidths(state, size)) > ROW_ROOM) size -= WORD_SIZE_STEP;
+  while (size > WORD_MIN_SIZE && rowWidth(columnWidths(state, size, tileSizeFor(state, size, theme), theme)) > ROW_ROOM) size -= WORD_SIZE_STEP;
   return size;
-}
-
-function baseHeightFor(state: WordsState, wordSize: number): number {
-  return state.reading ? wordSize : (wordSize / WORD_MAX_SIZE) * BEAT_RADIUS * 2;
 }
 
 function inkAboveCenter(state: WordsState, wordSize: number): number {
   return state.reading ? wordSize * ASCENDER_SHARE : baseHeightFor(state, wordSize) / 2;
 }
 
-function inkBelowCenter(state: WordsState, wordSize: number): number {
+function inkBelowCenter(state: WordsState, wordSize: number, theme: Theme | undefined): number {
   if (!state.reading) return baseHeightFor(state, wordSize) / 2;
-  return Math.max(...state.syllables.map((syllable) => inkBelow(syllable.text, wordSize, "read")));
+  return Math.max(...state.syllables.map((syllable) => inkBox(syllable.text, wordSize, "read", "middle", theme).below));
 }
 
-function layout(state: WordsState): WordLayout {
-  const wordSize = fittedWordSize(state);
-  const tileSize = tileSizeFor(state, wordSize);
-  const widths = columnWidths(state, wordSize);
-  const baseHeight = baseHeightFor(state, wordSize);
-  const above = inkAboveCenter(state, wordSize);
-  const below = inkBelowCenter(state, wordSize);
-  const blockHeight = above + below + WORD_TRACK_GAP + TRACK_HEIGHT + TRACK_TILE_GAP + tileSize;
-  const wordCenter = (WORD_CARD_HEIGHT - blockHeight) / 2 + above;
-  const trackY = wordCenter + below + WORD_TRACK_GAP + TRACK_HEIGHT / 2;
+function dividerYFor(state: WordsState, wordSize: number, wordCenter: number, theme: Theme | undefined): number {
+  if (!state.reading) return wordCenter;
+  const xHeight = inkBox("x", wordSize, "read", "middle", theme);
+  return wordCenter + (xHeight.below - xHeight.above) / 2;
+}
+
+function placedColumns(state: WordsState, wordSize: number, widths: number[], theme: Theme | undefined): Column[] {
   let x = (WIDTH - rowWidth(widths)) / 2;
   let firstLetter = 0;
-  const columns = state.syllables.map((syllable, index) => {
-    const column = { center: x + widths[index]! / 2, width: widths[index]!, firstLetter };
-    x += widths[index]! + SYLLABLE_GAP;
+  return state.syllables.map((syllable, index) => {
+    const width = widths[index]!;
+    const center = x + width / 2;
+    const ink = markInk(state, syllable, wordSize, theme);
+    const inkWidth = ink.right - ink.left;
+    const column = { center, width, markX: center - (ink.left + ink.right) / 2, inkLeft: center - inkWidth / 2, inkRight: center + inkWidth / 2, firstLetter };
+    x += width + SYLLABLE_GAP;
     firstLetter += syllable.letters.length;
     return column;
   });
+}
+
+function layout(state: WordsState, theme: Theme | undefined): WordLayout {
+  const wordSize = fittedWordSize(state, theme);
+  const tileSize = tileSizeFor(state, wordSize, theme);
+  const above = inkAboveCenter(state, wordSize);
+  const below = inkBelowCenter(state, wordSize, theme);
+  const blockHeight = above + below + WORD_TRACK_GAP + TRACK_HEIGHT + TRACK_TILE_GAP + tileSize;
+  const wordCenter = (WORD_CARD_HEIGHT - blockHeight) / 2 + above;
+  const trackY = wordCenter + below + WORD_TRACK_GAP + TRACK_HEIGHT / 2;
   return {
     wordSize,
     wordCenter,
-    baseHeight,
+    baseHeight: baseHeightFor(state, wordSize),
+    dividerY: dividerYFor(state, wordSize, wordCenter, theme),
     trackY,
     tileTop: trackY + TRACK_HEIGHT / 2 + TRACK_TILE_GAP,
     tileSize,
-    columns,
+    columns: placedColumns(state, wordSize, columnWidths(state, wordSize, tileSize, theme), theme),
+    labelWidths: state.meanings.map((lines) => Math.max(...lines.map((line) => textWidth(line, MEANING_SIZE, "read", theme)))),
   };
 }
 
@@ -289,15 +314,13 @@ function wordCard(): Drawable {
   return outlinedCard("word-card", { x: 0, y: 0, w: WIDTH, h: WORD_CARD_HEIGHT }, "fill", null, "rule", 0);
 }
 
-function beatDrawable(state: WordsState, index: number, role: Role): Drawable {
-  const { columns, wordCenter, baseHeight } = layout(state);
-  const radius = baseHeight / 2;
+function beatDrawable(at: WordLayout, index: number, role: Role): Drawable {
   return {
     id: `syllable-${index}`,
     kind: "circle",
-    x: columns[index]!.center,
-    y: wordCenter,
-    r: radius,
+    x: at.columns[index]!.markX,
+    y: at.wordCenter,
+    r: at.baseHeight / 2,
     fill: role === "ink" ? "muted" : role,
     stroke: "none",
     z: 2,
@@ -308,35 +331,24 @@ function restingRole(state: WordsState, index: number): Role {
   return state.stressed === index ? "active" : "ink";
 }
 
-function syllableDrawable(state: WordsState, index: number, role = restingRole(state, index)): Drawable {
-  if (!state.reading) return beatDrawable(state, index, role);
-  const { wordSize, columns, wordCenter } = layout(state);
+function syllableDrawable(state: WordsState, at: WordLayout, index: number, role = restingRole(state, index)): Drawable {
+  if (!state.reading) return beatDrawable(at, index, role);
   return textDrawable(
     `syllable-${index}`,
     state.syllables[index]!.text,
-    { x: columns[index]!.center, y: wordCenter },
+    { x: at.columns[index]!.markX, y: at.wordCenter },
     {
-      size: wordSize,
+      size: at.wordSize,
       fill: role,
       z: 2,
     },
   );
 }
 
-function dividerY(state: WordsState): number {
-  const { wordSize, wordCenter } = layout(state);
-  if (!state.reading) return wordCenter;
-  const baseline = wordCenter + inkBelow("n", wordSize, "read");
-  return baseline - (wordSize * X_HEIGHT_SHARE) / 2;
-}
-
-function dividerDrawables(state: WordsState): Drawable[] {
-  const { columns } = layout(state);
-  const y = dividerY(state);
-  return columns.slice(1).map((column, index) => {
-    const previous = columns[index]!;
-    const x = (previous.center + previous.width / 2 + column.center - column.width / 2) / 2;
-    return { id: `divider-${index}`, kind: "circle", x, y, r: DIVIDER_RADIUS, fill: "ink", stroke: "none", z: 2 };
+function dividerDrawables(at: WordLayout): Drawable[] {
+  return at.columns.slice(1).map((column, index) => {
+    const x = (at.columns[index]!.inkRight + column.inkLeft) / 2;
+    return { id: `divider-${index}`, kind: "circle", x, y: at.dividerY, r: DIVIDER_RADIUS, fill: "ink", stroke: "none", z: 2 };
   });
 }
 
@@ -344,29 +356,27 @@ function trackRect(trackY: number, left: number, width: number): Rect {
   return { x: left, y: trackY - TRACK_HEIGHT / 2, w: width, h: TRACK_HEIGHT };
 }
 
-function spokenRect(state: WordsState, index: number): Rect {
-  const { columns, trackY, tileSize } = layout(state);
-  const width = groupWidth(state.syllables[index]!, tileSize);
-  return trackRect(trackY, columns[index]!.center - width / 2, width);
+function spokenRect(state: WordsState, at: WordLayout, index: number): Rect {
+  const width = groupWidth(state.syllables[index]!, at.tileSize);
+  return trackRect(at.trackY, at.columns[index]!.center - width / 2, width);
 }
 
-function trackDrawables(state: WordsState): Drawable[] {
-  return state.syllables.map((_, index) => boxDrawable(`say-track-${index}`, spokenRect(state, index), { fill: "muted", stroke: "none", z: 1 }));
+function trackDrawables(state: WordsState, at: WordLayout): Drawable[] {
+  return state.syllables.map((_, index) => boxDrawable(`say-track-${index}`, spokenRect(state, at, index), { fill: "muted", stroke: "none", z: 1 }));
 }
 
-function tileRect(state: WordsState, syllable: number, letter: number): Rect {
-  const { tileSize, tileTop, columns } = layout(state);
-  const group = groupWidth(state.syllables[syllable]!, tileSize);
-  const x = columns[syllable]!.center - group / 2 + letter * (tileSize + TILE_GAP);
-  return { x, y: tileTop, w: tileSize, h: tileSize };
+function tileRect(state: WordsState, at: WordLayout, syllable: number, letter: number): Rect {
+  const group = groupWidth(state.syllables[syllable]!, at.tileSize);
+  const x = at.columns[syllable]!.center - group / 2 + letter * (at.tileSize + TILE_GAP);
+  return { x, y: at.tileTop, w: at.tileSize, h: at.tileSize };
 }
 
-function tileDrawables(state: WordsState, shown: (index: number) => number, newest: number | null): Drawable[] {
-  const { tileSize, columns } = layout(state);
+function tileDrawables(state: WordsState, at: WordLayout, shown: (index: number) => number, newest: number | null): Drawable[] {
+  const { tileSize, columns } = at;
   return state.syllables.flatMap((syllable, syllableIndex) =>
     syllable.letters.flatMap((letter, letterIndex): Drawable[] => {
       const index = columns[syllableIndex]!.firstLetter + letterIndex;
-      const rect = tileRect(state, syllableIndex, letterIndex);
+      const rect = tileRect(state, at, syllableIndex, letterIndex);
       const reveal = shown(index);
       const focused = index === newest;
       const tile = outlinedCard(`tile-${index}`, rect, reveal > 0 ? "fill2" : "fill", focused ? "active" : "muted", "muted", 1, focused ? FOCUS_STROKE : SLOT_STROKE);
@@ -378,17 +388,9 @@ function tileDrawables(state: WordsState, shown: (index: number) => number, newe
   );
 }
 
-function labelWidth(state: WordsState, index: number): number {
-  return Math.max(...state.meanings[index]!.map((line) => textWidth(line, MEANING_SIZE, "read")));
-}
-
 function meaningRect(state: WordsState, index: number): Rect {
   const width = meaningWidth(state.meanings.length);
   return { x: index * (width + MEANING_SPACING), y: MEANING_TOP, w: width, h: MEANING_HEIGHT };
-}
-
-function verdictGroupWidth(state: WordsState, index: number): number {
-  return VERDICT_ROOM + labelWidth(state, index);
 }
 
 function labelCenterX(state: WordsState, index: number, settle: number): number {
@@ -396,9 +398,9 @@ function labelCenterX(state: WordsState, index: number, settle: number): number 
   return rect.x + rect.w / 2 + (settle * VERDICT_ROOM) / 2;
 }
 
-function verdictLeft(state: WordsState, index: number): number {
+function verdictLeft(state: WordsState, at: WordLayout, index: number): number {
   const rect = meaningRect(state, index);
-  return rect.x + (rect.w - verdictGroupWidth(state, index)) / 2;
+  return rect.x + (rect.w - VERDICT_ROOM - at.labelWidths[index]!) / 2;
 }
 
 function verdictOf(state: WordsState, index: number): Verdict | null {
@@ -406,8 +408,8 @@ function verdictOf(state: WordsState, index: number): Verdict | null {
   return index === state.matched && index === state.answer ? "ok" : null;
 }
 
-function verdictMark(state: WordsState, index: number, verdict: Verdict, settle: number): Drawable[] {
-  const left = verdictLeft(state, index);
+function verdictMark(state: WordsState, at: WordLayout, index: number, verdict: Verdict, settle: number): Drawable[] {
+  const left = verdictLeft(state, at, index);
   const top = MEANING_MIDDLE - VERDICT_SIZE / 2;
   return VERDICT_STROKES[verdict].map(([from, to], stroke) => ({
     id: `meaning-${index}-${verdict}-${stroke}`,
@@ -435,15 +437,15 @@ function meaningLabel(state: WordsState, index: number, settle: number): Drawabl
   return lines.map((line, lineIndex) => textDrawable(`meaning-${index}-line-${lineIndex}`, line, { x: centerX, y: top + (lineIndex + 0.5) * MEANING_LINE_PITCH }, { size: MEANING_SIZE, z: 1 }));
 }
 
-function meaningContent(state: WordsState, index: number, settle: number): Drawable[] {
+function meaningContent(state: WordsState, at: WordLayout, index: number, settle: number): Drawable[] {
   const verdict = verdictOf(state, index);
   const shown = verdict ? settle : 0;
-  const marks = verdict ? verdictMark(state, index, verdict, shown) : [];
+  const marks = verdict ? verdictMark(state, at, index, verdict, shown) : [];
   return [meaningCard(state, index), ...meaningLabel(state, index, shown), ...marks];
 }
 
-function meaningDrawables(state: WordsState): Drawable[] {
-  return state.meanings.flatMap((_, index) => meaningContent(state, index, 1));
+function meaningDrawables(state: WordsState, at: WordLayout): Drawable[] {
+  return state.meanings.flatMap((_, index) => meaningContent(state, at, index, 1));
 }
 
 function matchArrow(state: WordsState, shown: number): Drawable[] {
@@ -489,24 +491,25 @@ function spellSeconds(_op: LabOp, state: WordsState): number {
   return SPELL_LEAD + SPELL_PER_LETTER * letterCount(state);
 }
 
-function sayFrame(_before: WordsState, after: WordsState, _op: LabOp, progress: number): Drawable[] {
+function sayFrame(_before: WordsState, after: WordsState, _op: LabOp, progress: number, ctx: LabCtx): Drawable[] {
+  const at = layout(after, ctx.theme);
   const count = after.syllables.length;
   const spoken = Math.min(count - 1, Math.floor(progress * count));
-  const syllables = after.syllables.map((_, index) => syllableDrawable(after, index));
-  return [...syllables, boxDrawable("say-bar", spokenRect(after, spoken), { fill: "accent", stroke: "none", z: 2 })];
+  const syllables = after.syllables.map((_, index) => syllableDrawable(after, at, index));
+  return [...syllables, boxDrawable("say-bar", spokenRect(after, at, spoken), { fill: "accent", stroke: "none", z: 2 })];
 }
 
-function spellFrame(_before: WordsState, after: WordsState, _op: LabOp, progress: number): Drawable[] {
+function spellFrame(_before: WordsState, after: WordsState, _op: LabOp, progress: number, ctx: LabCtx): Drawable[] {
   const count = letterCount(after);
   const reached = progress * count;
   const newest = progress < 1 ? Math.min(count - 1, Math.floor(reached)) : null;
-  return tileDrawables(after, (index) => clamp01(reached - index), newest);
+  return tileDrawables(after, layout(after, ctx.theme), (index) => clamp01(reached - index), newest);
 }
 
-function matchFrame(before: WordsState, after: WordsState, _op: LabOp, progress: number): Drawable[] {
+function matchFrame(before: WordsState, after: WordsState, _op: LabOp, progress: number, ctx: LabCtx): Drawable[] {
   const matched = after.matched!;
   const settled = verdictOf(before, matched) === verdictOf(after, matched);
-  return [...matchArrow(after, progress), ...meaningContent(after, matched, settled ? 1 : progress)];
+  return [...matchArrow(after, progress), ...meaningContent(after, layout(after, ctx.theme), matched, settled ? 1 : progress)];
 }
 
 export const lab: LabDef<WordsSpec, WordsState> = {
@@ -575,14 +578,15 @@ export const lab: LabDef<WordsSpec, WordsState> = {
     return { w: WIDTH, h: state.meanings.length > 0 ? MEANING_TOP + MEANING_HEIGHT : WORD_CARD_HEIGHT };
   },
 
-  draw(state) {
+  draw(state, ctx) {
+    const at = layout(state, ctx.theme);
     return [
       wordCard(),
-      ...state.syllables.map((_, index) => syllableDrawable(state, index)),
-      ...dividerDrawables(state),
-      ...trackDrawables(state),
-      ...tileDrawables(state, () => (state.spelled ? 1 : 0), null),
-      ...meaningDrawables(state),
+      ...state.syllables.map((_, index) => syllableDrawable(state, at, index)),
+      ...dividerDrawables(at),
+      ...trackDrawables(state, at),
+      ...tileDrawables(state, at, () => (state.spelled ? 1 : 0), null),
+      ...meaningDrawables(state, at),
       ...matchArrow(state, 1),
     ];
   },

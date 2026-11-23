@@ -441,8 +441,8 @@ function threadDrawables(state: ThreadsState, geometry: Geometry): Drawable[] {
       box(id, card, thread.status === "running" ? "fill2" : "fill", cardStroke(thread, deadlocked), deadlocked ? 2.6 : thread.status === "ready" ? 1 : 1.8, part),
       text(`${id}-name`, thread.name, { x: card.x + PAD, y: card.y + 26 }, 30, "ink", "start", part),
       text(`${id}-holds`, holdsText(state, thread), { x: card.x + card.w - PAD, y: card.y + 26 }, 20, "muted", "end", part),
-      text(`${id}-state`, words, { x: card.x + PAD, y: card.y + 65 }, 24, role, "start", part),
-      text(`${id}-doing`, thread.doing, { x: card.x + PAD, y: card.y + 102 }, 22, "muted", "start", part),
+      text(`${id}-state`, words, { x: card.x + PAD, y: card.y + 64 }, 24, role, "start", part),
+      text(`${id}-doing`, thread.doing, { x: card.x + PAD, y: card.y + 103 }, 22, "muted", "start", part),
       ...(thread.carrying ? itemDrawables(thread.carrying, carriedCenter(card), CARRIED_SIZE) : []),
     ];
   });

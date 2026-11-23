@@ -370,7 +370,7 @@ function header(state: AddressState, id: string, column: number, title: string, 
   const x = columnX(state, column);
   const out: Drawable[] = [
     textDrawable(`${id}-title`, title, { x: x + 18, y: PANEL_TOP + 23 }, { size: 28, anchor: "start", fill: titleRole, z: 1 }),
-    textDrawable(`${id}-sub`, sub, { x: x + 18, y: PANEL_TOP + 63 }, { size: NODE_LABEL_SIZE, anchor: "start", fill: "muted", z: 1 }),
+    textDrawable(`${id}-sub`, sub, { x: x + 18, y: PANEL_TOP + 60 }, { size: NODE_LABEL_SIZE, anchor: "start", fill: "muted", z: 1 }),
   ];
   if (badge) out.push(textDrawable(`${id}-badge`, badge.text, { x: x + COLUMN_WIDTH - 18, y: PANEL_TOP + 23 }, { size: NODE_LABEL_SIZE, font: "mark", anchor: "end", fill: badge.role, z: 1 }));
   return out;

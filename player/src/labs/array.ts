@@ -1,5 +1,5 @@
 import { type Drawable, fail, indexPart, type LabDef, type LabOp, lerp, numberArg, readsWords, type Role, stringArg, STAGE, STAGE_MARGIN, textDrawable } from "../lab";
-import { textWidth } from "../text-metrics";
+import { inkBox, textWidth } from "../text-metrics";
 
 interface Cell {
   id: string;
@@ -66,12 +66,21 @@ function specRoom(spec: ArraySpec, objectId: string): Room {
 
 const MIN_WIDTH = 480;
 const MIN_TOP = 20;
-const INDEX_BOTTOM = 41;
-const COUNTER_Y = 22;
-const COUNTER_BAND = 58;
+const EDGE_MARGIN = 22;
+const DIGITS = "0123456789";
+const INDEX_SIZE = 26;
+const INDEX_DROP = 26;
+const INDEX_BOTTOM = INDEX_DROP + inkBox(DIGITS, INDEX_SIZE, "read", "middle").below;
+const COUNTER_LABEL_SIZE = 24;
+const COUNTER_VALUE_SIZE = 38;
+const COUNTER_LABEL_GAP = 22;
+const COUNTER_SPACING = 70;
+const COUNTER_CELL_GAP = 21;
+const COUNTER_INK = inkBox(DIGITS, COUNTER_VALUE_SIZE, "read", "middle");
+const COUNTER_Y = EDGE_MARGIN + COUNTER_INK.above;
+const COUNTER_BAND = COUNTER_Y + COUNTER_INK.below + COUNTER_CELL_GAP;
 const WINDOW_BAND = 30;
 const WINDOW_RISE = 24;
-const BOTTOM_MARGIN = 22;
 const POINTER_TIP = 54;
 const POINTER_LABEL = 57;
 const POINTER_REACH = 67;
@@ -126,7 +135,7 @@ function metrics(state: ArrayState) {
   const width = Math.max(rowWidth, MIN_WIDTH);
   const top = Math.max(MIN_TOP, (look.words && bandEntries(state, new Map()).length > 0 ? COUNTER_BAND : 0) + (state.window || state.room.window ? WINDOW_BAND : 0));
   const pointed = state.pointers.length > 0 || state.room.pointers;
-  const below = (pointed ? POINTER_TIP + look.pointerReach : look.indexBottom) + BOTTOM_MARGIN;
+  const below = (pointed ? POINTER_TIP + look.pointerReach : look.indexBottom) + EDGE_MARGIN;
   const rowHeight = Math.round(cell * look.rise);
   return { cell, rowHeight, cellWidth, labelSize, gap, width, offset: (width - rowWidth) / 2, top, height: top + rowHeight + below };
 }
@@ -269,10 +278,6 @@ function labelledCell(state: ArrayState, cell: Cell, slot: number, at: At): Draw
   ];
 }
 
-const COUNTER_LABEL_SIZE = 24;
-const COUNTER_VALUE_SIZE = 38;
-const COUNTER_LABEL_GAP = 22;
-const COUNTER_SPACING = 70;
 
 interface BandEntry {
   id: string;
@@ -520,7 +525,7 @@ export const lab: LabDef<ArraySpec, ArrayState> = {
     const y = cellCenterY(state);
     const { top, cell: cellSize } = metrics(state);
     const cells = state.cells.flatMap((cell, slot) => cellDrawables(state, cell, slot, { x: slotCenterX(state, slot), y }));
-    const indices = !lookOf(state).words ? [] : state.cells.map((_, slot) => textDrawable(`index-${slot}`, String(slot), { x: slotCenterX(state, slot), y: top + cellSize + 26 }, { size: 26, fill: "muted" }));
+    const indices = !lookOf(state).words ? [] : state.cells.map((_, slot) => textDrawable(`index-${slot}`, String(slot), { x: slotCenterX(state, slot), y: top + cellSize + INDEX_DROP }, { size: INDEX_SIZE, fill: "muted" }));
     return [...cells, ...targetLine(state), ...indices, ...pointerDrawables(state), ...windowDrawable(state), ...counterDrawables(state, new Map())];
   },
 };

@@ -45,8 +45,12 @@ function measure(text: string, size: number, font: ThemeFont): number {
   return [...text].reduce((total, character) => total + ((advances[character] ?? fallback) + font.tracking) * size, 0);
 }
 
-export function textWidth(text: string, size: number, role: FontRole): number {
-  return Math.max(...shownIn.map((theme) => measure(shownText({ text, font: role }, theme)!, size, theme.fonts[role])));
+function themesFor(theme: Theme | undefined): readonly Theme[] {
+  return theme ? [theme] : shownIn;
+}
+
+export function textWidth(text: string, size: number, role: FontRole, theme?: Theme): number {
+  return Math.max(...themesFor(theme).map((shown) => measure(shownText({ text, font: role }, shown)!, size, shown.fonts[role])));
 }
 
 export interface TextInk {
@@ -81,6 +85,26 @@ export function textInk(text: string, size: number, font: ThemeFont): TextInk {
   };
 }
 
-export function inkBelow(text: string, size: number, role: FontRole): number {
-  return Math.max(...shownIn.map((theme) => textInk(text, size, theme.fonts[role]).below));
+export type TextAnchor = "start" | "middle" | "end";
+
+export interface InkBox {
+  left: number;
+  right: number;
+  above: number;
+  below: number;
+}
+
+export function inkBox(text: string, size: number, role: FontRole, anchor: TextAnchor, theme?: Theme): InkBox {
+  const inks = themesFor(theme).map((shown) => textInk(shownText({ text, font: role }, shown)!, size, shown.fonts[role]));
+  const origin = (ink: TextInk) => (anchor === "start" ? 0 : anchor === "end" ? ink.width : ink.width / 2);
+  return {
+    left: Math.min(...inks.map((ink) => ink.left - origin(ink))),
+    right: Math.max(...inks.map((ink) => ink.right - origin(ink))),
+    above: Math.max(...inks.map((ink) => ink.above)),
+    below: Math.max(...inks.map((ink) => ink.below)),
+  };
+}
+
+export function inkBelow(text: string, size: number, role: FontRole, theme?: Theme): number {
+  return inkBox(text, size, role, "middle", theme).below;
 }

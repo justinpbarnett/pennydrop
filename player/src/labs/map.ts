@@ -17,7 +17,7 @@ import {
   stringArg,
   textDrawable,
 } from "../lab";
-import { textWidth } from "../text-metrics";
+import { inkBox, textWidth } from "../text-metrics";
 import land from "./assets/map/land.json";
 
 interface Place {
@@ -137,7 +137,10 @@ const HEIGHT = 780;
 const PANEL_GAP = 20;
 const PANEL_PAD = 24;
 const EVENT_TEXT = 26;
-const EVENT_ROW_PITCH = EVENT_TEXT + 12;
+const EVENT_ROW_GAP = 12;
+const TALLEST_AND_DEEPEST = "Hbdfhklgjpqy(),0123456789";
+const EVENT_INK = inkBox(TALLEST_AND_DEEPEST, EVENT_TEXT, "read", "middle");
+const EVENT_ROW_PITCH = Math.ceil(EVENT_INK.above + EVENT_INK.below) + EVENT_ROW_GAP;
 const EVENT_ROWS = 4;
 const STEM_LENGTH = 32;
 const STEM_LABEL_INSET = 10;
@@ -593,7 +596,13 @@ function dotRect(at: Point): Rect {
 }
 
 function plateSize(name: string): Size {
-  return { w: textWidth(name, PLACE_TEXT, "read") + 2 * PLATE_PAD, h: PLACE_TEXT + 2 * PLATE_PAD };
+  const ink = inkBox(name, PLACE_TEXT, "read", "middle");
+  return { w: ink.right - ink.left + 2 * PLATE_PAD, h: ink.above + ink.below + 2 * PLATE_PAD };
+}
+
+function nameAnchor(name: string, plate: Rect): Point {
+  const ink = inkBox(name, PLACE_TEXT, "read", "middle");
+  return { x: plate.x + PLATE_PAD - ink.left, y: plate.y + PLATE_PAD + ink.above };
 }
 
 function textBox(plate: Rect): Rect {
@@ -969,7 +978,7 @@ function placeDrawables(state: Laid): Drawable[] {
   if (!state.reading) return dots;
   const labels = state.labels.flatMap(({ place, plate, leader }): Drawable[] => [
     boxDrawable(`place-${place}-plate`, plate, { fill: "ground", stroke: "none", radius: 1, z: 6 }),
-    textDrawable(`place-${place}-label`, state.places[place]!.name, rectCenter(plate), { size: PLACE_TEXT, z: 7 }),
+    textDrawable(`place-${place}-label`, state.places[place]!.name, nameAnchor(state.places[place]!.name, plate), { size: PLACE_TEXT, z: 7 }),
     ...(leader ? [{ id: `place-${place}-leader`, kind: "line" as const, x: leader[0].x, y: leader[0].y, x2: leader[1].x, y2: leader[1].y, stroke: "muted" as const, strokeWidth: 2, z: 5 }] : []),
   ]);
   return [...dots, ...labels];
@@ -1043,10 +1052,11 @@ function eventDrawables(state: MapState, layout: TimelineLayout): Drawable[] {
   if (!state.reading) return state.events.map((event, index) => eventMarker(index, yearX(state.axis, event.year), axisY));
   return layout.events.flatMap(({ event: index, box }) => {
     const x = yearX(state.axis, state.events[index]!.year);
+    const text = eventText(state, state.events[index]!);
     return [
       eventMarker(index, x, axisY),
-      { id: `event-${index}-stem`, kind: "line", x, y: box.y + box.h + EDGE_CLEAR, x2: x, y2: axisY - EVENT_DOT_RADIUS, stroke: "edge", strokeWidth: 2, z: 3 },
-      textDrawable(`event-${index}-label`, eventText(state, state.events[index]!), { x: box.x + box.w / 2, y: box.y + box.h / 2 }, { size: EVENT_TEXT, z: 3 }),
+      { id: `event-${index}-stem`, kind: "line", x, y: box.y + box.h / 2 + inkBox(text, EVENT_TEXT, "read", "middle").below + EDGE_CLEAR, x2: x, y2: axisY - EVENT_DOT_RADIUS, stroke: "edge", strokeWidth: 2, z: 3 },
+      textDrawable(`event-${index}-label`, text, { x: box.x + box.w / 2, y: box.y + box.h / 2 }, { size: EVENT_TEXT, z: 3 }),
     ];
   });
 }

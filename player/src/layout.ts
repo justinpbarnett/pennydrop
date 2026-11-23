@@ -335,7 +335,7 @@ function reachFor(object: SceneObject, theme: Theme): Reach {
   if (!reach) {
     const def = definitionOf(object);
     const size = def.size(object.state);
-    const ink = def.overlay ? NO_REACH : reachOf(def.draw(object.state, { objectId: object.id, links: {} }), size, theme);
+    const ink = def.overlay ? NO_REACH : reachOf(def.draw(object.state, { objectId: object.id, links: {}, theme }), size, theme);
     const caption = def.overlay ? null : captionDrawable(object, size.w, ink.top);
     reach = def.framed ? outward(ink) : ink;
     if (caption) reach = widest(reach, reachOf([caption], size, theme));

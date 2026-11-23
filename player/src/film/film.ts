@@ -77,7 +77,7 @@ function planeLayout(scene: SceneState): Layout {
   );
 }
 
-const planeStage = (scene: SceneState): Stage => buildStage(scene, planeLayout);
+const planeStageIn = (theme: Theme) => (scene: SceneState): Stage => buildStage(scene, planeLayout, theme);
 
 function selectedObject(on: string[] | undefined): string | null {
   const first = on?.[0];
@@ -141,7 +141,7 @@ export async function buildFilm(source: FilmSource, inks = new InkRecord()): Pro
     errors.push(`header start: ${describe(error)}`);
   }
   await prepareStepAssets(startScene);
-  const timeline = new Timeline(startScene, planeStage);
+  const timeline = new Timeline(startScene, planeStageIn(THEMES[header.theme]));
   const lineScenes: SceneState[] = [];
   const cues: CueRecord[] = [];
   const accents: Accent[] = [];
@@ -334,7 +334,7 @@ export function frameAt(film: Film, time: number, theme: Theme): FilmFrame {
   const local = time - film.lead;
   const onCue: Theme = { ...theme, ease: ON_CUE_EASE };
   const located = locateAt(film, time, theme);
-  const inner = renderFrame(film.timeline, local, onCue, planeStage);
+  const inner = renderFrame(film.timeline, local, onCue, planeStageIn(theme));
 
   const grouped = new Map<string, Painted[]>();
   for (const item of inner.items) {

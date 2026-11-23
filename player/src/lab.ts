@@ -1,5 +1,5 @@
 import { textWidth } from "./text-metrics";
-import { HUES, type Hue, isHue } from "./theme";
+import { HUES, type Hue, isHue, type Theme } from "./theme";
 
 export const ROLES = [
   "ground", "ink", "muted", "rule", "accent", "active", "compare", "swap",
@@ -97,6 +97,8 @@ export interface LabOp {
 export interface LabCtx {
   objectId: string;
   links: Record<string, Link>;
+  /** Absent when one drawing must hold in every theme, as the checks need. */
+  theme?: Theme;
 }
 
 export interface LiveCtx extends LabCtx {
