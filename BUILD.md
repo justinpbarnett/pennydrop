@@ -304,8 +304,8 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 - An algorithm outline plays the same small runs at every level, so an advanced Lesson still walks a seven value trace its learner already knows, and the judge fails it on `pitched_to_level` even when its words fit.
 - A Course Topic Lesson is written with no Profile, so all 39 CS 6200 Topic Lessons are pitched at beginner, though CS 6200 is a graduate course.
 - A Profile has one Level for every subject, so an engineer who is advanced in computing is pitched advanced in biology too.
-- The writer still misses its Level's definition on 21 of 24 re-asked Lessons.
-  Every advanced Lesson spends Steps on the standard model, a beginner Lesson leaves a term such as node, thread or CPU, or a highlighted code line, unexplained, and a young child Rule comes out in adult words or with no character that wants something.
+- The writer still misses its Level's definition on 21 of 24 re-asked Lessons, and on 7 of 8 intermediate ones.
+  Every advanced Lesson spends Steps on the standard model, an intermediate Lesson reteaches the textbook example its learner already holds, a beginner Lesson leaves a term such as node, thread or CPU, or a highlighted code line, unexplained, and a young child Rule comes out in adult words or with no character that wants something.
 
 ### Server facts for later work
 
@@ -402,6 +402,7 @@ Fixes from the pass: the words hinge and stress claim, the transistor model, the
 
 Measured on 24 Lessons re-asked from stored ones, 8 per Level for advanced, beginner and young child, with `pd judge` on Opus giving each Lesson's `pitched_to_level` verdict and a blind pair compare against the Lesson it came from.
 The sample has no intermediate Lessons, because the store had none, and it takes the same number from each Level rather than the store's mix of 1264 advanced, 228 beginner and 327 young child.
+A second round asked 8 of the sample's adult Asks again on an intermediate Profile, with no Lesson to pair against.
 The before row judged the 24 source Lessons and 2 beginner Course Topic Lessons, and its mean overall is over the 24 sources.
 The judge gave no verdict on 3 of the advanced Lessons in the system prompt round, so that row counts 21.
 
@@ -410,6 +411,7 @@ before                             pass 0 of 26   mean overall 4.58 over the 24
 definitions in the system prompt   pass 0 of 21   mean overall 4.67
 definitions in the brief           pass 1 of 24   mean overall 5.04   pairs on level: after 20, before 1, tie 3
 the brief with each Level's point  pass 3 of 24   mean overall 5.04   pairs on level: after 21, before 3; overall: after 19, before 5
+the same, on intermediate          pass 1 of 8    mean overall 4.75
 ```
 
 Migration 11 left the live store at `user_version` 11 with 1264 advanced, 228 beginner and 327 young child Lessons, and `pragma foreign_key_check` empty.
