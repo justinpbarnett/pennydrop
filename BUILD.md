@@ -290,7 +290,6 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 - The words Ask sometimes writes plain text instead of using the words Lab.
 - Practice lines often keep their faults after the one redo, and the fresh item sometimes changes two slots.
 - The judge calls the music `tempo` op a no-op though it plays the roll, and music Lessons still carry some tempo filler.
-- The map Lab crowds its labels.
 - The plot Lab rarely holds its reveal back for the hinge.
 - The memory Lab's heap shows at most two blocks.
 - The words Lab spaces its dots unevenly.
