@@ -1,5 +1,5 @@
-import type { Drawable, Layer, Paint, Point } from "../../lab";
-import { along, angleOf, BONE, type Ground, rising, type Side, type Skeleton } from "./rig";
+import { type Drawable, type Layer, lerp, type Paint, type Point } from "../../lab";
+import { along, angleOf, BONE, type Ground, rising, type Side, type Skeleton, smooth } from "./rig";
 
 export type Dress = "coat" | "longcoat" | "jacket" | "robe" | "gown";
 export type Hat = "bicorne" | "shako" | "bearskin" | "plumed" | "tricorne" | "cap" | "round" | "bonnet" | "none";
@@ -199,33 +199,61 @@ function hanging(side: Side, distance: number, swing: number): Point {
 }
 
 const SKIRT_BODY = 20;
+const DRAPE_TURN = 25;
+const KNEE_COVER = 14;
+const TAILS_LENGTH = 0.5 * (BONE.thigh + BONE.shin);
+const TAILS_SWEPT_BACK = -45;
+const TAILS_FALL = -5;
+
+interface Drape {
+  hem: Point;
+  knee: Point;
+  over: number;
+  drop: number;
+}
+
+function drapeOf(side: Side, length: number, swing: number, f: number): Drape {
+  const thighAngle = angleOf(side.hip, side.knee, f);
+  const thigh = Math.hypot(side.knee.x - side.hip.x, side.knee.y - side.hip.y) || 1;
+  const drop = Math.max(0, length - thigh);
+  const onThigh = drop > 0 ? { x: side.knee.x, y: side.knee.y + drop } : mid(side.hip, side.knee, length / thigh);
+  const over = smooth((Math.abs(thighAngle) - swing) / DRAPE_TURN);
+  return { hem: mid(hanging(side, length, swing), onThigh, over), knee: side.knee, over, drop };
+}
 
 function skirtShape(sk: Skeleton, skirt: Skirt, ground: Ground): Shape {
   const s = sk.scale;
   const f = Math.sign(sk.facing || 1);
   const width = Math.max(0.3, Math.abs(sk.facing));
   const length = skirt.length * (BONE.thigh + BONE.shin) * s;
-  const [front, back] = [hanging(sk.near, length, skirt.swing), hanging(sk.far, length, skirt.swing)].sort((a, b) => f * (b.x - a.x));
+  const [front, back] = [drapeOf(sk.near, length, skirt.swing, f), drapeOf(sk.far, length, skirt.swing, f)].sort((a, b) => f * (b.hem.x - a.hem.x));
   const onFloor = (p: Point) => ({ x: p.x, y: Math.min(p.y, ground(p.x) - 4 * s) });
-  const frontHem = onFloor({ x: front!.x + f * (SKIRT_BODY + skirt.flare) * s * width, y: front!.y });
-  const backHem = onFloor({ x: back!.x - f * (SKIRT_BODY + skirt.flare + skirt.back) * s * width, y: back!.y });
-  const parted = Math.min(0.7 * length, skirt.split * Math.max(0, Math.abs(front!.x - back!.x) - 12 * s));
-  const middle = onFloor({ x: (front!.x + back!.x) / 2, y: Math.max(frontHem.y, backHem.y) + 6 * s - parted });
+  const frontFlare = lerp(SKIRT_BODY + skirt.flare, KNEE_COVER + (skirt.flare * front!.drop) / length, front!.over);
+  const frontHem = onFloor({ x: front!.hem.x + f * frontFlare * s * width, y: front!.hem.y });
+  const backHem = onFloor({ x: back!.hem.x - f * (SKIRT_BODY + skirt.flare + skirt.back) * s * width, y: back!.hem.y });
+  const parted = Math.min(0.7 * length, skirt.split * Math.max(0, Math.abs(front!.hem.x - back!.hem.x) - 12 * s));
+  const middle = onFloor({ x: (front!.hem.x + back!.hem.x) / 2, y: Math.max(frontHem.y, backHem.y) + 6 * s - parted });
   const torso = torsoFrame(sk);
-  return flat([torso.at(22, 40), torso.at(26, 4), frontHem, middle, backHem, torso.at(-30, 4), torso.at(-24, 40)]);
+  const waist = torso.at(26, 4);
+  const thighUp = angleOf(front!.knee, waist, f);
+  const overKnee = mid(mid(waist, frontHem), offset(front!.knee, along(thighUp, f, KNEE_COVER * s)), front!.over);
+  return flat([torso.at(22, 40), waist, overKnee, frontHem, middle, backHem, torso.at(-30, 4), torso.at(-24, 40)]);
 }
 
-function tailsShape(sk: Skeleton): Shape {
+function tailsShape(sk: Skeleton, ground: Ground): Shape {
   const s = sk.scale;
   const f = Math.sign(sk.facing || 1);
   const width = Math.max(0.3, Math.abs(sk.facing));
   const torso = torsoFrame(sk);
-  const top = torso.at(-22, 26);
-  const hang = (angleOf(sk.near.hip, sk.near.knee, f) + angleOf(sk.far.hip, sk.far.knee, f)) / 2;
-  const back = Math.max(-44 * s, Math.min(...[sk.near.knee, sk.far.knee].map((k) => f * (k.x - sk.pelvis.x))) - 18 * s);
-  const low = offset(sk.pelvis, along(hang, f, 0.5 * (BONE.thigh + BONE.shin) * s));
-  const tip = { x: low.x + f * (back - 6 * s) * width * 0.6, y: low.y };
-  return flat([torso.at(6, 30), top, { x: tip.x - f * 10 * s * width, y: tip.y - 4 * s }, { x: tip.x + f * 14 * s * width, y: tip.y + 2 * s }, torso.at(4, 0)]);
+  const rearThigh = Math.min(angleOf(sk.near.hip, sk.near.knee, f), angleOf(sk.far.hip, sk.far.knee, f));
+  const hang = Math.max(TAILS_SWEPT_BACK, Math.min(TAILS_FALL, rearThigh - 8));
+  const root = torso.at(-20, 0);
+  const length = TAILS_LENGTH * s;
+  const free = offset(root, along(hang, f, length));
+  const floor = ground(free.x) - 4 * s;
+  const legs = Math.sign((sk.near.ankle.x + sk.far.ankle.x) / 2 - sk.pelvis.x) || f;
+  const tip = free.y <= floor ? free : { x: root.x + legs * Math.sqrt(Math.max(0, length ** 2 - (floor - root.y) ** 2)), y: floor };
+  return flat([torso.at(6, 30), torso.at(-22, 26), { x: tip.x - f * 10 * s * width, y: tip.y - 4 * s }, { x: tip.x + f * 14 * s * width, y: tip.y + 2 * s }, torso.at(4, 0)]);
 }
 
 const framed = (frame: Frame, pairs: [number, number][], size = 1) => flat(pairs.map(([u, v]) => frame.at(u * size, v * size)));
@@ -299,7 +327,7 @@ export function drawFigure(figure: Figure, z: number): Drawable[] {
 
   ink.group("arm2", armShapes(sk.far, s, wide), look);
   ink.group("leg2", legShapes(sk.far, s), look);
-  if (costume.dress === "coat") ink.group("tails", [tailsShape(sk)], look);
+  if (costume.dress === "coat") ink.group("tails", [tailsShape(sk, ground)], look);
   ink.group("leg", legShapes(sk.near, s), look);
 
   const body: Shape[] = torsoShapes(sk, s, costume.dress === "jacket" ? 1.04 : 1);
