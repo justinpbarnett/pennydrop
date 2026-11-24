@@ -276,7 +276,56 @@ It ends with render minutes, tokens and cost by stage, review minutes, and fact 
 
 ## Work board
 
-Every slice below is committed and pushed; the build session closed on 2026-11-22 at `45f2994`.
+### Pick up here
+
+Justin paused the project on 2026-11-24, after `5d9f31f`, to come back in a few days.
+Lessons are done and live; the open work is the Napoleon Film on the new Blender pipeline.
+
+**Where Films stand.**
+On 2026-11-23 Films moved from the 2D stage to Blender dioramas, as a slow pipeline apart from Lessons.
+The pipeline stages and `pd film check` are committed in `38b9e26`, and the diorama engine in `5d9f31f`.
+The engine is verified on the Toulon prototype, which plays at https://macbook.tail7a3807.ts.net:8443/films/blender-proto/toulon-engine.mp4 beside the earlier `toulon.mp4`.
+Seven Toulon shots preview with no errors or problems, the 1150-frame final has no frozen stretch, and 24 broken specs each fire their sentence.
+The Napoleon Film, thread `napoleon-rise`, has run through `storyboard`: 99 shots over 494.9 s, 10 sets and 40 roles.
+`design`, `shoot`, `render` and `check` have not run on it.
+So the next run is also the first run of those stages against the real engine, and a contract mismatch would show up there first.
+The stages and the engine agree on the job keys on paper, and `pennydrop.films.blender.Engine` has run `catalog` and `preview` jobs.
+
+**Next, in order.**
+1. Settle which Claude account Pennydrop runs on.
+   The gateway's claude route shells out to `claude -p`, so every Film model call bills the account Claude Code is logged into, and on 2026-11-23 that was a work Team plan.
+   Justin paused `design` and `shoot` until this is settled.
+2. Fix the engine weaknesses that the engine build found:
+   - the face check fires only while a person is acting, so a face in hard profile passes;
+   - camera keys by `bearing` are relative to the first target's facing and easy to get wrong, while `eye` keys are reliable;
+   - an open door leaf can hide a person walking through;
+   - ships and the distant town are blocky;
+   - people standing side by side overlap a little in medium shots.
+3. Run the remaining stages from `server/` with `.env` loaded: `set -a && . ../.env && set +a`, then `uv run pd film design napoleon-rise`, then `shoot`, `render` and `check` the same way.
+   `design` and `shoot` make hundreds of model calls.
+   `render` takes about 2 hours at about 0.6 s a frame with one Blender process.
+4. Review the design sheet, the shot stills and the Film, then share https://macbook.tail7a3807.ts.net:8443/films/napoleon-rise/napoleon-rise.mp4 for Justin to watch.
+5. Replace STRATEGY.md's "a Film costs a few dollars" with the cost `pd film check` measures.
+
+**Decisions waiting on Justin.**
+- Which Claude account Pennydrop uses, and when to restart `design` and `shoot`.
+- Whether to clear about 14 stale group boxes in `data/media/parts.json`, cached before the part locator boxed single parts, so the Lessons built from them get tight boxes.
+- Whether to turn on Remote Control for push notifications on the phone.
+- Adding an iPad to the tailnet, for the M4 home-screen install.
+- When to revisit the eased speed targets.
+- JEV's "Bearer None" auth gap: a test Ask on 2026-11-23 got a 401 from JEV, and the cause is not yet pinned down.
+
+**Parked.**
+On 2026-11-23 Justin weighed using the Blender renders as reference video for an AI video model, such as Seedance 2.0 or Higgsfield, and chose to stay with Blender only for now.
+It would cost roughly $35 to $100 or more per Film pass, and it needs a paid outside platform.
+If it comes back, start with a test on three contrasting shots, then add a per-shot finish stage after `render` that falls back to the Blender segment.
+
+**Not this work.**
+The uncommitted edits to `player/src/app.css`, `player/src/main.ts`, `player/src/source.ts` and `server/pennydrop/app.py` belong to other sessions, so leave them alone.
+
+### Slices
+
+Every slice below is committed and pushed.
 
 | Task | Owner | State |
 |---|---|---|
@@ -286,7 +335,8 @@ Every slice below is committed and pushed; the build session closed on 2026-11-2
 | CS Labs: code, array, graph and tree, scheduler, address, threads | Sonnet agents | done |
 | Kids mode: PWA, voice in and out, Profiles, content check, lesson log, picture, shapes, physics | Sonnet agents and build session | done |
 | The Mint and its nine promoted Labs, the CS 6200 Course, Practice and the review queue | Mint agent and build session | done |
-| Films: format, renderer, sound kit, mix, both pilots, Kokoro and Qwen3 minute, ElevenLabs adapter | Film and voice agents | done |
+| Films: format, renderer, sound kit, mix, both pilots, Kokoro and Qwen3 minute, ElevenLabs adapter | Film and voice agents | done, and the 2D stage was replaced by Blender dioramas on 2026-11-23 |
+| Films as Blender dioramas: the nine pipeline stages, `pd film check`, the diorama engine | build session and engine agent | done; Napoleon is paused before `design` |
 | Judging pass over every Lab and both Films, with fixes | build session | done |
 
 ### Open follow-ups
